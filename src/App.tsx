@@ -1,121 +1,253 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState } from "react";
+
+// 📄 Pages
+import PatientPage from "./modules/patient/pages/PatientPage";
+import LabDashboard from "./modules/test/pages/LabDashboard";
+import ResultPage from "./modules/test/pages/ResultPage";
+import ReportPage from "./modules/test/pages/ReportPage";
+import SettingsPage from "./modules/settings/pages/SettingsPage";
+import ReceiptPage from "./modules/test/pages/ReceiptPage";
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [page, setPage] = useState<
+    "patient" | "dashboard" | "result" | "report" | "settings" | "receipt"
+  >("patient");
+
+  const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
+  const [reportOrder, setReportOrder] = useState<number | null>(null);
+  const [receiptOrder, setReceiptOrder] = useState<number | null>(null);
+
+  const [menuOpen, setMenuOpen] = useState(true);
+
+  const goToDashboard = () => {
+    setSelectedOrder(null);
+    setReportOrder(null);
+    setReceiptOrder(null);
+    setPage("dashboard");
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div style={app}>
+      
+      {/* 🧭 SIDEBAR */}
+      {menuOpen && page !== "report" && page !== "receipt" && (
+        <div style={sidebar}>
+          <div style={logo}>🧪 Lab System</div>
 
-      <div className="ticks"></div>
+          <div style={menu}>
+            <MenuItem
+              label="Patient Entry"
+              icon="🧾"
+              active={page === "patient"}
+              onClick={() => setPage("patient")}
+            />
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+            <MenuItem
+              label="Dashboard"
+              icon="📊"
+              active={page === "dashboard"}
+              onClick={goToDashboard}
+            />
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+            <MenuItem
+              label="Settings"
+              icon="⚙"
+              active={page === "settings"}
+              onClick={() => setPage("settings")}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 👉 MAIN */}
+      <div style={main}>
+        
+        {/* 🔝 TOPBAR */}
+        {page !== "report" && page !== "receipt" && (
+          <div style={topbar}>
+            <div style={topLeft}>
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
+                style={menuBtn}
+              >
+                ☰
+              </button>
+
+              <div>
+                <div style={title}>Lab Management System</div>
+                <div style={subtitle}>Offline Mode</div>
+              </div>
+            </div>
+
+            <div style={topRight}>
+              <div style={statusDot}></div>
+              <span style={{ fontSize: 12 }}>System Ready</span>
+            </div>
+          </div>
+        )}
+
+        {/* 📄 CONTENT */}
+        <div style={content}>
+          {page === "patient" && <PatientPage />}
+
+          {page === "dashboard" && (
+            <LabDashboard
+              onSelectOrder={(id: number) => {
+                setSelectedOrder(id);
+                setPage("result");
+              }}
+              onOpenReceipt={(id: number) => {
+                setReceiptOrder(id);
+                setPage("receipt"); // ✅ FIXED (no timeout)
+              }}
+            />
+          )}
+
+          {page === "result" && selectedOrder !== null && (
+            <ResultPage
+              orderId={selectedOrder}
+              onBack={goToDashboard}
+              onViewReport={(id: number) => {
+                setReportOrder(id);
+                setPage("report");
+              }}
+            />
+          )}
+
+          {page === "report" && reportOrder !== null && (
+            <ReportPage
+              orderId={reportOrder}
+              onBack={goToDashboard}
+            />
+          )}
+
+          {page === "receipt" && receiptOrder !== null && (
+            <ReceiptPage
+              orderId={receiptOrder}
+              onBack={goToDashboard}
+            />
+          )}
+
+          {page === "settings" && <SettingsPage />}
+        </div>
+      </div>
+    </div>
+  );
 }
 
-export default App
+//
+// 🧩 MENU ITEM
+//
+function MenuItem({ label, icon, active, onClick }: any) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "10px 12px",
+        borderRadius: 8,
+        cursor: "pointer",
+        background: active ? "#1e293b" : "transparent",
+        color: active ? "#fff" : "#cbd5e1",
+        transition: "0.2s",
+      }}
+    >
+      <span>{icon}</span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+//
+// 🎨 STYLES (PREMIUM)
+//
+
+const app = {
+  display: "flex",
+  height: "100vh",
+  background: "#f1f5f9",
+};
+
+const sidebar = {
+  width: 220,
+  background: "#0f172a",
+  color: "#e2e8f0",
+  padding: 16,
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: 20,
+};
+
+const logo = {
+  fontSize: 18,
+  fontWeight: "bold",
+};
+
+const menu = {
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: 6,
+};
+
+const main = {
+  flex: 1,
+  display: "flex",
+  flexDirection: "column" as const,
+};
+
+const topbar = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  padding: "10px 16px",
+  background: "#ffffff",
+  borderBottom: "1px solid #e5e7eb",
+};
+
+const topLeft = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+};
+
+const topRight = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+};
+
+const title = {
+  fontSize: 14,
+  fontWeight: 600,
+};
+
+const subtitle = {
+  fontSize: 11,
+  color: "#64748b",
+};
+
+const menuBtn = {
+  fontSize: 16,
+  padding: "4px 8px",
+  cursor: "pointer",
+  border: "1px solid #e5e7eb",
+  borderRadius: 6,
+  background: "#f8fafc",
+};
+
+const statusDot = {
+  width: 8,
+  height: 8,
+  borderRadius: "50%",
+  background: "#22c55e",
+};
+
+const content = {
+  flex: 1,
+  padding: 16,
+  overflow: "auto" as const,
+};
+
+export default App;
