@@ -274,8 +274,7 @@ Parwaiz Afshaan
 Full Stack Developer (React + Rust)
 Focus: Real-world production systems
 📄 License
-
-MIT License (you can change this)
+GAP Group Product
 
 ⭐ If you like this project
 

@@ -1,124 +1,199 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import Button from "../../../components/ui/Button";
+import Input from "../../../components/ui/Input";
+import { colors, shadow } from "../../../components/ui/styles";
 
-export default function PaymentModal({ order, onClose, onDone }: any) {
+export type DashboardOrderRow = [
+  id: number,
+  patientName: string,
+  tests: string,
+  totalAmount: number,
+  paidAmount: number,
+  paymentStatus: string,
+];
+
+type PaymentModalProps = {
+  order: DashboardOrderRow;
+  onClose: () => void;
+  onDone: () => void;
+};
+
+export default function PaymentModal({ order, onClose, onDone }: PaymentModalProps) {
   const [amount, setAmount] = useState("");
-  const [discount, setDiscount] = useState(0);
-  const [gstEnabled, setGstEnabled] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const total = order[3];
-  const paid = order[4];
-
-  const gst = gstEnabled ? (total - discount) * 0.18 : 0;
-  const finalTotal = total - discount + gst;
-  const remaining = finalTotal - paid;
+  const total = Number(order[3] || 0);
+  const paid = Number(order[4] || 0);
+  const remaining = Math.max(total - paid, 0);
 
   const handleSubmit = async () => {
-    const pay = parseFloat(amount);
+    const pay = Number(amount);
 
-    if (isNaN(pay) || pay <= 0) {
-      alert("Invalid amount");
+    if (!pay || pay <= 0) {
+      setError("Enter a valid payment amount");
       return;
     }
 
-    await invoke("update_payment", {
-      orderId: order[0],
-      paidAmount: paid + pay,
-    });
+    if (pay > remaining) {
+      setError("Payment cannot exceed pending amount");
+      return;
+    }
 
-    onDone();
-    onClose();
+    try {
+      setSaving(true);
+      await invoke("update_payment", {
+        orderId: order[0],
+        paidAmount: paid + pay,
+      });
+
+      onDone();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div style={overlay}>
       <div style={modal}>
-        <h3>💰 Payment</h3>
-
-        <p>Total: ₹{total}</p>
-
-        <div style={field}>
-          <label>Discount</label>
-          <input
-            type="number"
-            value={discount}
-            onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-            style={input}
-          />
-        </div>
-
-        <div style={field}>
-          <label>
-            <input
-              type="checkbox"
-              checked={gstEnabled}
-              onChange={() => setGstEnabled(!gstEnabled)}
-            />
-            Apply GST (18%)
-          </label>
-        </div>
-
-        <p>GST: ₹{gst.toFixed(2)}</p>
-        <p><b>Final Total: ₹{finalTotal.toFixed(2)}</b></p>
-        <p>Paid: ₹{paid}</p>
-        <p>Remaining: ₹{remaining.toFixed(2)}</p>
-
-        <input
-          placeholder="Enter payment amount"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          style={input}
-        />
-
-        <div style={{ marginTop: 15 }}>
-          <button onClick={handleSubmit} style={payBtn}>
-            Confirm
+        <div style={header}>
+          <div>
+            <h2 style={title}>Record Payment</h2>
+            <p style={subtitle}>{order[1]} · Order #{order[0]}</p>
+          </div>
+          <button onClick={onClose} style={closeBtn}>
+            Close
           </button>
+        </div>
 
-          <button onClick={onClose} style={cancelBtn}>
+        <div style={summaryGrid}>
+          <Amount label="Total" value={total} />
+          <Amount label="Paid" value={paid} />
+          <Amount label="Pending" value={remaining} strong />
+        </div>
+
+        <div>
+          <label style={label}>Payment amount</label>
+          <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter amount" type="number" />
+          {error && <div style={errorText}>{error}</div>}
+        </div>
+
+        <div style={footer}>
+          <Button onClick={onClose} variant="secondary">
             Cancel
-          </button>
+          </Button>
+          <Button onClick={handleSubmit} variant="success" disabled={saving}>
+            {saving ? "Saving..." : "Confirm Payment"}
+          </Button>
         </div>
       </div>
     </div>
   );
 }
 
+function Amount({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+  return (
+    <div style={amountBox}>
+      <div style={amountLabel}>{label}</div>
+      <div style={{ ...amountValue, color: strong ? colors.danger : colors.text }}>Rs {value.toFixed(0)}</div>
+    </div>
+  );
+}
+
 const overlay = {
   position: "fixed" as const,
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  background: "rgba(0,0,0,0.4)",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  zIndex: 999,
+  inset: 0,
+  background: "rgba(15, 34, 53, 0.45)",
+  display: "grid",
+  placeItems: "center",
+  zIndex: 1000,
 };
 
 const modal = {
-  background: "white",
-  padding: 20,
-  borderRadius: 10,
-  width: 320,
+  width: 460,
+  background: colors.surface,
+  borderRadius: 8,
+  border: `1px solid ${colors.border}`,
+  boxShadow: shadow,
+  padding: 18,
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: 16,
 };
 
-const field = { marginTop: 10 };
+const header = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 14,
+};
 
-const input = {
-  width: "100%",
-  padding: 8,
+const title = {
+  fontSize: 18,
+  fontWeight: 900,
+  color: colors.text,
+};
+
+const subtitle = {
+  marginTop: 4,
+  color: colors.muted,
+  fontSize: 13,
+};
+
+const closeBtn = {
+  border: `1px solid ${colors.borderStrong}`,
+  background: colors.surface,
+  color: colors.muted,
+  borderRadius: 7,
+  padding: "7px 10px",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const summaryGrid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, 1fr)",
+  gap: 10,
+};
+
+const amountBox = {
+  padding: 12,
+  borderRadius: 8,
+  background: colors.surfaceSoft,
+  border: `1px solid ${colors.border}`,
+};
+
+const amountLabel = {
+  color: colors.muted,
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const amountValue = {
   marginTop: 5,
+  fontSize: 18,
+  fontWeight: 900,
 };
 
-const payBtn = {
-  background: "green",
-  color: "white",
-  padding: "8px 12px",
-  border: "none",
+const label = {
+  display: "block",
+  color: colors.text,
+  fontSize: 13,
+  fontWeight: 800,
+  marginBottom: 7,
 };
 
-const cancelBtn = {
-  marginLeft: 10,
+const footer = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 8,
+};
+
+const errorText = {
+  color: colors.danger,
+  fontSize: 12,
+  marginTop: 6,
 };

@@ -1,8 +1,15 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-export default function ResultEntry({ orderId, parameters }: any) {
-  const [values, setValues] = useState<any>({});
+type ResultParameterRow = [id: number, name: string, unit: string, normalRange: string];
+
+type ResultEntryProps = {
+  orderId: number;
+  parameters: ResultParameterRow[];
+};
+
+export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
+  const [values, setValues] = useState<Record<number, string>>({});
 
   const handleChange = (id: number, value: string) => {
     setValues({ ...values, [id]: value });
@@ -28,7 +35,7 @@ export default function ResultEntry({ orderId, parameters }: any) {
     <div>
       <h2>Enter Results</h2>
 
-      {parameters.map((p: any) => (
+      {parameters.map((p) => (
         <div key={p[0]} style={{ marginBottom: 10 }}>
           <strong>{p[1]}</strong> ({p[2]}) [{p[3]}]
 
