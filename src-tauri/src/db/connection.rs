@@ -17,8 +17,6 @@ pub fn get_db_path() -> PathBuf {
 pub fn get_connection() -> Connection {
     let db_path = get_db_path();
 
-    println!("DB PATH: {:?}", db_path);
-
     Connection::open(db_path).expect("Failed to open DB")
 }
 

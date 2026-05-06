@@ -1,35 +1,34 @@
 import { useEffect } from "react";
-import type { ToastMessage } from "../../types";
 
-type ToastProps = Pick<ToastMessage, "message" | "type"> & {
+type ToastType = "success" | "error" | "warning" | "info";
+
+interface ToastProps {
+  message: string;
+  type?: ToastType;
   onClose: () => void;
-};
+}
 
 export default function Toast({ message, type = "success", onClose }: ToastProps) {
   useEffect(() => {
-    const timer = setTimeout(() => {
-      onClose();
-    }, 3000);
-
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(onClose, 3000);
+    return () => window.clearTimeout(timer);
   }, [onClose]);
 
   return (
     <div
-      style={{
-        position: "fixed",
-        bottom: 20,
-        right: 20,
-        padding: "12px 16px",
-        borderRadius: 8,
-        color: "white",
-        background:
-          type === "error" ? "#ef4444" : "#22c55e",
-        boxShadow: "0 10px 20px rgba(0,0,0,0.15)",
-        zIndex: 999,
-      }}
+      className={`ui-toast ui-toast--${type}`}
+      role={type === "error" ? "alert" : "status"}
     >
-      {message}
+      <span>{message}</span>
+
+      <button
+        type="button"
+        className="ui-toast__close"
+        onClick={onClose}
+        aria-label="Close notification"
+      >
+        ×
+      </button>
     </div>
   );
 }

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
-import { colors, shadow } from "../../../components/ui/styles";
+import Badge from "../../../components/ui/Badge";
 
 export type DashboardOrderRow = [
   id: number,
@@ -19,14 +19,44 @@ type PaymentModalProps = {
   onDone: () => void;
 };
 
-export default function PaymentModal({ order, onClose, onDone }: PaymentModalProps) {
+const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
+
+export default function PaymentModal({
+  order,
+  onClose,
+  onDone,
+}: PaymentModalProps) {
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const orderId = order[0];
+  const patientName = order[1];
+  const tests = order[2];
   const total = Number(order[3] || 0);
   const paid = Number(order[4] || 0);
+  const paymentStatus = order[5];
+
   const remaining = Math.max(total - paid, 0);
+
+  const progressPercent = useMemo(() => {
+    if (!total) return 0;
+    return Math.min(Math.round((paid / total) * 100), 100);
+  }, [paid, total]);
+
+  const paymentValue = Number(amount || 0);
+  const afterPaymentPaid = Math.min(paid + paymentValue, total);
+  const afterPaymentPending = Math.max(total - afterPaymentPaid, 0);
+
+  const handleAmountChange = (value: string) => {
+    setAmount(value);
+    setError("");
+  };
+
+  const setQuickAmount = (value: number) => {
+    setAmount(String(Math.max(value, 0)));
+    setError("");
+  };
 
   const handleSubmit = async () => {
     const pay = Number(amount);
@@ -43,157 +73,205 @@ export default function PaymentModal({ order, onClose, onDone }: PaymentModalPro
 
     try {
       setSaving(true);
+      setError("");
+
       await invoke("update_payment", {
-        orderId: order[0],
+        orderId,
         paidAmount: paid + pay,
       });
 
       onDone();
       onClose();
+    } catch (err) {
+      console.error("Failed to record payment:", err);
+      setError(typeof err === "string" ? err : "Failed to record payment");
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div style={overlay}>
-      <div style={modal}>
-        <div style={header}>
+    <div
+      className="payment-modal__overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="payment-modal-title"
+    >
+      <div className="payment-modal">
+        <div className="payment-modal__topbar" />
+
+        <header className="payment-modal__header">
           <div>
-            <h2 style={title}>Record Payment</h2>
-            <p style={subtitle}>{order[1]} · Order #{order[0]}</p>
+            <div className="payment-modal__eyebrow">Payment Collection</div>
+            <h2 id="payment-modal-title" className="payment-modal__title">
+              Record Payment
+            </h2>
+            <p className="payment-modal__subtitle">
+              {patientName} · Order #{orderId}
+            </p>
           </div>
-          <button onClick={onClose} style={closeBtn}>
-            Close
-          </button>
-        </div>
 
-        <div style={summaryGrid}>
-          <Amount label="Total" value={total} />
-          <Amount label="Paid" value={paid} />
-          <Amount label="Pending" value={remaining} strong />
-        </div>
+          <div className="payment-modal__header-actions">
+            <Badge tone={remaining <= 0 ? "success" : "warning"}>
+              {remaining <= 0 ? "Paid" : paymentStatus || "Pending"}
+            </Badge>
 
-        <div>
-          <label style={label}>Payment amount</label>
-          <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter amount" type="number" />
-          {error && <div style={errorText}>{error}</div>}
-        </div>
+            <button
+              type="button"
+              className="payment-modal__close"
+              onClick={onClose}
+              disabled={saving}
+            >
+              ×
+            </button>
+          </div>
+        </header>
 
-        <div style={footer}>
-          <Button onClick={onClose} variant="secondary">
+        <section className="payment-modal__order-card">
+          <div>
+            <span className="payment-modal__label">Selected Tests</span>
+            <strong>{tests || "No tests available"}</strong>
+          </div>
+
+          <div className="payment-modal__order-id">
+            <span>Order</span>
+            <strong>#{orderId}</strong>
+          </div>
+        </section>
+
+        <section className="payment-modal__summary-grid">
+          <Amount label="Total Amount" value={total} />
+          <Amount label="Paid Amount" value={paid} />
+          <Amount label="Pending" value={remaining} highlight />
+        </section>
+
+        <section className="payment-modal__progress-card">
+          <div className="payment-modal__progress-head">
+            <span>Payment Progress</span>
+            <strong>{progressPercent}%</strong>
+          </div>
+
+          <div className="payment-modal__progress-track">
+            <div
+              className="payment-modal__progress-fill"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+
+          <div className="payment-modal__progress-meta">
+            <span>{money(paid)} collected</span>
+            <span>{money(remaining)} pending</span>
+          </div>
+        </section>
+
+        <section className="payment-modal__form-section">
+          <label className="payment-modal__field-label" htmlFor="payment-amount">
+            Payment amount
+          </label>
+
+          <div className="payment-modal__amount-row">
+            <Input
+              id="payment-amount"
+              value={amount}
+              onChange={(e) => handleAmountChange(e.target.value)}
+              placeholder="Enter amount"
+              type="number"
+              disabled={saving || remaining <= 0}
+            />
+
+            <Button
+              onClick={() => setQuickAmount(remaining)}
+              variant="secondary"
+              disabled={saving || remaining <= 0}
+            >
+              Full
+            </Button>
+          </div>
+
+          <div className="payment-modal__quick-actions">
+            <button
+              type="button"
+              onClick={() => setQuickAmount(Math.round(remaining / 2))}
+              disabled={saving || remaining <= 0}
+            >
+              50%
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setQuickAmount(remaining)}
+              disabled={saving || remaining <= 0}
+            >
+              Full pending
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAmount("");
+                setError("");
+              }}
+              disabled={saving || !amount}
+            >
+              Clear
+            </button>
+          </div>
+
+          {amount && Number(amount) > 0 && (
+            <div className="payment-modal__preview">
+              <div>
+                <span>Paid after this payment</span>
+                <strong>{money(afterPaymentPaid)}</strong>
+              </div>
+
+              <div>
+                <span>Pending after payment</span>
+                <strong>{money(afterPaymentPending)}</strong>
+              </div>
+            </div>
+          )}
+
+          {error && <div className="payment-modal__error">{error}</div>}
+        </section>
+
+        <footer className="payment-modal__footer">
+          <Button onClick={onClose} variant="secondary" disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} variant="success" disabled={saving}>
+
+          <Button
+            onClick={handleSubmit}
+            variant="success"
+            disabled={saving || remaining <= 0}
+          >
             {saving ? "Saving..." : "Confirm Payment"}
           </Button>
-        </div>
+        </footer>
       </div>
     </div>
   );
 }
 
-function Amount({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+function Amount({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
   return (
-    <div style={amountBox}>
-      <div style={amountLabel}>{label}</div>
-      <div style={{ ...amountValue, color: strong ? colors.danger : colors.text }}>Rs {value.toFixed(0)}</div>
+    <div
+      className={[
+        "payment-modal__amount-box",
+        highlight ? "payment-modal__amount-box--highlight" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span>{label}</span>
+      <strong>{money(value)}</strong>
     </div>
   );
 }
-
-const overlay = {
-  position: "fixed" as const,
-  inset: 0,
-  background: "rgba(15, 34, 53, 0.45)",
-  display: "grid",
-  placeItems: "center",
-  zIndex: 1000,
-};
-
-const modal = {
-  width: 460,
-  background: colors.surface,
-  borderRadius: 8,
-  border: `1px solid ${colors.border}`,
-  boxShadow: shadow,
-  padding: 18,
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 16,
-};
-
-const header = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 14,
-};
-
-const title = {
-  fontSize: 18,
-  fontWeight: 900,
-  color: colors.text,
-};
-
-const subtitle = {
-  marginTop: 4,
-  color: colors.muted,
-  fontSize: 13,
-};
-
-const closeBtn = {
-  border: `1px solid ${colors.borderStrong}`,
-  background: colors.surface,
-  color: colors.muted,
-  borderRadius: 7,
-  padding: "7px 10px",
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 800,
-};
-
-const summaryGrid = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 10,
-};
-
-const amountBox = {
-  padding: 12,
-  borderRadius: 8,
-  background: colors.surfaceSoft,
-  border: `1px solid ${colors.border}`,
-};
-
-const amountLabel = {
-  color: colors.muted,
-  fontSize: 12,
-  fontWeight: 800,
-};
-
-const amountValue = {
-  marginTop: 5,
-  fontSize: 18,
-  fontWeight: 900,
-};
-
-const label = {
-  display: "block",
-  color: colors.text,
-  fontSize: 13,
-  fontWeight: 800,
-  marginBottom: 7,
-};
-
-const footer = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: 8,
-};
-
-const errorText = {
-  color: colors.danger,
-  fontSize: 12,
-  marginTop: 6,
-};

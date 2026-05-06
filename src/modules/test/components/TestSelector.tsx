@@ -5,10 +5,21 @@ import Input from "../../../components/ui/Input";
 import Button from "../../../components/ui/Button";
 import Toast from "../../../components/ui/Toast";
 import Badge from "../../../components/ui/Badge";
-import { colors } from "../../../components/ui/styles";
+import ConfirmationDialog from "../../../components/ui/ConfirmationDialog";
 import type { Patient, Test, ToastMessage } from "../../../types";
 
-type SelectedTest = Test & { selectedParameterIds: number[] };
+type SelectedTest = Test & {
+  selectedParameterIds: number[];
+};
+
+type ConfirmationAction = "create_order" | "record_payment";
+
+type ConfirmationState = {
+  action: ConfirmationAction;
+  title: string;
+  description: string;
+  confirmLabel: string;
+};
 
 type LastOrder = {
   id: number;
@@ -24,48 +35,71 @@ type TestSelectorProps = {
   onOpenReceipt?: (orderId: number) => void;
 };
 
-export default function TestSelector({ patient, layout = "inline", onOpenReceipt }: TestSelectorProps) {
+const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
+
+export default function TestSelector({
+  patient,
+  layout = "inline",
+  onOpenReceipt,
+}: TestSelectorProps) {
   const [tests, setTests] = useState<Test[]>([]);
   const [selected, setSelected] = useState<SelectedTest[]>([]);
   const [billedTests, setBilledTests] = useState<SelectedTest[]>([]);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<ToastMessage | null>(null);
+
   const [saving, setSaving] = useState(false);
   const [lastOrder, setLastOrder] = useState<LastOrder | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [discount, setDiscount] = useState("");
   const [paymentSaving, setPaymentSaving] = useState(false);
+
   const [activeChecklistId, setActiveChecklistId] = useState<number | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
 
   useEffect(() => {
     loadTests();
   }, []);
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    const list = query
-      ? tests.filter((test) => {
-          const parameterMatch = test.parameters.some((param) => param.name.toLowerCase().includes(query));
-          return test.name.toLowerCase().includes(query) || parameterMatch;
-        })
-      : tests;
-    return list.slice(0, 10);
-  }, [search, tests]);
-
   const loadTests = async () => {
     try {
-      setTests((await invoke("get_tests")) as Test[]);
+      const data = (await invoke("get_tests")) as Test[];
+      setTests(data);
     } catch (err) {
       console.error(err);
       setToast({ message: "Failed to load test catalog", type: "error" });
     }
   };
 
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    const list = query
+      ? tests.filter((test) => {
+          const parameterMatch = test.parameters.some((param) =>
+            param.name.toLowerCase().includes(query)
+          );
+
+          return test.name.toLowerCase().includes(query) || parameterMatch;
+        })
+      : tests;
+
+    return list.slice(0, 10);
+  }, [search, tests]);
+
   const addTest = (test: Test) => {
     setSelected((prev) => {
       if (prev.some((item) => item.id === test.id)) return prev;
-      return [...prev, { ...test, selectedParameterIds: test.parameters.map((param) => param.id) }];
+
+      return [
+        ...prev,
+        {
+          ...test,
+          selectedParameterIds: test.parameters.map((param) => param.id),
+        },
+      ];
     });
+
     setSearch("");
   };
 
@@ -78,23 +112,34 @@ export default function TestSelector({ patient, layout = "inline", onOpenReceipt
     setSelected((prev) =>
       prev.map((test) => {
         if (test.id !== testId) return test;
+
         const selectedParameterIds = test.selectedParameterIds.includes(parameterId)
           ? test.selectedParameterIds.filter((id) => id !== parameterId)
           : [...test.selectedParameterIds, parameterId];
+
         return { ...test, selectedParameterIds };
-      }),
+      })
     );
   };
 
   const subtotal = selected.reduce((sum, test) => sum + test.price, 0);
-  const selectedParameterCount = selected.reduce((sum, test) => sum + test.selectedParameterIds.length, 0);
-  const activeChecklistTest = selected.find((test) => test.id === activeChecklistId) || null;
+
+  const selectedParameterCount = selected.reduce(
+    (sum, test) => sum + test.selectedParameterIds.length,
+    0
+  );
+
+  const activeChecklistTest =
+    selected.find((test) => test.id === activeChecklistId) || null;
+
   const discountValue = Math.min(Math.max(Number(discount) || 0, 0), subtotal);
   const total = Math.max(subtotal - discountValue, 0);
+
   const billTestsSnapshot = lastOrder ? billedTests : selected;
   const billSubtotal = lastOrder ? lastOrder.subtotal : subtotal;
   const billDiscount = lastOrder ? lastOrder.discount : discountValue;
   const billTotal = lastOrder ? lastOrder.total : total;
+  const pendingAmount = lastOrder ? Math.max(lastOrder.total - lastOrder.paid, 0) : 0;
 
   const saveOrder = async () => {
     if (!patient) {
@@ -108,6 +153,7 @@ export default function TestSelector({ patient, layout = "inline", onOpenReceipt
     }
 
     const parameterIds = selected.flatMap((test) => test.selectedParameterIds);
+
     if (parameterIds.length === 0) {
       setToast({ message: "Select at least one sub test", type: "warning" });
       return;
@@ -115,7 +161,9 @@ export default function TestSelector({ patient, layout = "inline", onOpenReceipt
 
     try {
       setSaving(true);
+
       const orderTests = selected;
+
       const orderId = (await invoke("create_order", {
         patientId: patient.id,
         testIds: selected.map((test) => test.id),
@@ -124,16 +172,28 @@ export default function TestSelector({ patient, layout = "inline", onOpenReceipt
         discountAmount: discountValue,
       })) as number;
 
-      setToast({ message: "Bill created successfully", type: "success" });
       setBilledTests(orderTests);
-      setLastOrder({ id: orderId, total, paid: 0, subtotal, discount: discountValue });
-      setPaymentAmount("");
-      setDiscount("");
+      setLastOrder({
+        id: orderId,
+        total,
+        paid: 0,
+        subtotal,
+        discount: discountValue,
+      });
+
       setSelected([]);
       setSearch("");
+      setDiscount("");
+      setPaymentAmount("");
+      setActiveChecklistId(null);
+
+      setToast({ message: "Bill created successfully", type: "success" });
     } catch (err) {
       console.error(err);
-      setToast({ message: typeof err === "string" ? err : "Failed to create order", type: "error" });
+      setToast({
+        message: typeof err === "string" ? err : "Failed to create order",
+        type: "error",
+      });
     } finally {
       setSaving(false);
     }
@@ -146,6 +206,7 @@ export default function TestSelector({ patient, layout = "inline", onOpenReceipt
     setDiscount("");
     setSelected([]);
     setSearch("");
+    setActiveChecklistId(null);
   };
 
   const recordPayment = async () => {
@@ -166,155 +227,307 @@ export default function TestSelector({ patient, layout = "inline", onOpenReceipt
 
     try {
       setPaymentSaving(true);
+
       await invoke("update_payment", {
         orderId: lastOrder.id,
         paidAmount: lastOrder.paid + amount,
       });
+
       setLastOrder({ ...lastOrder, paid: lastOrder.paid + amount });
       setPaymentAmount("");
       setToast({ message: "Payment recorded successfully", type: "success" });
     } catch (err) {
       console.error(err);
-      setToast({ message: typeof err === "string" ? err : "Failed to record payment", type: "error" });
+      setToast({
+        message: typeof err === "string" ? err : "Failed to record payment",
+        type: "error",
+      });
     } finally {
       setPaymentSaving(false);
     }
   };
 
+  const requestConfirmation = (action: ConfirmationAction) => {
+    if (action === "create_order") {
+      if (!patient) {
+        setToast({ message: "Select a patient before creating an order", type: "error" });
+        return;
+      }
+
+      if (selected.length === 0) {
+        setToast({ message: "Select at least one test", type: "warning" });
+        return;
+      }
+
+      const parameterIds = selected.flatMap((test) => test.selectedParameterIds);
+
+      if (parameterIds.length === 0) {
+        setToast({ message: "Select at least one sub test", type: "warning" });
+        return;
+      }
+
+      setConfirmation({
+        action,
+        title: "Create patient order",
+        description:
+          "You are about to create a new billable lab order. Confirm to proceed.",
+        confirmLabel: "Create Bill",
+      });
+
+      return;
+    }
+
+    if (action === "record_payment") {
+      if (!lastOrder) return;
+
+      const amount = Number(paymentAmount);
+
+      if (!amount || amount <= 0) {
+        setToast({ message: "Enter a valid payment amount", type: "warning" });
+        return;
+      }
+
+      if (amount > pendingAmount) {
+        setToast({ message: "Payment cannot exceed pending amount", type: "error" });
+        return;
+      }
+
+      setConfirmation({
+        action,
+        title: "Confirm payment",
+        description: `Apply a payment of ${money(amount)} to order #${lastOrder.id}?`,
+        confirmLabel: "Record Payment",
+      });
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!confirmation) return;
+
+    const action = confirmation.action;
+    setConfirmation(null);
+
+    if (action === "create_order") {
+      await saveOrder();
+    }
+
+    if (action === "record_payment") {
+      await recordPayment();
+    }
+  };
+
   const selectionContent = (
-    <div style={selectionPane}>
-      <div style={searchWrap}>
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search test or sub test" />
-        {(search || selected.length === 0) && filtered.length > 0 && (
-          <div style={catalog}>
-            {filtered.map((test) => (
-              <button key={test.id} onClick={() => addTest(test)} style={catalogItem}>
-                <span>
-                  <span style={{ fontWeight: 800 }}>{test.name}</span>
-                  <span style={catalogMeta}>{test.parameters.length} sub tests</span>
-                </span>
-                <span style={{ color: colors.muted }}>Rs {test.price}</span>
-              </button>
-            ))}
+    <div className="test-selector__content">
+      <section className="test-selector__section">
+        <div className="test-selector__section-head">
+          <div>
+            <div className="test-selector__section-title">Search Catalog</div>
+            <div className="test-selector__section-subtitle">
+              Add tests or panels for this patient.
+            </div>
           </div>
-        )}
-      </div>
 
-      <div style={selectedHeader}>
-        <span style={{ fontWeight: 850 }}>Selected Tests</span>
-        <Badge tone={selected.length ? "info" : "neutral"}>
-          {selected.length} tests / {selectedParameterCount} sub tests
-        </Badge>
-      </div>
+          <Badge tone={tests.length ? "info" : "neutral"}>{tests.length} tests</Badge>
+        </div>
 
-      <div style={selectedBox}>
+        <div className="test-selector__search">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search test or sub test"
+            disabled={saving}
+          />
+
+          {(search || selected.length === 0) && filtered.length > 0 && (
+            <div className="test-selector__catalog-list">
+              {filtered.map((test) => (
+                <button
+                  key={test.id}
+                  type="button"
+                  onClick={() => addTest(test)}
+                  className="test-selector__catalog-item"
+                >
+                  <span>
+                    <strong>{test.name}</strong>
+                    <span className="test-selector__catalog-meta">
+                      {test.parameters.length} sub tests
+                    </span>
+                  </span>
+
+                  <span className="test-selector__catalog-price">
+                    {money(test.price)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="test-selector__section">
+        <div className="test-selector__section-head">
+          <div>
+            <div className="test-selector__section-title">Selected Tests</div>
+            <div className="test-selector__section-subtitle">
+              Click a test to choose sub tests.
+            </div>
+          </div>
+
+          <Badge tone={selected.length ? "success" : "neutral"}>
+            {selected.length} tests / {selectedParameterCount} sub tests
+          </Badge>
+        </div>
+
         {selected.length === 0 ? (
-          <div style={empty}>Search and add tests to build the order.</div>
+          <div className="test-selector__empty">
+            Search and add tests to build the order.
+          </div>
         ) : (
-          selected.map((test) => (
-            <div key={test.id} style={selectedRow} onClick={() => setActiveChecklistId(test.id)}>
-              <div style={testHead}>
-                <div>
-                  <div style={{ fontWeight: 850 }}>{test.name}</div>
-                  <div style={{ color: colors.muted, fontSize: 12 }}>
-                    Click to choose sub tests - {test.selectedParameterIds.length} of {test.parameters.length} selected
-                  </div>
-                </div>
-                <div style={rowActions}>
-                  <span style={{ fontWeight: 900 }}>Rs {test.price}</span>
-                  <span style={editPill}>Sub Tests</span>
+          <div className="test-selector__selected-list">
+            {selected.map((test) => (
+              <div
+                key={test.id}
+                role="button"
+                tabIndex={0}
+                className={[
+                  "test-selector__selected-item",
+                  activeChecklistId === test.id
+                    ? "test-selector__selected-item--active"
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={() => setActiveChecklistId(test.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setActiveChecklistId(test.id);
+                  }
+                }}
+              >
+                <span className="test-selector__selected-main">
+                  <strong>{test.name}</strong>
+                  <span>
+                    {test.selectedParameterIds.length} of {test.parameters.length} sub tests
+                    selected
+                  </span>
+                </span>
+
+                <span className="test-selector__selected-side">
+                  <strong>{money(test.price)}</strong>
+                  <span className="test-selector__badge-pill">Sub Tests</span>
+
                   <button
+                    type="button"
+                    className="test-selector__remove"
                     onClick={(event) => {
                       event.stopPropagation();
                       removeTest(test.id);
                     }}
-                    style={removeBtn}
                   >
                     Remove
                   </button>
-                </div>
+                </span>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
-      </div>
+      </section>
     </div>
   );
 
   const billingContent = (
-    <div style={billingPane}>
-      <div style={billTests}>
-        <div style={billTestsHead}>
+    <div className="test-selector__billing">
+      <section className="test-selector__bill-card">
+        <div className="test-selector__bill-head">
           <span>Selected Tests</span>
-          <span>{billTestsSnapshot.length}</span>
+          <Badge tone={billTestsSnapshot.length ? "info" : "neutral"}>
+            {billTestsSnapshot.length}
+          </Badge>
         </div>
-        <div style={billTestsList}>
+
+        <div className="test-selector__bill-list">
           {billTestsSnapshot.length === 0 ? (
-            <span style={billEmpty}>No tests selected</span>
+            <div className="test-selector__empty">No tests selected.</div>
           ) : (
             billTestsSnapshot.map((test) => (
-              <div key={test.id} style={billTestRow}>
-                <span>{test.name}</span>
-                <span>Rs {test.price}</span>
+              <div key={test.id} className="test-selector__bill-row">
+                <span>
+                  <strong>{test.name}</strong>
+                  <small>{test.selectedParameterIds.length} sub tests</small>
+                </span>
+
+                <strong>{money(test.price)}</strong>
               </div>
             ))
           )}
         </div>
-      </div>
+      </section>
 
-      <div style={footer}>
-        <div style={billingBox}>
-          <div>
-            <div style={footerLabel}>Subtotal</div>
-            <div style={amountText}>Rs {billSubtotal}</div>
-          </div>
-          <div>
-            <div style={footerLabel}>Discount</div>
-            <Input
-              value={discount}
-              onChange={(e) => setDiscount(e.target.value)}
-              type="number"
-              placeholder="0"
-              disabled={saving || selected.length === 0 || Boolean(lastOrder)}
-              style={{ width: "100%" }}
-            />
-            {lastOrder && billDiscount > 0 && <div style={discountNote}>Rs {billDiscount}</div>}
-          </div>
-          <div>
-            <div style={footerLabel}>Net Total</div>
-            <div style={totalText}>Rs {billTotal}</div>
-          </div>
+      <section className="billing-summary">
+        <div className="billing-summary__row">
+          <span>Subtotal</span>
+          <strong>{money(billSubtotal)}</strong>
         </div>
-        {lastOrder ? (
-          <div style={billActions}>
-            <Button onClick={() => onOpenReceipt?.(lastOrder.id)} variant="success">
-              Print Receipt
-            </Button>
-            <Button onClick={startNewBill} variant="secondary">
-              New Bill
-            </Button>
+
+        <div className="billing-summary__row billing-summary__row--input">
+          <span>Discount</span>
+          <Input
+            value={discount}
+            onChange={(e) => setDiscount(e.target.value)}
+            type="number"
+            placeholder="0"
+            disabled={saving || selected.length === 0 || Boolean(lastOrder)}
+          />
+        </div>
+
+        {lastOrder && billDiscount > 0 && (
+          <div className="billing-summary__note">
+            Discount applied: {money(billDiscount)}
           </div>
-        ) : (
-          <Button onClick={saveOrder} disabled={saving || selected.length === 0}>
-            {saving ? "Saving..." : "Create Bill"}
-          </Button>
         )}
-      </div>
+
+        <div className="billing-summary__total">
+          <span>Net Total</span>
+          <strong>{money(billTotal)}</strong>
+        </div>
+      </section>
+
+      {lastOrder ? (
+        <div className="test-selector__billing-actions">
+          <Button onClick={() => onOpenReceipt?.(lastOrder.id)} variant="success">
+            Print Receipt
+          </Button>
+
+          <Button onClick={startNewBill} variant="secondary">
+            New Bill
+          </Button>
+        </div>
+      ) : (
+        <Button
+          onClick={() => requestConfirmation("create_order")}
+          disabled={saving || selected.length === 0}
+        >
+          {saving ? "Saving..." : "Create Bill"}
+        </Button>
+      )}
 
       {lastOrder && (
-        <div style={paymentPanel}>
-          <div style={paymentHead}>
+        <section className="payment-panel">
+          <div className="payment-panel__header">
             <div>
-              <div style={paymentTitle}>Payment</div>
-              <div style={paymentMeta}>
-                Order #{lastOrder.id} - Pending Rs {Math.max(lastOrder.total - lastOrder.paid, 0)}
+              <div className="payment-panel__title">Payment</div>
+              <div className="payment-panel__meta">
+                Order #{lastOrder.id} · Pending {money(pendingAmount)}
               </div>
             </div>
+
             <Badge tone={lastOrder.paid >= lastOrder.total ? "success" : "warning"}>
-              Rs {lastOrder.paid} paid
+              {money(lastOrder.paid)} paid
             </Badge>
           </div>
-          <div style={paymentControls}>
+
+          <div className="payment-panel__controls">
             <Input
               value={paymentAmount}
               onChange={(e) => setPaymentAmount(e.target.value)}
@@ -322,22 +535,28 @@ export default function TestSelector({ patient, layout = "inline", onOpenReceipt
               placeholder="Partial amount"
               disabled={paymentSaving || lastOrder.paid >= lastOrder.total}
             />
+
             <Button
-              onClick={() => setPaymentAmount(String(Math.max(lastOrder.total - lastOrder.paid, 0)))}
+              onClick={() => setPaymentAmount(String(pendingAmount))}
               variant="secondary"
               disabled={paymentSaving || lastOrder.paid >= lastOrder.total}
             >
               Full
             </Button>
+
             <Button
-              onClick={recordPayment}
+              onClick={() => requestConfirmation("record_payment")}
               variant="success"
               disabled={paymentSaving || lastOrder.paid >= lastOrder.total}
             >
-              {lastOrder.paid >= lastOrder.total ? "Paid" : paymentSaving ? "Saving..." : "Record"}
+              {lastOrder.paid >= lastOrder.total
+                ? "Paid"
+                : paymentSaving
+                  ? "Saving..."
+                  : "Record"}
             </Button>
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
@@ -345,436 +564,141 @@ export default function TestSelector({ patient, layout = "inline", onOpenReceipt
   const floatingUi = (
     <>
       {activeChecklistTest && (
-        <div style={checklistOverlay} onClick={() => setActiveChecklistId(null)}>
-          <div style={checklistPanel} onClick={(event) => event.stopPropagation()}>
-            <div style={checklistHeader}>
+        <div
+          className="test-selector__checklist-overlay"
+          onClick={() => setActiveChecklistId(null)}
+        >
+          <div
+            className="test-selector__checklist-panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="test-selector__checklist-header">
               <div>
-                <div style={checklistTitle}>{activeChecklistTest.name}</div>
-                <div style={checklistMeta}>Select only the sub tests needed for this patient</div>
+                <h3 className="test-selector__checklist-title">
+                  {activeChecklistTest.name}
+                </h3>
+
+                <div className="test-selector__checklist-meta">
+                  Select only the sub tests needed for this patient.
+                </div>
               </div>
-              <button onClick={() => setActiveChecklistId(null)} style={closeBtn}>
+
+              <Button onClick={() => setActiveChecklistId(null)} variant="secondary">
                 Close
-              </button>
+              </Button>
             </div>
 
-            <div style={checklistBody}>
+            <div className="test-selector__checklist-body">
               {activeChecklistTest.parameters.map((param) => (
-                <label key={param.id} style={parameterItem}>
+                <label key={param.id} className="test-selector__parameter-item">
                   <input
                     type="checkbox"
                     checked={activeChecklistTest.selectedParameterIds.includes(param.id)}
                     onChange={() => toggleParameter(activeChecklistTest.id, param.id)}
                   />
+
                   <span>
-                    <span style={parameterName}>{param.name}</span>
-                    <span style={parameterMeta}>
-                      {param.unit || "No unit"} - {param.normal_range || "No range"}
+                    <span className="test-selector__parameter-name">
+                      {param.name}
+                    </span>
+
+                    <span className="test-selector__parameter-meta">
+                      {param.unit || "No unit"} · {param.normal_range || "No range"}
                     </span>
                   </span>
                 </label>
               ))}
             </div>
 
-            <div style={checklistFooter}>
+            <div className="test-selector__checklist-footer">
               <Button
+                variant="secondary"
                 onClick={() =>
                   setSelected((prev) =>
                     prev.map((test) =>
                       test.id === activeChecklistTest.id
-                        ? { ...test, selectedParameterIds: test.parameters.map((param) => param.id) }
-                        : test,
-                    ),
+                        ? {
+                            ...test,
+                            selectedParameterIds: test.parameters.map((param) => param.id),
+                          }
+                        : test
+                    )
                   )
                 }
-                variant="secondary"
               >
                 Select All
               </Button>
+
               <Button onClick={() => setActiveChecklistId(null)}>Done</Button>
             </div>
           </div>
         </div>
       )}
 
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
+      <ConfirmationDialog
+        open={Boolean(confirmation)}
+        title={confirmation?.title ?? "Confirm action"}
+        description={confirmation?.description ?? "Please confirm to continue."}
+        confirmLabel={confirmation?.confirmLabel}
+        loading={saving || paymentSaving}
+        onConfirm={handleConfirm}
+        onCancel={() => setConfirmation(null)}
+      />
     </>
   );
 
   if (layout === "visitGrid") {
     return (
       <>
-        <Card title="Test Order" eyebrow="Step 2" right={<Badge tone="success">Active</Badge>} style={{ gridArea: "tests" }}>
+        <Card
+          title="Test Order"
+          eyebrow="Step 2"
+          right={<Badge tone="success">Active</Badge>}
+          className="patient-page__card patient-page__card--tests"
+        >
           {selectionContent}
         </Card>
-        <Card title="Billing" eyebrow="Create Order" compact style={{ gridArea: "billing" }}>
+
+        <Card
+          title="Billing"
+          eyebrow="Create Order"
+          right={
+            <Badge tone={lastOrder ? "success" : "info"}>
+              {lastOrder ? "Created" : "Ready"}
+            </Badge>
+          }
+          className="patient-page__card patient-page__card--billing"
+          compact
+        >
           {billingContent}
         </Card>
+
         {floatingUi}
       </>
     );
   }
 
   return (
-    <div style={container}>
-      <div style={orderGrid}>
-        {selectionContent}
-        {billingContent}
+    <div className="test-selector test-selector--inline">
+      <div className="test-selector__inline-grid">
+        <Card title="Test Order" eyebrow="Tests">
+          {selectionContent}
+        </Card>
+
+        <Card title="Billing" eyebrow="Create Order" compact>
+          {billingContent}
+        </Card>
       </div>
+
       {floatingUi}
     </div>
   );
 }
-
-const container = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 9,
-};
-
-const searchWrap = {
-  position: "relative" as const,
-};
-
-const orderGrid = {
-  display: "grid",
-  gridTemplateColumns: "minmax(420px, 1fr) minmax(320px, 0.56fr)",
-  gap: 14,
-  alignItems: "start",
-};
-
-const selectionPane = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 9,
-};
-
-const billingPane = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 8,
-  padding: 9,
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  background: colors.surfaceSoft,
-};
-
-const billTests = {
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  background: colors.surface,
-  overflow: "hidden",
-};
-
-const billTestsHead = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "7px 9px",
-  color: colors.muted,
-  fontSize: 11,
-  fontWeight: 900,
-  textTransform: "uppercase" as const,
-  borderBottom: `1px solid ${colors.border}`,
-};
-
-const billTestsList = {
-  display: "flex",
-  flexDirection: "column" as const,
-  maxHeight: 92,
-  overflowY: "auto" as const,
-};
-
-const billTestRow = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 10,
-  padding: "7px 9px",
-  color: colors.text,
-  fontSize: 12,
-  fontWeight: 800,
-  borderBottom: `1px solid ${colors.border}`,
-};
-
-const billEmpty = {
-  padding: "8px 9px",
-  color: colors.muted,
-  fontSize: 12,
-};
-
-const billActions = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 8,
-};
-
-const discountNote = {
-  color: colors.muted,
-  fontSize: 11,
-  marginTop: 3,
-};
-
-const catalog = {
-  position: "absolute" as const,
-  left: 0,
-  right: 0,
-  top: "calc(100% + 6px)",
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  boxShadow: "0 18px 40px rgba(20,33,61,0.14)",
-  overflow: "hidden",
-  zIndex: 20,
-};
-
-const catalogItem = {
-  width: "100%",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  padding: "10px 12px",
-  border: 0,
-  borderBottom: `1px solid ${colors.border}`,
-  background: colors.surface,
-  color: colors.text,
-  cursor: "pointer",
-  textAlign: "left" as const,
-  fontSize: 13,
-};
-
-const catalogMeta = {
-  display: "block",
-  color: colors.muted,
-  fontSize: 12,
-  marginTop: 3,
-};
-
-const selectedHeader = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  fontSize: 13,
-};
-
-const selectedBox = {
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  background: colors.surfaceSoft,
-  minHeight: 74,
-  maxHeight: 150,
-  overflowY: "auto" as const,
-};
-
-const selectedRow = {
-  width: "100%",
-  padding: "9px 10px",
-  borderBottom: `1px solid ${colors.border}`,
-  background: colors.surface,
-  color: colors.text,
-  cursor: "pointer",
-  textAlign: "left" as const,
-};
-
-const testHead = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  flexWrap: "wrap" as const,
-  gap: 12,
-};
-
-const rowActions = {
-  display: "flex",
-  alignItems: "center",
-  flexWrap: "wrap" as const,
-  gap: 7,
-};
-
-const removeBtn = {
-  border: `1px solid ${colors.borderStrong}`,
-  borderRadius: 7,
-  background: colors.surface,
-  color: colors.danger,
-  cursor: "pointer",
-  padding: "5px 7px",
-  fontSize: 12,
-  fontWeight: 800,
-};
-
-const editPill = {
-  border: `1px solid ${colors.primary}`,
-  borderRadius: 999,
-  color: colors.primary,
-  background: colors.primarySoft,
-  padding: "5px 8px",
-  fontSize: 11,
-  fontWeight: 900,
-};
-
-const checklistOverlay = {
-  position: "fixed" as const,
-  inset: 0,
-  display: "grid",
-  placeItems: "center",
-  background: "rgba(16,34,53,0.22)",
-  zIndex: 80,
-  padding: 18,
-};
-
-const checklistPanel = {
-  width: "min(460px, 100%)",
-  maxHeight: "78vh",
-  display: "flex",
-  flexDirection: "column" as const,
-  borderRadius: 8,
-  background: colors.surface,
-  border: `1px solid ${colors.borderStrong}`,
-  boxShadow: "0 24px 70px rgba(20,33,61,0.22)",
-  overflow: "hidden",
-};
-
-const checklistHeader = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  padding: 14,
-  borderBottom: `1px solid ${colors.border}`,
-};
-
-const checklistTitle = {
-  color: colors.text,
-  fontSize: 16,
-  fontWeight: 900,
-};
-
-const checklistMeta = {
-  color: colors.muted,
-  fontSize: 12,
-  marginTop: 4,
-};
-
-const closeBtn = {
-  border: `1px solid ${colors.borderStrong}`,
-  borderRadius: 7,
-  background: colors.surface,
-  color: colors.text,
-  cursor: "pointer",
-  padding: "6px 9px",
-  fontSize: 12,
-  fontWeight: 800,
-};
-
-const checklistBody = {
-  display: "grid",
-  gap: 8,
-  padding: 12,
-  overflowY: "auto" as const,
-};
-
-const checklistFooter = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: 8,
-  padding: 12,
-  borderTop: `1px solid ${colors.border}`,
-};
-
-const parameterItem = {
-  display: "flex",
-  alignItems: "flex-start",
-  gap: 8,
-  minHeight: 48,
-  padding: 9,
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  background: colors.surfaceSoft,
-  cursor: "pointer",
-};
-
-const parameterName = {
-  display: "block",
-  color: colors.text,
-  fontSize: 13,
-  fontWeight: 800,
-};
-
-const parameterMeta = {
-  display: "block",
-  color: colors.muted,
-  fontSize: 11,
-  marginTop: 2,
-};
-
-const empty = {
-  padding: 12,
-  color: colors.muted,
-  fontSize: 13,
-};
-
-const footer = {
-  display: "flex",
-  flexDirection: "column" as const,
-  alignItems: "stretch",
-  gap: 8,
-  paddingTop: 0,
-};
-
-const billingBox = {
-  display: "grid",
-  gridTemplateColumns: "1fr 92px 1fr",
-  alignItems: "flex-end",
-  gap: 8,
-};
-
-const footerLabel = {
-  color: colors.muted,
-  fontSize: 12,
-  fontWeight: 800,
-};
-
-const totalText = {
-  color: colors.text,
-  fontSize: 16,
-  fontWeight: 900,
-};
-
-const amountText = {
-  color: colors.text,
-  fontSize: 15,
-  fontWeight: 850,
-};
-
-const paymentPanel = {
-  display: "grid",
-  gridTemplateColumns: "1fr",
-  gap: 6,
-  padding: 8,
-  borderRadius: 8,
-  border: `1px solid ${colors.successSoft}`,
-  background: "#f0fdf4",
-};
-
-const paymentHead = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 8,
-};
-
-const paymentTitle = {
-  color: colors.text,
-  fontSize: 13,
-  fontWeight: 900,
-};
-
-const paymentMeta = {
-  color: colors.muted,
-  fontSize: 12,
-  marginTop: 3,
-};
-
-const paymentControls = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto auto",
-  gap: 6,
-};

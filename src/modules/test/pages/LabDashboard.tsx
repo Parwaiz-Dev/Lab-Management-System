@@ -6,14 +6,18 @@ import Card from "../../../components/ui/Card";
 import Badge from "../../../components/ui/Badge";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
-import { colors } from "../../../components/ui/styles";
 
 type LabDashboardProps = {
   onSelectOrder: (orderId: number) => void;
   onOpenReceipt: (orderId: number) => void;
 };
 
-export default function LabDashboard({ onSelectOrder, onOpenReceipt }: LabDashboardProps) {
+const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
+
+export default function LabDashboard({
+  onSelectOrder,
+  onOpenReceipt,
+}: LabDashboardProps) {
   const [orders, setOrders] = useState<DashboardOrderRow[]>([]);
   const [statuses, setStatuses] = useState<Record<number, string>>({});
   const [summary, setSummary] = useState<[number, number, number]>([0, 0, 0]);
@@ -26,9 +30,19 @@ export default function LabDashboard({ onSelectOrder, onOpenReceipt }: LabDashbo
     setOrders(data);
 
     const map: Record<number, string> = {};
-    for (const order of data) {
-      map[order[0]] = (await invoke("get_order_status", { orderId: order[0] })) as string;
-    }
+
+    await Promise.all(
+      data.map(async (order) => {
+        try {
+          map[order[0]] = (await invoke("get_order_status", {
+            orderId: order[0],
+          })) as string;
+        } catch {
+          map[order[0]] = "Pending";
+        }
+      })
+    );
+
     setStatuses(map);
   }, []);
 
@@ -38,93 +52,156 @@ export default function LabDashboard({ onSelectOrder, onOpenReceipt }: LabDashbo
   }, []);
 
   const loadAll = useCallback(async () => {
-    setLoading(true);
-    await Promise.all([loadOrders(), loadSummary()]);
-    setLoading(false);
+    try {
+      setLoading(true);
+      await Promise.all([loadOrders(), loadSummary()]);
+    } finally {
+      setLoading(false);
+    }
   }, [loadOrders, loadSummary]);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void loadAll();
-    });
+    void loadAll();
   }, [loadAll]);
 
   const filteredOrders = useMemo(() => {
     const text = query.trim().toLowerCase();
+
     if (!text) return orders;
-    return orders.filter((order) => `${order[1]} ${order[2]} ${order[5]}`.toLowerCase().includes(text));
-  }, [orders, query]);
+
+    return orders.filter((order) =>
+      `${order[1]} ${order[2]} ${order[5]} ${statuses[order[0]] || ""}`
+        .toLowerCase()
+        .includes(text)
+    );
+  }, [orders, query, statuses]);
+
+  const pendingOrders = orders.filter((order) => order[5] !== "Completed").length;
 
   return (
-    <div style={container}>
-      <div style={metrics}>
-        <Metric title="Total Billing" value={summary[0]} tone="info" />
-        <Metric title="Collected" value={summary[1]} tone="success" />
-        <Metric title="Pending" value={summary[2]} tone="danger" />
-        <Metric title="Orders" value={orders.length} plain />
+    <div className="lab-dashboard">
+      <section className="lab-dashboard__hero">
+        <div>
+          <div className="lab-dashboard__eyebrow">Lab Operations</div>
+          <h2>Orders, payments, receipts, and result entry.</h2>
+          <p>
+            Track today&apos;s billing, pending collections, and lab report progress
+            from one clean worklist.
+          </p>
+        </div>
+
+        <div className="lab-dashboard__hero-actions">
+          <Button onClick={loadAll} variant="secondary" disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </Button>
+        </div>
+      </section>
+
+      <div className="lab-dashboard__metrics">
+        <Metric title="Total Billing" value={money(summary[0])} tone="info" />
+        <Metric title="Collected" value={money(summary[1])} tone="success" />
+        <Metric title="Pending" value={money(summary[2])} tone="danger" />
+        <Metric title="Orders" value={String(orders.length)} tone="neutral" />
+        <Metric title="Pending Orders" value={String(pendingOrders)} tone="warning" />
       </div>
 
       <Card
         title="Order Worklist"
         eyebrow="Today and recent"
         right={
-          <div style={toolbar}>
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search patient, test, status" />
-            <Button onClick={loadAll} variant="secondary">
+          <div className="lab-dashboard__toolbar">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search patient, test, status"
+            />
+
+            <Button onClick={loadAll} variant="secondary" disabled={loading}>
               Refresh
             </Button>
           </div>
         }
+        className="lab-dashboard__card"
       >
-        <div style={table}>
-          <div style={headerRow}>
-            <span>Patient</span>
-            <span>Tests</span>
-            <span>Report</span>
-            <span>Billing</span>
-            <span>Payment</span>
-            <span>Actions</span>
-          </div>
+        <div className="lab-dashboard__table-wrap">
+          <div className="lab-dashboard__table">
+            <div className="lab-dashboard__table-head">
+              <span>Patient</span>
+              <span>Tests</span>
+              <span>Report</span>
+              <span>Billing</span>
+              <span>Payment</span>
+              <span>Actions</span>
+            </div>
 
-          {loading && <div style={emptyRow}>Loading orders...</div>}
+            {loading && (
+              <div className="lab-dashboard__state">Loading orders...</div>
+            )}
 
-          {!loading && filteredOrders.length === 0 && (
-            <div style={emptyRow}>No matching orders yet. Create an order from Patient Intake.</div>
-          )}
+            {!loading && filteredOrders.length === 0 && (
+              <div className="lab-dashboard__state">
+                No matching orders yet. Create an order from Patient Intake.
+              </div>
+            )}
 
-          {!loading &&
-            filteredOrders.map((order) => {
-              const reportStatus = statuses[order[0]] || "Pending";
-              const paymentStatus = order[5];
-              return (
-                <div key={order[0]} style={dataRow}>
-                  <div>
-                    <div style={primaryText}>{order[1]}</div>
-                    <div style={mutedText}>Order #{order[0]}</div>
-                  </div>
-                  <div style={mutedText}>{order[2]}</div>
-                  <StatusBadge status={reportStatus} />
-                  <div>
-                    <div style={primaryText}>Rs {order[3]}</div>
-                    <div style={mutedText}>Paid Rs {order[4]}</div>
-                  </div>
-                  <StatusBadge status={paymentStatus} />
-                  <div style={actions}>
-                    {paymentStatus !== "Completed" && (
-                      <Button onClick={() => setPaymentModal(order)} variant="success">
-                        Pay
+            {!loading &&
+              filteredOrders.map((order) => {
+                const reportStatus = statuses[order[0]] || "Pending";
+                const paymentStatus = order[5];
+                const total = Number(order[3] || 0);
+                const paid = Number(order[4] || 0);
+                const pending = Math.max(total - paid, 0);
+
+                return (
+                  <div key={order[0]} className="lab-dashboard__row">
+                    <div className="lab-dashboard__patient">
+                      <strong>{order[1]}</strong>
+                      <span>Order #{order[0]}</span>
+                    </div>
+
+                    <div className="lab-dashboard__tests" title={order[2]}>
+                      {order[2] || "—"}
+                    </div>
+
+                    <StatusBadge status={reportStatus} />
+
+                    <div className="lab-dashboard__billing">
+                      <strong>{money(total)}</strong>
+                      <span>
+                        Paid {money(paid)} · Pending {money(pending)}
+                      </span>
+                    </div>
+
+                    <StatusBadge status={paymentStatus} />
+
+                    <div className="lab-dashboard__actions">
+                      {paymentStatus !== "Completed" && (
+                        <Button
+                          onClick={() => setPaymentModal(order)}
+                          variant="success"
+                        >
+                          Pay
+                        </Button>
+                      )}
+
+                      <Button
+                        onClick={() => onOpenReceipt(order[0])}
+                        variant="secondary"
+                      >
+                        Receipt
                       </Button>
-                    )}
-                    <Button onClick={() => onOpenReceipt(order[0])} variant="secondary">
-                      Receipt
-                    </Button>
-                    <Button onClick={() => onSelectOrder(order[0])} variant="primary">
-                      Results
-                    </Button>
+
+                      <Button
+                        onClick={() => onSelectOrder(order[0])}
+                        variant="primary"
+                      >
+                        Results
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+          </div>
         </div>
       </Card>
 
@@ -133,8 +210,8 @@ export default function LabDashboard({ onSelectOrder, onOpenReceipt }: LabDashbo
           order={paymentModal}
           onClose={() => setPaymentModal(null)}
           onDone={() => {
-            loadOrders();
-            loadSummary();
+            void loadOrders();
+            void loadSummary();
           }}
         />
       )}
@@ -142,105 +219,32 @@ export default function LabDashboard({ onSelectOrder, onOpenReceipt }: LabDashbo
   );
 }
 
-function Metric({ title, value, tone, plain }: { title: string; value: number; tone?: "info" | "success" | "danger"; plain?: boolean }) {
-  const border = tone === "success" ? colors.success : tone === "danger" ? colors.danger : colors.primary;
+function Metric({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: string;
+  tone: "info" | "success" | "danger" | "warning" | "neutral";
+}) {
   return (
-    <Card compact>
-      <div style={{ borderLeft: plain ? "none" : `4px solid ${border}`, paddingLeft: plain ? 0 : 12 }}>
-        <div style={metricLabel}>{title}</div>
-        <div style={metricValue}>{plain ? value : `Rs ${Number(value || 0).toFixed(0)}`}</div>
-      </div>
-    </Card>
+    <div className={`lab-dashboard__metric lab-dashboard__metric--${tone}`}>
+      <span>{title}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const tone = status === "Completed" ? "success" : status === "Partial" ? "warning" : "danger";
-  return <Badge tone={tone}>{status}</Badge>;
+  const normalized = status || "Pending";
+
+  const tone =
+    normalized === "Completed"
+      ? "success"
+      : normalized === "Partial"
+        ? "warning"
+        : "danger";
+
+  return <Badge tone={tone}>{normalized}</Badge>;
 }
-
-const container = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 16,
-};
-
-const metrics = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-  gap: 14,
-};
-
-const metricLabel = {
-  color: colors.muted,
-  fontSize: 12,
-  fontWeight: 800,
-};
-
-const metricValue = {
-  color: colors.text,
-  fontSize: 24,
-  lineHeight: 1.2,
-  fontWeight: 950,
-  marginTop: 5,
-};
-
-const toolbar = {
-  display: "grid",
-  gridTemplateColumns: "minmax(180px, 260px) auto",
-  gap: 8,
-};
-
-const table = {
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  overflow: "hidden",
-};
-
-const headerRow = {
-  display: "grid",
-  gridTemplateColumns: "minmax(120px, 1.1fr) minmax(150px, 1.5fr) minmax(78px, 0.7fr) minmax(88px, 0.7fr) minmax(82px, 0.7fr) minmax(210px, 1.3fr)",
-  gap: 12,
-  padding: "10px 12px",
-  background: colors.surfaceSoft,
-  color: colors.muted,
-  fontSize: 12,
-  fontWeight: 900,
-  textTransform: "uppercase" as const,
-};
-
-const dataRow = {
-  display: "grid",
-  gridTemplateColumns: "minmax(120px, 1.1fr) minmax(150px, 1.5fr) minmax(78px, 0.7fr) minmax(88px, 0.7fr) minmax(82px, 0.7fr) minmax(210px, 1.3fr)",
-  gap: 12,
-  alignItems: "center",
-  padding: "12px",
-  borderTop: `1px solid ${colors.border}`,
-  background: colors.surface,
-  fontSize: 13,
-};
-
-const primaryText = {
-  color: colors.text,
-  fontWeight: 800,
-};
-
-const mutedText = {
-  color: colors.muted,
-  fontSize: 12,
-  lineHeight: 1.35,
-};
-
-const actions = {
-  display: "flex",
-  flexWrap: "wrap" as const,
-  gap: 7,
-  justifyContent: "flex-end",
-};
-
-const emptyRow = {
-  padding: 20,
-  color: colors.muted,
-  fontSize: 13,
-  background: colors.surface,
-};
