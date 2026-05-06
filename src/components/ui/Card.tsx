@@ -1,69 +1,41 @@
-import type { CSSProperties, ReactNode } from "react";
-import { colors, radius, shadowSm } from "./styles";
+import type { HTMLAttributes, ReactNode } from "react";
 
-interface CardProps {
+interface CardProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   title?: string;
   eyebrow?: string;
   children: ReactNode;
   right?: ReactNode;
   compact?: boolean;
-  style?: CSSProperties;
 }
 
-export default function Card({ title, eyebrow, children, right, compact = false, style }: CardProps) {
+export default function Card({
+  title,
+  eyebrow,
+  children,
+  right,
+  compact = false,
+  className = "",
+  ...props
+}: CardProps) {
   return (
     <section
-      style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius,
-        padding: compact ? 10 : 13,
-        boxShadow: shadowSm,
-        ...style,
-      }}
+      {...props}
+      className={["ui-card", compact ? "ui-card--compact" : "", className]
+        .filter(Boolean)
+        .join(" ")}
     >
       {(title || right) && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 12,
-            marginBottom: compact ? 8 : 10,
-          }}
-        >
+        <div className="ui-card__header">
           <div>
-            {eyebrow && (
-              <div
-                style={{
-                  color: colors.muted,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  letterSpacing: 0,
-                  textTransform: "uppercase",
-                  marginBottom: 3,
-                }}
-              >
-                {eyebrow}
-              </div>
-            )}
-            {title && (
-              <h2
-                style={{
-                  color: colors.text,
-                  fontSize: compact ? 14 : 16,
-                  lineHeight: 1.2,
-                  fontWeight: 800,
-                }}
-              >
-                {title}
-              </h2>
-            )}
+            {eyebrow && <div className="ui-card__eyebrow">{eyebrow}</div>}
+            {title && <h2 className="ui-card__title">{title}</h2>}
           </div>
-          {right}
+
+          {right && <div className="ui-card__right">{right}</div>}
         </div>
       )}
-      {children}
+
+      <div className="ui-card__body">{children}</div>
     </section>
   );
 }

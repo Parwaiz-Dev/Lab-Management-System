@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Button from "../../../components/ui/Button";
+import Badge from "../../../components/ui/Badge";
 import type { ReceiptLine } from "../../../types";
 
 type ReceiptPageProps = {
@@ -8,11 +9,21 @@ type ReceiptPageProps = {
   onBack: () => void;
 };
 
-type ReceiptData = [patient: string, invoice: string, total: number, paid: number, discount: number, tests: ReceiptLine[]];
+type ReceiptData = [
+  patient: string,
+  invoice: string,
+  total: number,
+  paid: number,
+  discount: number,
+  tests: ReceiptLine[],
+];
+
+const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
 
 export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
   const [data, setData] = useState<ReceiptData | null>(null);
-  const [labName, setLabName] = useState("Your Lab Name");
+  const [labName, setLabName] = useState("Your Lab");
+  const [labAddress, setLabAddress] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -21,8 +32,13 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
       try {
         setLoading(true);
         setError("");
+
         const res = await invoke("get_receipt", { orderId });
-        if (!res || !Array.isArray(res)) throw new Error("Invalid receipt data");
+
+        if (!res || !Array.isArray(res)) {
+          throw new Error("Invalid receipt data");
+        }
+
         setData(res as ReceiptData);
       } catch (err) {
         console.error("Receipt error:", err);
@@ -33,87 +49,206 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
     };
 
     const loadSettings = async () => {
-      const name = await invoke("get_setting", { key: "lab_name" });
-      if (name) setLabName(name as string);
+      try {
+        const name = await invoke("get_setting", { key: "lab_name" });
+        const address = await invoke("get_setting", { key: "lab_address" });
+
+        if (name) setLabName(name as string);
+        if (address) setLabAddress(address as string);
+      } catch {
+        setLabName("Your Lab");
+      }
     };
 
-    if (orderId !== null && orderId !== undefined) {
-      loadReceipt();
-      loadSettings();
-    }
+    void loadReceipt();
+    void loadSettings();
   }, [orderId]);
 
-  if (loading) return <StateView text="Loading receipt..." onBack={onBack} />;
-  if (error) return <StateView text={error} onBack={onBack} danger />;
-  if (!data) return <StateView text="No receipt found" onBack={onBack} />;
+  const receipt = useMemo(() => {
+    if (!data) {
+      return {
+        patient: "",
+        invoice: "",
+        total: 0,
+        paid: 0,
+        discount: 0,
+        tests: [] as ReceiptLine[],
+        subtotal: 0,
+        pending: 0,
+        status: "Pending",
+      };
+    }
 
-  const [patient, invoice, total, paid, discount, tests] = data;
-  const subtotal = tests?.reduce((sum: number, test: ReceiptLine) => sum + Number(test.price || 0), 0) || total + discount;
-  const pending = Math.max(total - paid, 0);
+    const [patient, invoice, total, paid, discount, tests] = data;
+
+    const cleanTests = tests || [];
+
+    const subtotal =
+      cleanTests.reduce(
+        (sum: number, test: ReceiptLine) => sum + Number(test.price || 0),
+        0
+      ) || total + discount;
+
+    const pending = Math.max(Number(total || 0) - Number(paid || 0), 0);
+
+    return {
+      patient,
+      invoice,
+      total: Number(total || 0),
+      paid: Number(paid || 0),
+      discount: Number(discount || 0),
+      tests: cleanTests,
+      subtotal,
+      pending,
+      status: pending <= 0 ? "Paid" : paid > 0 ? "Partial" : "Pending",
+    };
+  }, [data]);
+
+  if (loading) {
+    return <ReceiptState text="Loading receipt..." onBack={onBack} />;
+  }
+
+  if (error) {
+    return <ReceiptState text={error} onBack={onBack} danger />;
+  }
+
+  if (!data) {
+    return <ReceiptState text="No receipt found" onBack={onBack} />;
+  }
 
   return (
-    <div style={page}>
+    <div className="receipt-view">
       <style>{printCss}</style>
 
-      <div style={actions}>
+      <div className="receipt-view__toolbar no-print">
         <Button onClick={onBack} variant="secondary">
           Back
         </Button>
+
         <Button onClick={() => window.print()}>Print Receipt</Button>
       </div>
 
-      <article style={paper}>
-        <header style={header}>
-          <div>
-            <h1 style={labTitle}>{labName}</h1>
-            <p style={subtitle}>Payment Receipt</p>
+      <article className="receipt-document">
+        <header className="receipt-document__header">
+          <div className="receipt-document__brand">
+            <div className="receipt-document__logo">LM</div>
+
+            <div>
+              <div className="receipt-document__eyebrow">Payment Receipt</div>
+              <h1>{labName || "Your Lab"}</h1>
+              <p>{labAddress || "Laboratory billing receipt"}</p>
+            </div>
           </div>
-          <div style={meta}>
-            <strong>{invoice}</strong>
-            <span>{new Date().toLocaleDateString()}</span>
+
+          <div className="receipt-document__meta">
+            <Badge tone={receipt.status === "Paid" ? "success" : "warning"}>
+              {receipt.status}
+            </Badge>
+
+            <div>
+              <span>Receipt No.</span>
+              <strong>{receipt.invoice || `INV-${orderId}`}</strong>
+            </div>
+
+            <div>
+              <span>Date</span>
+              <strong>{new Date().toLocaleDateString()}</strong>
+            </div>
           </div>
         </header>
 
-        <section style={patientBox}>
-          <span>Patient</span>
-          <strong>{patient}</strong>
+        <section className="receipt-document__patient-card">
+          <div>
+            <span>Patient Name</span>
+            <strong>{receipt.patient}</strong>
+          </div>
+
+          <div>
+            <span>Order ID</span>
+            <strong>#{orderId}</strong>
+          </div>
         </section>
 
-        <table style={table}>
-          <thead>
-            <tr>
-              <th style={th}>Test</th>
-              <th style={{ ...th, textAlign: "right" }}>Price</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tests?.map((test: ReceiptLine, index: number) => (
-              <tr key={index}>
-                <td style={td}>
-                  <strong>{test.test_name}</strong>
-                  {test.parameter_names.length > 0 && (
-                    <div style={subTests}>{test.parameter_names.join(", ")}</div>
-                  )}
-                </td>
-                <td style={{ ...td, textAlign: "right" }}>Rs {test.price}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <section className="receipt-document__section">
+          <div className="receipt-document__section-title">
+            <h2>Tests Billed</h2>
+            <span>{receipt.tests.length} item(s)</span>
+          </div>
 
-        <section style={totals}>
-          <Row label="Subtotal" value={subtotal} />
-          {discount > 0 && <Row label="Discount" value={discount} />}
-          <Row label="Net Total" value={total} strong />
-          <Row label="Paid" value={paid} />
-          <Row label="Pending" value={pending} strong />
+          <div className="receipt-document__table-wrap">
+            <table className="receipt-document__table">
+              <thead>
+                <tr>
+                  <th style={{ width: "54%" }}>Test</th>
+                  <th>Sub Tests</th>
+                  <th style={{ width: "120px" }}>Amount</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {receipt.tests.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="receipt-document__empty-cell">
+                      No tests found for this receipt.
+                    </td>
+                  </tr>
+                ) : (
+                  receipt.tests.map((test: ReceiptLine, index: number) => (
+                    <tr key={`${test.test_name}-${index}`}>
+                      <td>
+                        <strong>{test.test_name}</strong>
+                      </td>
+
+                      <td>
+                        {test.parameter_names?.length > 0 ? (
+                          <small>{test.parameter_names.join(", ")}</small>
+                        ) : (
+                          <small>—</small>
+                        )}
+                      </td>
+
+                      <td className="receipt-document__amount">
+                        {money(Number(test.price || 0))}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
 
-        <footer style={footer}>
-          <p>Thank you for choosing {labName}.</p>
-          <div style={signature}>
-            <div style={line} />
-            Authorized Signature
+        <section className="receipt-document__bottom">
+          <div className="receipt-document__note">
+            <strong>Payment Note</strong>
+            <p>
+              This receipt confirms the amount collected against the listed lab
+              order. Pending amount, if any, should be collected separately.
+            </p>
+          </div>
+
+          <div className="receipt-document__totals">
+            <ReceiptRow label="Subtotal" value={receipt.subtotal} />
+
+            {receipt.discount > 0 && (
+              <ReceiptRow label="Discount" value={receipt.discount} />
+            )}
+
+            <ReceiptRow label="Net Total" value={receipt.total} strong />
+            <ReceiptRow label="Paid" value={receipt.paid} />
+            <ReceiptRow label="Pending" value={receipt.pending} danger strong />
+          </div>
+        </section>
+
+        <footer className="receipt-document__footer">
+          <div>
+            <strong>Thank you for choosing {labName || "our lab"}.</strong>
+            <p>Computer-generated receipt.</p>
+          </div>
+
+          <div className="receipt-document__signature">
+            <div />
+            <span>Authorized Signature</span>
           </div>
         </footer>
       </article>
@@ -121,148 +256,106 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
   );
 }
 
-function Row({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+function ReceiptRow({
+  label,
+  value,
+  strong,
+  danger,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+  danger?: boolean;
+}) {
   return (
-    <div style={{ ...totalRow, fontWeight: strong ? 950 : 700 }}>
+    <div
+      className={[
+        "receipt-document__total-row",
+        strong ? "receipt-document__total-row--strong" : "",
+        danger ? "receipt-document__total-row--danger" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <span>{label}</span>
-      <span>Rs {Number(value || 0).toFixed(0)}</span>
+      <strong>{money(value)}</strong>
     </div>
   );
 }
 
-function StateView({ text, onBack, danger }: { text: string; onBack: () => void; danger?: boolean }) {
+function ReceiptState({
+  text,
+  onBack,
+  danger,
+}: {
+  text: string;
+  onBack: () => void;
+  danger?: boolean;
+}) {
   return (
-    <div style={{ padding: 24 }}>
-      <p style={{ color: danger ? "#b42318" : "#66788a", marginBottom: 12 }}>{text}</p>
-      <Button onClick={onBack} variant="secondary">
-        Back
-      </Button>
+    <div className="receipt-state">
+      <div
+        className={[
+          "receipt-state__box",
+          danger ? "receipt-state__box--danger" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <strong>{text}</strong>
+
+        <Button onClick={onBack} variant="secondary">
+          Back
+        </Button>
+      </div>
     </div>
   );
 }
 
 const printCss = `
   @media print {
-    button { display: none !important; }
-    body { background: white; }
+    .no-print,
+    button {
+      display: none !important;
+    }
+
+    html,
+    body,
+    #root {
+      width: 100% !important;
+      height: auto !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+    }
+
+    .app-shell,
+    .app-main,
+    .page-content,
+    .receipt-view {
+      display: block !important;
+      width: 100% !important;
+      max-width: none !important;
+      height: auto !important;
+      overflow: visible !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      background: #ffffff !important;
+    }
+
+    .receipt-document {
+      width: 100% !important;
+      max-width: none !important;
+      min-height: auto !important;
+      margin: 0 !important;
+      box-shadow: none !important;
+      border: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+    }
+
+    @page {
+      size: A4;
+      margin: 12mm;
+    }
   }
 `;
-
-const page = {
-  minHeight: "100vh",
-  background: "#eef3f8",
-  padding: 24,
-};
-
-const actions = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: 8,
-  maxWidth: 520,
-  margin: "0 auto 14px",
-};
-
-const paper = {
-  maxWidth: 520,
-  margin: "0 auto",
-  background: "#ffffff",
-  border: "1px solid #d9e3ec",
-  padding: 28,
-  color: "#14213d",
-};
-
-const header = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 18,
-  borderBottom: "2px solid #14213d",
-  paddingBottom: 16,
-};
-
-const labTitle = {
-  fontSize: 24,
-  fontWeight: 950,
-};
-
-const subtitle = {
-  color: "#66788a",
-  marginTop: 5,
-};
-
-const meta = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 5,
-  textAlign: "right" as const,
-  fontSize: 13,
-};
-
-const patientBox = {
-  margin: "18px 0",
-  padding: 12,
-  borderRadius: 8,
-  border: "1px solid #d9e3ec",
-  background: "#f7fafc",
-  display: "flex",
-  justifyContent: "space-between",
-};
-
-const table = {
-  width: "100%",
-  borderCollapse: "collapse" as const,
-};
-
-const th = {
-  textAlign: "left" as const,
-  background: "#14213d",
-  color: "white",
-  padding: "10px 12px",
-  fontSize: 12,
-};
-
-const td = {
-  borderBottom: "1px solid #d9e3ec",
-  padding: "10px 12px",
-  fontSize: 13,
-};
-
-const subTests = {
-  color: "#66788a",
-  fontSize: 11,
-  lineHeight: 1.45,
-  marginTop: 4,
-};
-
-const totals = {
-  marginTop: 16,
-  borderTop: "1px solid #d9e3ec",
-  paddingTop: 12,
-};
-
-const totalRow = {
-  display: "flex",
-  justifyContent: "space-between",
-  padding: "6px 0",
-};
-
-const footer = {
-  marginTop: 34,
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-end",
-  gap: 24,
-  color: "#66788a",
-  fontSize: 12,
-};
-
-const signature = {
-  width: 180,
-  color: "#14213d",
-  textAlign: "center" as const,
-  fontWeight: 800,
-};
-
-const line = {
-  borderTop: "1px solid #14213d",
-  marginBottom: 8,
-};

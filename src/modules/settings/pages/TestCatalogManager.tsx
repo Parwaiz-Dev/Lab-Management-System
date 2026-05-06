@@ -4,7 +4,7 @@ import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Toast from "../../../components/ui/Toast";
-import { colors } from "../../../components/ui/styles";
+import Badge from "../../../components/ui/Badge";
 import type { Test, TestParameter, ToastMessage } from "../../../types";
 
 type ParameterDraft = {
@@ -21,6 +21,8 @@ const emptyParameter: ParameterDraft = {
   normal_range: "",
 };
 
+const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
+
 export default function TestCatalogManager() {
   const [tests, setTests] = useState<Test[]>([]);
   const [query, setQuery] = useState("");
@@ -28,35 +30,64 @@ export default function TestCatalogManager() {
   const [price, setPrice] = useState("");
   const [editing, setEditing] = useState<Test | null>(null);
   const [activeTestId, setActiveTestId] = useState<number | null>(null);
-  const [parameterDraft, setParameterDraft] = useState<ParameterDraft>(emptyParameter);
+  const [parameterDraft, setParameterDraft] =
+    useState<ParameterDraft>(emptyParameter);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [savingTest, setSavingTest] = useState(false);
+  const [savingParameter, setSavingParameter] = useState(false);
+
+  const refreshTests = async (nextActiveId?: number | null) => {
+    const data = (await invoke("get_tests")) as Test[];
+    setTests(data);
+
+    setActiveTestId((current) => {
+      if (nextActiveId !== undefined) return nextActiveId;
+      if (current && data.some((test) => test.id === current)) return current;
+      return data[0]?.id ?? null;
+    });
+  };
 
   useEffect(() => {
     const loadTests = async () => {
-      const data = (await invoke("get_tests")) as Test[];
-      setTests(data);
-      setActiveTestId((current) => current ?? data[0]?.id ?? null);
+      try {
+        setLoading(true);
+        await refreshTests();
+      } catch (err) {
+        console.error("Failed to load tests:", err);
+        setToast({ message: "Failed to load test catalog", type: "error" });
+      } finally {
+        setLoading(false);
+      }
     };
 
-    loadTests();
+    void loadTests();
   }, []);
 
   const filtered = useMemo(() => {
     const text = query.trim().toLowerCase();
+
     if (!text) return tests;
+
     return tests.filter((test) => {
-      const parameterMatch = test.parameters.some((param) => param.name.toLowerCase().includes(text));
-      return test.name.toLowerCase().includes(text) || parameterMatch;
+      const parameterMatch = test.parameters.some((param) =>
+        param.name.toLowerCase().includes(text)
+      );
+
+      return (
+        test.name.toLowerCase().includes(text) ||
+        String(test.price).includes(text) ||
+        parameterMatch
+      );
     });
   }, [tests, query]);
 
-  const activeTest = tests.find((test) => test.id === activeTestId) || filtered[0] || null;
+  const activeTest =
+    tests.find((test) => test.id === activeTestId) || filtered[0] || null;
 
-  const refreshTests = async () => {
-    const data = (await invoke("get_tests")) as Test[];
-    setTests(data);
-    setActiveTestId((current) => current ?? data[0]?.id ?? null);
-  };
+  const totalParameters = useMemo(() => {
+    return tests.reduce((sum, test) => sum + test.parameters.length, 0);
+  }, [tests]);
 
   const resetForm = () => {
     setEditing(null);
@@ -87,80 +118,120 @@ export default function TestCatalogManager() {
   };
 
   const saveTest = async () => {
+    const cleanedName = name.trim();
     const amount = Number(price);
 
-    if (!name.trim() || Number.isNaN(amount) || amount < 0) {
-      setToast({ message: "Enter a test name and valid price", type: "warning" });
+    if (!cleanedName || Number.isNaN(amount) || amount < 0) {
+      setToast({
+        message: "Enter a test name and valid price",
+        type: "warning",
+      });
       return;
     }
 
     try {
+      setSavingTest(true);
+
       if (editing) {
         await invoke("update_test", {
           testId: editing.id,
-          name,
+          name: cleanedName,
           price: amount,
         });
+
         setToast({ message: "Test updated", type: "success" });
+        await refreshTests(editing.id);
       } else {
-        const id = (await invoke("add_test", { name, price: amount })) as number;
-        setActiveTestId(id);
+        const id = (await invoke("add_test", {
+          name: cleanedName,
+          price: amount,
+        })) as number;
+
         setToast({ message: "Test added", type: "success" });
+        await refreshTests(id);
       }
 
       resetForm();
-      await refreshTests();
     } catch (err) {
-      setToast({ message: typeof err === "string" ? err : "Failed to save test", type: "error" });
+      setToast({
+        message: typeof err === "string" ? err : "Failed to save test",
+        type: "error",
+      });
+    } finally {
+      setSavingTest(false);
     }
   };
 
   const saveParameter = async () => {
     const testId = parameterDraft.testId || activeTest?.id;
-    if (!testId || !parameterDraft.name.trim()) {
-      setToast({ message: "Select a test and enter sub test name", type: "warning" });
+    const cleanedName = parameterDraft.name.trim();
+
+    if (!testId || !cleanedName) {
+      setToast({
+        message: "Select a test and enter sub test name",
+        type: "warning",
+      });
       return;
     }
 
     try {
+      setSavingParameter(true);
+
       if (parameterDraft.id) {
         await invoke("update_test_parameter", {
           parameterId: parameterDraft.id,
-          name: parameterDraft.name,
-          unit: parameterDraft.unit,
-          normalRange: parameterDraft.normal_range,
+          name: cleanedName,
+          unit: parameterDraft.unit.trim(),
+          normalRange: parameterDraft.normal_range.trim(),
         });
+
         setToast({ message: "Sub test updated", type: "success" });
       } else {
         await invoke("add_test_parameter", {
           testId,
-          name: parameterDraft.name,
-          unit: parameterDraft.unit,
-          normalRange: parameterDraft.normal_range,
+          name: cleanedName,
+          unit: parameterDraft.unit.trim(),
+          normalRange: parameterDraft.normal_range.trim(),
         });
+
         setToast({ message: "Sub test added", type: "success" });
       }
 
       resetParameter();
-      await refreshTests();
+      await refreshTests(testId);
     } catch (err) {
-      setToast({ message: typeof err === "string" ? err : "Failed to save sub test", type: "error" });
+      setToast({
+        message: typeof err === "string" ? err : "Failed to save sub test",
+        type: "error",
+      });
+    } finally {
+      setSavingParameter(false);
     }
   };
 
   const removeTest = async (test: Test) => {
-    if (!confirm(`Delete ${test.name}? Existing old orders will keep their order records, but this test leaves the catalog.`)) {
+    if (
+      !confirm(
+        `Delete ${test.name}? Existing old orders will keep their order records, but this test leaves the catalog.`
+      )
+    ) {
       return;
     }
 
     try {
       await invoke("delete_test", { testId: test.id });
+
       setToast({ message: "Test deleted", type: "success" });
+
       if (editing?.id === test.id) resetForm();
       if (activeTestId === test.id) setActiveTestId(null);
-      await refreshTests();
+
+      await refreshTests(null);
     } catch (err) {
-      setToast({ message: typeof err === "string" ? err : "Failed to delete test", type: "error" });
+      setToast({
+        message: typeof err === "string" ? err : "Failed to delete test",
+        type: "error",
+      });
     }
   };
 
@@ -169,226 +240,297 @@ export default function TestCatalogManager() {
 
     try {
       await invoke("delete_test_parameter", { parameterId: parameter.id });
+
       setToast({ message: "Sub test deleted", type: "success" });
+
       if (parameterDraft.id === parameter.id) resetParameter();
-      await refreshTests();
+
+      await refreshTests(activeTest?.id ?? null);
     } catch (err) {
-      setToast({ message: typeof err === "string" ? err : "Failed to delete sub test", type: "error" });
+      setToast({
+        message: typeof err === "string" ? err : "Failed to delete sub test",
+        type: "error",
+      });
+    }
+  };
+
+  const selectTestByKeyboard = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    testId: number
+  ) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setActiveTestId(testId);
     }
   };
 
   return (
     <Card
-      title="Test Management"
-      eyebrow={`${tests.length} tests available`}
-      right={<Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tests" style={{ width: 220 }} />}
-    >
-      <div style={editor}>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Test / panel name" />
-        <Input value={price} onChange={(e) => setPrice(e.target.value)} type="number" placeholder="Price" />
-        <Button onClick={saveTest}>{editing ? "Update" : "Add Test"}</Button>
-        {editing && (
-          <Button onClick={resetForm} variant="secondary">
-            Cancel
-          </Button>
-        )}
-      </div>
+      title="Test Catalog Management"
+      eyebrow="Panels, prices, sub tests, units, and reference ranges"
+      right={
+        <div className="test-manager-toolbar-v2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search tests or sub tests"
+          />
 
-      <div style={layout}>
-        <div style={table}>
-          <div style={headerRow}>
-            <span>Test</span>
-            <span>Price</span>
-            <span>Actions</span>
-          </div>
-
-          {filtered.map((test) => (
-            <div
-              key={test.id}
-              style={{
-                ...dataRow,
-                background: activeTest?.id === test.id ? colors.primarySoft : colors.surface,
-              }}
-              onClick={() => setActiveTestId(test.id)}
-            >
-              <div>
-                <div style={{ fontWeight: 850 }}>{test.name}</div>
-                <div style={{ color: colors.muted, fontSize: 12 }}>
-                  ID {test.id} - {test.parameters.length} sub tests
-                </div>
-              </div>
-              <strong>Rs {test.price}</strong>
-              <div style={actions}>
-                <Button onClick={() => startEdit(test)} variant="secondary">
-                  Edit
-                </Button>
-                <Button onClick={() => removeTest(test)} variant="danger">
-                  Delete
-                </Button>
-              </div>
-            </div>
-          ))}
+          <Badge tone="info">{tests.length} tests</Badge>
         </div>
+      }
+      className="test-manager-card-v2"
+    >
+      <div className="test-manager-v2">
+        <section className="test-manager-v2__summary">
+          <SummaryItem label="Tests" value={tests.length} />
+          <SummaryItem label="Sub Tests" value={totalParameters} />
+          <SummaryItem
+            label="Selected"
+            value={activeTest ? activeTest.parameters.length : 0}
+          />
+        </section>
 
-        <section style={parameterPanel}>
+        <section className="test-manager-editor-v2">
           <div>
-            <div style={panelTitle}>{activeTest?.name || "Select a test"}</div>
-            <div style={panelMeta}>Manage sub tests, units, and reference ranges</div>
+            <h3>{editing ? "Edit Test / Panel" : "Create Test / Panel"}</h3>
+            <p>Add or update the billable test master used in patient intake.</p>
           </div>
 
-          <div style={parameterEditor}>
+          <div className="test-manager-editor-v2__fields">
             <Input
-              value={parameterDraft.name}
-              onChange={(e) => setParameterDraft((prev) => ({ ...prev, name: e.target.value }))}
-              placeholder="Sub test name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Test / panel name"
+              disabled={savingTest}
             />
+
             <Input
-              value={parameterDraft.unit}
-              onChange={(e) => setParameterDraft((prev) => ({ ...prev, unit: e.target.value }))}
-              placeholder="Unit"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              type="number"
+              placeholder="Price"
+              disabled={savingTest}
             />
-            <Input
-              value={parameterDraft.normal_range}
-              onChange={(e) => setParameterDraft((prev) => ({ ...prev, normal_range: e.target.value }))}
-              placeholder="Reference range"
-            />
-            <Button onClick={saveParameter} disabled={!activeTest}>
-              {parameterDraft.id ? "Update" : "Add"}
+
+            <Button onClick={saveTest} disabled={savingTest}>
+              {savingTest ? "Saving..." : editing ? "Update Test" : "Add Test"}
             </Button>
-            {parameterDraft.id && (
-              <Button onClick={resetParameter} variant="secondary">
+
+            {editing && (
+              <Button onClick={resetForm} variant="secondary" disabled={savingTest}>
                 Cancel
               </Button>
             )}
           </div>
+        </section>
 
-          <div style={parameterList}>
-            {!activeTest?.parameters.length && <div style={empty}>No sub tests added.</div>}
-            {activeTest?.parameters.map((parameter) => (
-              <div key={parameter.id} style={parameterRow}>
-                <div>
-                  <div style={{ fontWeight: 850 }}>{parameter.name}</div>
-                  <div style={{ color: colors.muted, fontSize: 12 }}>
-                    {parameter.unit || "No unit"} - {parameter.normal_range || "No range"}
+        <div className="test-manager-v2__layout">
+          <section className="test-manager-list-v2">
+            <div className="test-manager-list-v2__header">
+              <div>
+                <h3>Catalog</h3>
+                <p>Select a test to manage its sub tests.</p>
+              </div>
+            </div>
+
+            <div className="test-manager-list-v2__table-head">
+              <span>Test</span>
+              <span>Price</span>
+              <span>Actions</span>
+            </div>
+
+            <div className="test-manager-list-v2__rows">
+              {loading && (
+                <div className="test-manager-v2__empty">Loading tests...</div>
+              )}
+
+              {!loading && filtered.length === 0 && (
+                <div className="test-manager-v2__empty">
+                  No tests found. Add a new test above.
+                </div>
+              )}
+
+              {!loading &&
+                filtered.map((test) => (
+                  <div
+                    key={test.id}
+                    role="button"
+                    tabIndex={0}
+                    className={[
+                      "test-manager-row-v2",
+                      activeTest?.id === test.id
+                        ? "test-manager-row-v2--active"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => setActiveTestId(test.id)}
+                    onKeyDown={(event) => selectTestByKeyboard(event, test.id)}
+                  >
+                    <div>
+                      <strong>{test.name}</strong>
+                      <span>
+                        ID {test.id} · {test.parameters.length} sub tests
+                      </span>
+                    </div>
+
+                    <strong className="test-manager-row-v2__price">
+                      {money(test.price)}
+                    </strong>
+
+                    <span className="test-manager-row-v2__actions">
+                      <Button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startEdit(test);
+                        }}
+                        variant="secondary"
+                      >
+                        Edit
+                      </Button>
+
+                      <Button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void removeTest(test);
+                        }}
+                        variant="danger"
+                      >
+                        Delete
+                      </Button>
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </section>
+
+          <section className="test-manager-detail-v2">
+            <div className="test-manager-detail-v2__head">
+              <div>
+                <h3>{activeTest?.name || "Select a test"}</h3>
+                <p>Manage sub tests, units, and reference ranges.</p>
+              </div>
+
+              <Badge tone={activeTest ? "success" : "neutral"}>
+                {activeTest ? `${activeTest.parameters.length} sub tests` : "Idle"}
+              </Badge>
+            </div>
+
+            <div className="test-manager-parameter-form-v2">
+              <Input
+                value={parameterDraft.name}
+                onChange={(e) =>
+                  setParameterDraft((prev) => ({
+                    ...prev,
+                    name: e.target.value,
+                  }))
+                }
+                placeholder="Sub test name"
+                disabled={!activeTest || savingParameter}
+              />
+
+              <Input
+                value={parameterDraft.unit}
+                onChange={(e) =>
+                  setParameterDraft((prev) => ({
+                    ...prev,
+                    unit: e.target.value,
+                  }))
+                }
+                placeholder="Unit"
+                disabled={!activeTest || savingParameter}
+              />
+
+              <Input
+                value={parameterDraft.normal_range}
+                onChange={(e) =>
+                  setParameterDraft((prev) => ({
+                    ...prev,
+                    normal_range: e.target.value,
+                  }))
+                }
+                placeholder="Reference range"
+                disabled={!activeTest || savingParameter}
+              />
+
+              <Button
+                onClick={saveParameter}
+                disabled={!activeTest || savingParameter}
+              >
+                {savingParameter
+                  ? "Saving..."
+                  : parameterDraft.id
+                    ? "Update"
+                    : "Add"}
+              </Button>
+
+              {parameterDraft.id && (
+                <Button
+                  onClick={resetParameter}
+                  variant="secondary"
+                  disabled={savingParameter}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+
+            <div className="test-manager-parameter-list-v2">
+              {!activeTest?.parameters.length && (
+                <div className="test-manager-v2__empty">
+                  No sub tests added for this test.
+                </div>
+              )}
+
+              {activeTest?.parameters.map((parameter) => (
+                <div key={parameter.id} className="test-manager-parameter-row-v2">
+                  <div>
+                    <strong>{parameter.name}</strong>
+                    <span>
+                      {parameter.unit || "No unit"} ·{" "}
+                      {parameter.normal_range || "No range"}
+                    </span>
+                  </div>
+
+                  <div className="test-manager-parameter-row-v2__actions">
+                    <Button
+                      onClick={() => startParameterEdit(activeTest, parameter)}
+                      variant="secondary"
+                    >
+                      Edit
+                    </Button>
+
+                    <Button
+                      onClick={() => removeParameter(parameter)}
+                      variant="danger"
+                    >
+                      Delete
+                    </Button>
                   </div>
                 </div>
-                <div style={actions}>
-                  <Button onClick={() => startParameterEdit(activeTest, parameter)} variant="secondary">
-                    Edit
-                  </Button>
-                  <Button onClick={() => removeParameter(parameter)} variant="danger">
-                    Delete
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        </div>
       </div>
 
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </Card>
   );
 }
 
-const editor = {
-  display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) 130px auto auto",
-  gap: 8,
-  alignItems: "center",
-  marginBottom: 14,
-};
-
-const layout = {
-  display: "grid",
-  gridTemplateColumns: "minmax(360px, 1fr) minmax(320px, 0.9fr)",
-  gap: 14,
-  alignItems: "start",
-};
-
-const table = {
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  overflow: "hidden",
-  maxHeight: 520,
-  overflowY: "auto" as const,
-};
-
-const headerRow = {
-  display: "grid",
-  gridTemplateColumns: "1fr 90px 150px",
-  gap: 10,
-  padding: "10px 12px",
-  background: colors.surfaceSoft,
-  color: colors.muted,
-  fontSize: 12,
-  fontWeight: 900,
-  textTransform: "uppercase" as const,
-};
-
-const dataRow = {
-  display: "grid",
-  gridTemplateColumns: "1fr 90px 150px",
-  gap: 10,
-  alignItems: "center",
-  padding: 12,
-  borderTop: `1px solid ${colors.border}`,
-  cursor: "pointer",
-};
-
-const actions = {
-  display: "flex",
-  gap: 7,
-  justifyContent: "flex-end",
-  flexWrap: "wrap" as const,
-};
-
-const parameterPanel = {
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  background: colors.surface,
-  padding: 12,
-};
-
-const panelTitle = {
-  color: colors.text,
-  fontSize: 16,
-  fontWeight: 900,
-};
-
-const panelMeta = {
-  color: colors.muted,
-  fontSize: 12,
-  marginTop: 4,
-};
-
-const parameterEditor = {
-  display: "grid",
-  gridTemplateColumns: "1fr 90px 130px auto auto",
-  gap: 8,
-  marginTop: 12,
-};
-
-const parameterList = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 8,
-  marginTop: 12,
-};
-
-const parameterRow = {
-  display: "grid",
-  gridTemplateColumns: "1fr auto",
-  gap: 10,
-  alignItems: "center",
-  padding: 10,
-  border: `1px solid ${colors.border}`,
-  borderRadius: 8,
-  background: colors.surfaceSoft,
-};
-
-const empty = {
-  color: colors.muted,
-  fontSize: 13,
-  padding: 10,
-};
+function SummaryItem({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="test-manager-summary-item-v2">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
