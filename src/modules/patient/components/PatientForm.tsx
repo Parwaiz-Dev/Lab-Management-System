@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Toast from "../../../components/ui/Toast";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
-import type { Patient } from "../../../types";
+import type { Patient, ToastMessage } from "../../../types";
 import {
   getFirstError,
   hasErrors,
@@ -18,15 +18,14 @@ import {
 } from "../services/patientService";
 
 interface PatientFormProps {
-  onSelectPatient: (patient: Patient) => void;
+  selectedPatient?: Patient | null;
+  onSelectPatient: (patient: Patient | null) => void;
 }
 
-type ToastState = {
-  message: string;
-  type: "success" | "error" | "warning" | "info";
-};
-
-export default function PatientForm({ onSelectPatient }: PatientFormProps) {
+export default function PatientForm({
+  selectedPatient,
+  onSelectPatient,
+}: PatientFormProps) {
   const [name, setName] = useState("");
   const [ageValue, setAgeValue] = useState<number | null>(null);
   const [ageUnit, setAgeUnit] = useState<AgeUnit>("Years");
@@ -35,23 +34,33 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
   const [referredBy, setReferredBy] = useState("Self");
 
   const [suggestions, setSuggestions] = useState<Patient[]>([]);
-  const [isExisting, setIsExisting] = useState(false);
   const [doctors, setDoctors] = useState<string[]>([]);
   const [newDoctor, setNewDoctor] = useState("");
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const [doctorSaving, setDoctorSaving] = useState(false);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  const showToast = useCallback((message: string, type: ToastState["type"]) => {
+  const requestRef = useRef(0);
+
+  const isExisting = Boolean(selectedPatient);
+  const cleanedName = name.trim();
+
+  const showToast = useCallback((message: string, type: ToastMessage["type"]) => {
     setToast({ message, type });
   }, []);
 
   const loadDoctors = useCallback(async () => {
     try {
       const data = await patientService.getDoctors();
-      setDoctors(data);
+
+      const cleaned = Array.from(
+        new Set(data.map((doctor) => doctor.trim()).filter(Boolean))
+      ).sort((a, b) => a.localeCompare(b));
+
+      setDoctors(cleaned);
     } catch (err) {
       console.error("Failed to load doctors:", err);
       showToast("Failed to load doctors", "error");
@@ -59,7 +68,7 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
   }, [showToast]);
 
   useEffect(() => {
-    loadDoctors();
+    void loadDoctors();
   }, [loadDoctors]);
 
   useEffect(() => {
@@ -71,51 +80,52 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
       return;
     }
 
-    let cancelled = false;
+    const requestId = requestRef.current + 1;
+    requestRef.current = requestId;
 
     const timer = window.setTimeout(async () => {
       try {
         setIsSearching(true);
+
         const results = await patientService.searchPatients(query);
 
-        if (!cancelled) {
+        if (requestRef.current === requestId) {
           setSuggestions(results);
         }
       } catch (err) {
         console.error("Search failed:", err);
 
-        if (!cancelled) {
+        if (requestRef.current === requestId) {
           setSuggestions([]);
-          showToast("Failed to search patients", "error");
         }
       } finally {
-        if (!cancelled) {
+        if (requestRef.current === requestId) {
           setIsSearching(false);
         }
       }
     }, 250);
 
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [name, isExisting, showToast]);
+    return () => window.clearTimeout(timer);
+  }, [name, isExisting]);
 
   const handleNameChange = (value: string) => {
     setName(value);
-    setIsExisting(false);
+    setSuggestions([]);
     setFormErrors({});
+
+    if (selectedPatient) {
+      onSelectPatient(null);
+    }
   };
 
   const selectPatient = useCallback(
     (patient: Patient) => {
       setName(patient.name);
       setAgeValue(patient.age_value);
-      setAgeUnit(patient.age_unit);
+      setAgeUnit(patient.age_unit || "Years");
       setPhone(patient.phone || "");
-      setGender(patient.gender);
+      setGender(patient.gender || "Male");
       setReferredBy(patient.referred_by || "Self");
-      setIsExisting(true);
       setSuggestions([]);
       setFormErrors({});
       onSelectPatient(patient);
@@ -133,7 +143,8 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
     }
 
     try {
-      setIsSubmitting(true);
+      setDoctorSaving(true);
+
       await patientService.addDoctor(cleanedDoctor);
       await loadDoctors();
 
@@ -144,12 +155,11 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
       console.error("Failed to add doctor:", err);
       showToast(typeof err === "string" ? err : "Failed to add doctor", "error");
     } finally {
-      setIsSubmitting(false);
+      setDoctorSaving(false);
     }
   }, [newDoctor, loadDoctors, showToast]);
 
   const savePatient = useCallback(async () => {
-    const cleanedName = name.trim();
     const cleanedPhone = phone.trim();
 
     const errors = validatePatientForm(
@@ -200,8 +210,8 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
       };
 
       onSelectPatient(newPatient);
-      setIsExisting(true);
       setSuggestions([]);
+      setFormErrors({});
       showToast(`Patient "${cleanedName}" saved`, "success");
     } catch (err) {
       console.error("Failed to save patient:", err);
@@ -210,7 +220,7 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
       setIsSubmitting(false);
     }
   }, [
-    name,
+    cleanedName,
     ageValue,
     ageUnit,
     gender,
@@ -228,9 +238,10 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
     setGender("Male");
     setAgeUnit("Years");
     setReferredBy("Self");
-    setIsExisting(false);
+    setNewDoctor("");
     setSuggestions([]);
     setFormErrors({});
+    onSelectPatient(null);
   };
 
   return (
@@ -252,14 +263,24 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
           />
 
           <Badge tone={isExisting ? "success" : name ? "info" : "neutral"}>
-            {isSearching ? "Searching" : isExisting ? "Existing" : name ? "New" : "Idle"}
+            {isSearching
+              ? "Searching"
+              : isExisting
+                ? "Existing"
+                : name
+                  ? "New"
+                  : "Idle"}
           </Badge>
         </div>
 
         {formErrors.name && <div className="form-error">{formErrors.name}</div>}
 
         {suggestions.length > 0 && (
-          <div className="patient-suggestions" role="listbox" aria-label="Patient suggestions">
+          <div
+            className="patient-suggestions"
+            role="listbox"
+            aria-label="Patient suggestions"
+          >
             {suggestions.map((patient) => (
               <button
                 key={patient.id}
@@ -270,11 +291,11 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
               >
                 <span className="patient-suggestion__main">
                   <strong>{patient.name}</strong>
-                  <span>{patient.patient_code}</span>
+                  <span>{patient.patient_code || `Patient #${patient.id}`}</span>
                 </span>
 
                 <span className="patient-suggestion__meta">
-                  {patient.age_value} {patient.age_unit}
+                  {patient.age_value ?? "-"} {patient.age_unit || ""}
                 </span>
               </button>
             ))}
@@ -290,7 +311,9 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
             value={ageValue ?? ""}
             min={0}
             max={150}
-            onChange={(e) => setAgeValue(e.target.value === "" ? null : Number(e.target.value))}
+            onChange={(e) =>
+              setAgeValue(e.target.value === "" ? null : Number(e.target.value))
+            }
             disabled={isSubmitting}
             invalid={Boolean(formErrors.age)}
           />
@@ -309,9 +332,9 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
               .filter(Boolean)
               .join(" ")}
           >
-            <option>Years</option>
-            <option>Months</option>
-            <option>Days</option>
+            <option value="Years">Years</option>
+            <option value="Months">Months</option>
+            <option value="Days">Days</option>
           </select>
         </Field>
 
@@ -370,13 +393,14 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
           <Input
             value={newDoctor}
             onChange={(e) => setNewDoctor(e.target.value)}
-            disabled={isSubmitting}
+            disabled={isSubmitting || doctorSaving}
             placeholder="Add referring doctor"
           />
 
           <Button
             onClick={addNewDoctor}
             variant="secondary"
+            loading={doctorSaving}
             disabled={!newDoctor.trim() || isSubmitting}
           >
             Add
@@ -388,9 +412,9 @@ export default function PatientForm({ onSelectPatient }: PatientFormProps) {
         <Button
           onClick={savePatient}
           loading={isSubmitting}
-          disabled={!name.trim() || ageValue === null || isExisting}
+          disabled={!cleanedName || ageValue === null || isExisting}
         >
-          {isSubmitting ? "Saving..." : "Save Patient"}
+          Save Patient
         </Button>
 
         <Button onClick={clearForm} variant="secondary" disabled={isSubmitting}>

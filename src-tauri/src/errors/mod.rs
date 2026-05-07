@@ -1,33 +1,32 @@
-/// 🛡️ Error Handling Module
-/// Provides structured error types and conversion utilities for the entire application.
-/// This replaces ad-hoc string error handling with proper Rust error patterns.
-
 use std::fmt;
 
-/// AppError - Unified error type for all application errors
-/// Provides context and error categorization for better debugging and user messaging
 #[derive(Debug, Clone)]
 pub enum AppError {
-    /// Database operation failed (connection, query, etc.)
     DatabaseError(String),
-    
-    /// Input validation failed (invalid data format, missing fields, etc.)
     ValidationError(String),
-    
-    /// Resource not found (patient, order, test, etc.)
     NotFound(String),
-    
-    /// Duplicate resource (patient code already exists, etc.)
     DuplicateError(String),
-    
-    /// Business logic violation (payment exceeds total, etc.)
     BusinessLogicError(String),
-    
-    /// File I/O operation failed (backup, restore, etc.)
     FileError(String),
-    
-    /// Internal server error
     InternalError(String),
+}
+
+impl AppError {
+    pub fn user_message(&self) -> String {
+        match self {
+            AppError::DatabaseError(_) => {
+                "A database error occurred. Please try again.".to_string()
+            }
+            AppError::ValidationError(msg) => msg.clone(),
+            AppError::NotFound(msg) => msg.clone(),
+            AppError::DuplicateError(msg) => msg.clone(),
+            AppError::BusinessLogicError(msg) => msg.clone(),
+            AppError::FileError(msg) => msg.clone(),
+            AppError::InternalError(_) => {
+                "Something went wrong. Please try again.".to_string()
+            }
+        }
+    }
 }
 
 impl fmt::Display for AppError {
@@ -46,39 +45,60 @@ impl fmt::Display for AppError {
 
 impl std::error::Error for AppError {}
 
-/// Convert rusqlite::Error to AppError
 impl From<rusqlite::Error> for AppError {
     fn from(err: rusqlite::Error) -> Self {
         log::error!("SQLite Error: {:?}", err);
+
         match err {
             rusqlite::Error::QueryReturnedNoRows => {
-                AppError::NotFound("Query returned no results".to_string())
+                AppError::NotFound("Record not found".to_string())
             }
+
             rusqlite::Error::InvalidParameterCount(expected, provided) => {
                 AppError::ValidationError(format!(
                     "Parameter count mismatch: expected {}, got {}",
                     expected, provided
                 ))
             }
+
             rusqlite::Error::InvalidColumnType(col, _, _) => {
                 AppError::DatabaseError(format!("Invalid column type: {}", col))
             }
+
             rusqlite::Error::InvalidColumnName(name) => {
                 AppError::DatabaseError(format!("Invalid column: {}", name))
             }
+
+            rusqlite::Error::SqliteFailure(db_error, message) => {
+                if db_error.code == rusqlite::ErrorCode::ConstraintViolation {
+                    return AppError::DuplicateError(
+                        message.unwrap_or_else(|| "Duplicate or constraint violation".to_string()),
+                    );
+                }
+
+                AppError::DatabaseError(
+                    message.unwrap_or_else(|| db_error.to_string()),
+                )
+            }
+
             _ => AppError::DatabaseError(err.to_string()),
         }
     }
 }
 
-/// Convert AppError to Tauri Result (String error)
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        log::error!("File Error: {:?}", err);
+        AppError::FileError(err.to_string())
+    }
+}
+
 impl From<AppError> for String {
     fn from(err: AppError) -> Self {
         err.to_string()
     }
 }
 
-/// Helper type for Results in this crate
 pub type AppResult<T> = Result<T, AppError>;
 
 #[cfg(test)]
@@ -95,5 +115,11 @@ mod tests {
     fn test_error_conversion() {
         let err: String = AppError::NotFound("Patient not found".to_string()).into();
         assert_eq!(err, "Not Found: Patient not found");
+    }
+
+    #[test]
+    fn test_user_message() {
+        let err = AppError::BusinessLogicError("Payment cannot exceed order total".to_string());
+        assert_eq!(err.user_message(), "Payment cannot exceed order total");
     }
 }

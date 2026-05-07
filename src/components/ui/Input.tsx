@@ -1,16 +1,17 @@
+import { forwardRef } from "react";
 import type { InputHTMLAttributes } from "react";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   invalid?: boolean;
 }
 
-export default function Input({
-  className = "",
-  invalid = false,
-  ...props
-}: InputProps) {
+const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { className = "", invalid = false, ...props },
+  ref
+) {
   return (
     <input
+      ref={ref}
       {...props}
       aria-invalid={invalid}
       className={["ui-input", invalid ? "ui-input--invalid" : "", className]
@@ -18,4 +19,6 @@ export default function Input({
         .join(" ")}
     />
   );
-}
+});
+
+export default Input;

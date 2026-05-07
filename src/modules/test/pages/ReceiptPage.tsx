@@ -1,67 +1,47 @@
 import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import Button from "../../../components/ui/Button";
 import Badge from "../../../components/ui/Badge";
-import type { ReceiptLine } from "../../../types";
+import type { ReceiptData, ReceiptLine } from "../../../types";
+import { settingsService } from "../../settings/services/settingsService";
+import { getErrorMessage, money, testService } from "../services/testService";
 
 type ReceiptPageProps = {
   orderId: number;
   onBack: () => void;
 };
 
-type ReceiptData = [
-  patient: string,
-  invoice: string,
-  total: number,
-  paid: number,
-  discount: number,
-  tests: ReceiptLine[],
-];
-
-const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
-
 export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
   const [data, setData] = useState<ReceiptData | null>(null);
   const [labName, setLabName] = useState("Your Lab");
   const [labAddress, setLabAddress] = useState("");
+  const [logo, setLogo] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadReceipt = async () => {
+    const loadAll = async () => {
       try {
         setLoading(true);
         setError("");
 
-        const res = await invoke("get_receipt", { orderId });
+        const [receipt, settings] = await Promise.all([
+          testService.getReceipt(orderId),
+          settingsService.getLabSettings(),
+        ]);
 
-        if (!res || !Array.isArray(res)) {
-          throw new Error("Invalid receipt data");
-        }
-
-        setData(res as ReceiptData);
+        setData(receipt);
+        setLabName(settings.lab_name || "Your Lab");
+        setLabAddress(settings.lab_address || "");
+        setLogo(settings.lab_logo || "");
       } catch (err) {
         console.error("Receipt error:", err);
-        setError("Failed to load receipt");
+        setError(getErrorMessage(err, "Failed to load receipt"));
       } finally {
         setLoading(false);
       }
     };
 
-    const loadSettings = async () => {
-      try {
-        const name = await invoke("get_setting", { key: "lab_name" });
-        const address = await invoke("get_setting", { key: "lab_address" });
-
-        if (name) setLabName(name as string);
-        if (address) setLabAddress(address as string);
-      } catch {
-        setLabName("Your Lab");
-      }
-    };
-
-    void loadReceipt();
-    void loadSettings();
+    void loadAll();
   }, [orderId]);
 
   const receipt = useMemo(() => {
@@ -80,7 +60,6 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
     }
 
     const [patient, invoice, total, paid, discount, tests] = data;
-
     const cleanTests = tests || [];
 
     const subtotal =
@@ -103,6 +82,8 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
       status: pending <= 0 ? "Paid" : paid > 0 ? "Partial" : "Pending",
     };
   }, [data]);
+
+  const logoSrc = useMemo(() => settingsService.getLogoSrc(logo), [logo]);
 
   if (loading) {
     return <ReceiptState text="Loading receipt..." onBack={onBack} />;
@@ -131,7 +112,15 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
       <article className="receipt-document">
         <header className="receipt-document__header">
           <div className="receipt-document__brand">
-            <div className="receipt-document__logo">LM</div>
+            {logoSrc ? (
+              <img
+                className="receipt-document__logo-img"
+                src={logoSrc}
+                alt="Lab logo"
+              />
+            ) : (
+              <div className="receipt-document__logo">LM</div>
+            )}
 
             <div>
               <div className="receipt-document__eyebrow">Payment Receipt</div>

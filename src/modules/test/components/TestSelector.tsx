@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Card from "../../../components/ui/Card";
 import Input from "../../../components/ui/Input";
 import Button from "../../../components/ui/Button";
@@ -7,6 +6,7 @@ import Toast from "../../../components/ui/Toast";
 import Badge from "../../../components/ui/Badge";
 import ConfirmationDialog from "../../../components/ui/ConfirmationDialog";
 import type { Patient, Test, ToastMessage } from "../../../types";
+import { getErrorMessage, money, testService } from "../services/testService";
 
 type SelectedTest = Test & {
   selectedParameterIds: number[];
@@ -35,8 +35,6 @@ type TestSelectorProps = {
   onOpenReceipt?: (orderId: number) => void;
 };
 
-const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
-
 export default function TestSelector({
   patient,
   layout = "inline",
@@ -48,28 +46,49 @@ export default function TestSelector({
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
+  const [loadingTests, setLoadingTests] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastOrder, setLastOrder] = useState<LastOrder | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [discount, setDiscount] = useState("");
   const [paymentSaving, setPaymentSaving] = useState(false);
 
-  const [activeChecklistId, setActiveChecklistId] = useState<number | null>(null);
-  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
+  const [activeChecklistId, setActiveChecklistId] = useState<number | null>(
+    null
+  );
+  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(
+    null
+  );
 
-  useEffect(() => {
-    loadTests();
-  }, []);
-
-  const loadTests = async () => {
+  const loadTests = useCallback(async () => {
     try {
-      const data = (await invoke("get_tests")) as Test[];
+      setLoadingTests(true);
+      const data = await testService.getTests();
       setTests(data);
     } catch (err) {
       console.error(err);
-      setToast({ message: "Failed to load test catalog", type: "error" });
+      setToast({
+        message: getErrorMessage(err, "Failed to load test catalog"),
+        type: "error",
+      });
+    } finally {
+      setLoadingTests(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadTests();
+  }, [loadTests]);
+
+  useEffect(() => {
+    setSelected([]);
+    setBilledTests([]);
+    setSearch("");
+    setLastOrder(null);
+    setPaymentAmount("");
+    setDiscount("");
+    setActiveChecklistId(null);
+  }, [patient?.id]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -113,7 +132,9 @@ export default function TestSelector({
       prev.map((test) => {
         if (test.id !== testId) return test;
 
-        const selectedParameterIds = test.selectedParameterIds.includes(parameterId)
+        const selectedParameterIds = test.selectedParameterIds.includes(
+          parameterId
+        )
           ? test.selectedParameterIds.filter((id) => id !== parameterId)
           : [...test.selectedParameterIds, parameterId];
 
@@ -139,40 +160,53 @@ export default function TestSelector({
   const billSubtotal = lastOrder ? lastOrder.subtotal : subtotal;
   const billDiscount = lastOrder ? lastOrder.discount : discountValue;
   const billTotal = lastOrder ? lastOrder.total : total;
-  const pendingAmount = lastOrder ? Math.max(lastOrder.total - lastOrder.paid, 0) : 0;
+  const pendingAmount = lastOrder
+    ? Math.max(lastOrder.total - lastOrder.paid, 0)
+    : 0;
 
-  const saveOrder = async () => {
+  const validateOrderSelection = () => {
     if (!patient) {
-      setToast({ message: "Select a patient before creating an order", type: "error" });
-      return;
+      setToast({
+        message: "Select a patient before creating an order",
+        type: "error",
+      });
+      return false;
     }
 
     if (selected.length === 0) {
       setToast({ message: "Select at least one test", type: "warning" });
-      return;
+      return false;
     }
 
     const parameterIds = selected.flatMap((test) => test.selectedParameterIds);
 
     if (parameterIds.length === 0) {
       setToast({ message: "Select at least one sub test", type: "warning" });
-      return;
+      return false;
     }
+
+    return true;
+  };
+
+  const saveOrder = async () => {
+    if (!patient || !validateOrderSelection()) return;
+
+    const parameterIds = selected.flatMap((test) => test.selectedParameterIds);
 
     try {
       setSaving(true);
 
-      const orderTests = selected;
+      const orderTestsSnapshot = selected.map((test) => ({ ...test }));
 
-      const orderId = (await invoke("create_order", {
+      const orderId = await testService.createOrder({
         patientId: patient.id,
         testIds: selected.map((test) => test.id),
         parameterIds,
         totalAmount: total,
         discountAmount: discountValue,
-      })) as number;
+      });
 
-      setBilledTests(orderTests);
+      setBilledTests(orderTestsSnapshot);
       setLastOrder({
         id: orderId,
         total,
@@ -191,7 +225,7 @@ export default function TestSelector({
     } catch (err) {
       console.error(err);
       setToast({
-        message: typeof err === "string" ? err : "Failed to create order",
+        message: getErrorMessage(err, "Failed to create order"),
         type: "error",
       });
     } finally {
@@ -221,17 +255,17 @@ export default function TestSelector({
     }
 
     if (amount > pending) {
-      setToast({ message: "Payment cannot exceed pending amount", type: "error" });
+      setToast({
+        message: "Payment cannot exceed pending amount",
+        type: "error",
+      });
       return;
     }
 
     try {
       setPaymentSaving(true);
 
-      await invoke("update_payment", {
-        orderId: lastOrder.id,
-        paidAmount: lastOrder.paid + amount,
-      });
+      await testService.updatePayment(lastOrder.id, lastOrder.paid + amount);
 
       setLastOrder({ ...lastOrder, paid: lastOrder.paid + amount });
       setPaymentAmount("");
@@ -239,7 +273,7 @@ export default function TestSelector({
     } catch (err) {
       console.error(err);
       setToast({
-        message: typeof err === "string" ? err : "Failed to record payment",
+        message: getErrorMessage(err, "Failed to record payment"),
         type: "error",
       });
     } finally {
@@ -249,22 +283,7 @@ export default function TestSelector({
 
   const requestConfirmation = (action: ConfirmationAction) => {
     if (action === "create_order") {
-      if (!patient) {
-        setToast({ message: "Select a patient before creating an order", type: "error" });
-        return;
-      }
-
-      if (selected.length === 0) {
-        setToast({ message: "Select at least one test", type: "warning" });
-        return;
-      }
-
-      const parameterIds = selected.flatMap((test) => test.selectedParameterIds);
-
-      if (parameterIds.length === 0) {
-        setToast({ message: "Select at least one sub test", type: "warning" });
-        return;
-      }
+      if (!validateOrderSelection()) return;
 
       setConfirmation({
         action,
@@ -288,7 +307,10 @@ export default function TestSelector({
       }
 
       if (amount > pendingAmount) {
-        setToast({ message: "Payment cannot exceed pending amount", type: "error" });
+        setToast({
+          message: "Payment cannot exceed pending amount",
+          type: "error",
+        });
         return;
       }
 
@@ -307,13 +329,8 @@ export default function TestSelector({
     const action = confirmation.action;
     setConfirmation(null);
 
-    if (action === "create_order") {
-      await saveOrder();
-    }
-
-    if (action === "record_payment") {
-      await recordPayment();
-    }
+    if (action === "create_order") await saveOrder();
+    if (action === "record_payment") await recordPayment();
   };
 
   const selectionContent = (
@@ -327,7 +344,9 @@ export default function TestSelector({
             </div>
           </div>
 
-          <Badge tone={tests.length ? "info" : "neutral"}>{tests.length} tests</Badge>
+          <Badge tone={tests.length ? "info" : "neutral"}>
+            {loadingTests ? "Loading" : `${tests.length} tests`}
+          </Badge>
         </div>
 
         <div className="test-selector__search">
@@ -335,7 +354,7 @@ export default function TestSelector({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search test or sub test"
-            disabled={saving}
+            disabled={saving || loadingTests}
           />
 
           {(search || selected.length === 0) && filtered.length > 0 && (
@@ -346,6 +365,7 @@ export default function TestSelector({
                   type="button"
                   onClick={() => addTest(test)}
                   className="test-selector__catalog-item"
+                  disabled={saving}
                 >
                   <span>
                     <strong>{test.name}</strong>
@@ -408,8 +428,8 @@ export default function TestSelector({
                 <span className="test-selector__selected-main">
                   <strong>{test.name}</strong>
                   <span>
-                    {test.selectedParameterIds.length} of {test.parameters.length} sub tests
-                    selected
+                    {test.selectedParameterIds.length} of{" "}
+                    {test.parameters.length} sub tests selected
                   </span>
                 </span>
 
@@ -476,6 +496,9 @@ export default function TestSelector({
             value={discount}
             onChange={(e) => setDiscount(e.target.value)}
             type="number"
+            min={0}
+            max={subtotal}
+            step="0.01"
             placeholder="0"
             disabled={saving || selected.length === 0 || Boolean(lastOrder)}
           />
@@ -495,9 +518,17 @@ export default function TestSelector({
 
       {lastOrder ? (
         <div className="test-selector__billing-actions">
-          <Button onClick={() => onOpenReceipt?.(lastOrder.id)} variant="success">
-            Print Receipt
-          </Button>
+          <Button
+  type="button"
+  onClick={(event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (lastOrder?.id) onOpenReceipt?.(lastOrder.id);
+  }}
+  variant="success"
+>
+  Print Receipt
+</Button>
 
           <Button onClick={startNewBill} variant="secondary">
             New Bill
@@ -532,6 +563,9 @@ export default function TestSelector({
               value={paymentAmount}
               onChange={(e) => setPaymentAmount(e.target.value)}
               type="number"
+              min={0}
+              max={pendingAmount}
+              step="0.01"
               placeholder="Partial amount"
               disabled={paymentSaving || lastOrder.paid >= lastOrder.total}
             />
@@ -593,8 +627,12 @@ export default function TestSelector({
                 <label key={param.id} className="test-selector__parameter-item">
                   <input
                     type="checkbox"
-                    checked={activeChecklistTest.selectedParameterIds.includes(param.id)}
-                    onChange={() => toggleParameter(activeChecklistTest.id, param.id)}
+                    checked={activeChecklistTest.selectedParameterIds.includes(
+                      param.id
+                    )}
+                    onChange={() =>
+                      toggleParameter(activeChecklistTest.id, param.id)
+                    }
                   />
 
                   <span>
@@ -603,7 +641,8 @@ export default function TestSelector({
                     </span>
 
                     <span className="test-selector__parameter-meta">
-                      {param.unit || "No unit"} · {param.normal_range || "No range"}
+                      {param.unit || "No unit"} ·{" "}
+                      {param.normal_range || "No range"}
                     </span>
                   </span>
                 </label>
@@ -619,7 +658,9 @@ export default function TestSelector({
                       test.id === activeChecklistTest.id
                         ? {
                             ...test,
-                            selectedParameterIds: test.parameters.map((param) => param.id),
+                            selectedParameterIds: test.parameters.map(
+                              (param) => param.id
+                            ),
                           }
                         : test
                     )

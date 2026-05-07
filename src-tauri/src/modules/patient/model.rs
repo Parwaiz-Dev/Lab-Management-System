@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct Patient {
     pub id: i32,
     pub patient_code: String,
@@ -10,4 +10,5 @@ pub struct Patient {
     pub gender: Option<String>,
     pub phone: Option<String>,
     pub referred_by: Option<String>,
+    pub created_at: String,
 }

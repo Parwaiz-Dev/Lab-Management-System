@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
 import Toast from "../../../components/ui/Toast";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
 import type { OrderParameter, ToastMessage } from "../../../types";
+import { getErrorMessage, testService } from "../services/testService";
 
 type ResultPageProps = {
   orderId: number;
@@ -55,40 +55,36 @@ export default function ResultPage({
   }, [params, values]);
 
   useEffect(() => {
-    const loadParams = async () => {
-      const data = await invoke("get_parameters_by_order", { orderId });
-      setParams(data as OrderParameter[]);
-    };
-
-    const loadExistingResults = async () => {
-      const res = (await invoke("get_results_by_order", {
-        orderId,
-      })) as ExistingResultRow[];
-
-      const map: Record<number, string> = {};
-
-      res.forEach(([paramId, value]) => {
-        map[paramId] = value;
-      });
-
-      setValues(map);
-    };
-
     const loadAll = async () => {
       try {
         setLoading(true);
-        await Promise.all([loadParams(), loadExistingResults()]);
+
+        const [parameters, existingResults] = await Promise.all([
+          testService.getParametersByOrder(orderId),
+          testService.getResultsByOrder(orderId),
+        ]);
+
+        setParams(parameters);
+
+        const resultMap: Record<number, string> = {};
+
+        (existingResults as ExistingResultRow[]).forEach(([paramId, value]) => {
+          resultMap[paramId] = value;
+        });
+
+        setValues(resultMap);
       } catch (err) {
         console.error(err);
-        setToast({ message: "Failed to load order results", type: "error" });
+        setToast({
+          message: getErrorMessage(err, "Failed to load order results"),
+          type: "error",
+        });
       } finally {
         setLoading(false);
       }
     };
 
-    if (orderId) {
-      void loadAll();
-    }
+    if (orderId) void loadAll();
   }, [orderId]);
 
   const handleChange = (id: number, value: string) => {
@@ -96,7 +92,12 @@ export default function ResultPage({
   };
 
   const saveResults = async () => {
-    const rowsToSave = params.filter((param) => values[param.id]?.trim());
+    const rowsToSave = params
+      .map((param) => ({
+        parameterId: param.id,
+        value: values[param.id]?.trim() || "",
+      }))
+      .filter((row) => row.value);
 
     if (rowsToSave.length === 0) {
       setToast({
@@ -109,18 +110,15 @@ export default function ResultPage({
     try {
       setSaving(true);
 
-      for (const param of rowsToSave) {
-        await invoke("save_result", {
-          orderId,
-          parameterId: param.id,
-          value: values[param.id].toString(),
-        });
-      }
+      await testService.saveResults(orderId, rowsToSave);
 
       setToast({ message: "Results saved successfully", type: "success" });
     } catch (err) {
       console.error("Save error:", err);
-      setToast({ message: "Failed to save results", type: "error" });
+      setToast({
+        message: getErrorMessage(err, "Failed to save results"),
+        type: "error",
+      });
     } finally {
       setSaving(false);
     }
@@ -133,8 +131,8 @@ export default function ResultPage({
           <div className="result-page__eyebrow">Laboratory Values</div>
           <h2>Order #{orderId} Results</h2>
           <p>
-            Enter clinical result values against each selected sub test. Existing
-            values are prefilled when available.
+            Enter clinical result values against each selected sub test.
+            Existing values are prefilled when available.
           </p>
         </div>
 
@@ -164,7 +162,10 @@ export default function ResultPage({
               Preview Report
             </Button>
 
-            <Button onClick={saveResults} disabled={saving || loading}>
+            <Button
+              onClick={saveResults}
+              disabled={saving || loading || enteredCount === 0}
+            >
               {saving ? "Saving..." : "Save Results"}
             </Button>
           </div>
@@ -172,7 +173,9 @@ export default function ResultPage({
         className="result-page__card"
       >
         <div className="result-page__content">
-          {loading && <div className="result-page__empty">Loading parameters...</div>}
+          {loading && (
+            <div className="result-page__empty">Loading parameters...</div>
+          )}
 
           {!loading && params.length === 0 && (
             <div className="result-page__empty">
@@ -222,7 +225,9 @@ export default function ResultPage({
 
                         <Input
                           value={value}
-                          onChange={(e) => handleChange(param.id, e.target.value)}
+                          onChange={(e) =>
+                            handleChange(param.id, e.target.value)
+                          }
                           placeholder={`Enter ${param.name}`}
                           disabled={saving}
                         />

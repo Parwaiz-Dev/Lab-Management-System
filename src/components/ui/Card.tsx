@@ -6,6 +6,7 @@ interface CardProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   children: ReactNode;
   right?: ReactNode;
   compact?: boolean;
+  bodyClassName?: string;
 }
 
 export default function Card({
@@ -15,8 +16,11 @@ export default function Card({
   right,
   compact = false,
   className = "",
+  bodyClassName = "",
   ...props
 }: CardProps) {
+  const hasHeader = Boolean(title || eyebrow || right);
+
   return (
     <section
       {...props}
@@ -24,7 +28,7 @@ export default function Card({
         .filter(Boolean)
         .join(" ")}
     >
-      {(title || right) && (
+      {hasHeader && (
         <div className="ui-card__header">
           <div>
             {eyebrow && <div className="ui-card__eyebrow">{eyebrow}</div>}
@@ -35,7 +39,13 @@ export default function Card({
         </div>
       )}
 
-      <div className="ui-card__body">{children}</div>
+      <div
+        className={["ui-card__body", bodyClassName]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {children}
+      </div>
     </section>
   );
 }

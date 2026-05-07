@@ -16,10 +16,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
-tauri = { version = "2.10.3", features = [] }
-tauri-plugin-log = "2"
+tauri = { version = "2.10.3", features = ["protocol-asset"] }
 log = "0.4"
+tauri-plugin-dialog = "2"
 env_logger = "0.11"
+dotenvy = "0.15"
 dirs = "5.0"
 regex = "1"
 

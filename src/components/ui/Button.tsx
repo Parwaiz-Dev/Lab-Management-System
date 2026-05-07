@@ -1,28 +1,41 @@
+import { forwardRef } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type ButtonVariant = "primary" | "secondary" | "success" | "danger" | "ghost";
+export type ButtonVariant =
+  | "primary"
+  | "secondary"
+  | "success"
+  | "danger"
+  | "ghost";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
   variant?: ButtonVariant;
   loading?: boolean;
 }
 
-export default function Button({
-  children,
-  variant = "primary",
-  loading = false,
-  disabled = false,
-  className = "",
-  type = "button",
-  ...props
-}: ButtonProps) {
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    children,
+    variant = "primary",
+    loading = false,
+    disabled = false,
+    className = "",
+    type = "button",
+    ...props
+  },
+  ref
+) {
+  const isDisabled = disabled || loading;
+
   return (
     <button
+      ref={ref}
       {...props}
       type={type}
-      disabled={disabled || loading}
+      disabled={isDisabled}
       aria-busy={loading}
+      data-loading={loading ? "true" : "false"}
       className={[
         "ui-button",
         `ui-button--${variant}`,
@@ -32,8 +45,10 @@ export default function Button({
         .filter(Boolean)
         .join(" ")}
     >
-      {loading && <span className="ui-spinner" />}
-      {children}
+      {loading && <span className="ui-spinner" aria-hidden="true" />}
+      <span className="ui-button__content">{children}</span>
     </button>
   );
-}
+});
+
+export default Button;

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import Button from "../../../components/ui/Button";
 import Badge from "../../../components/ui/Badge";
 import type { ReportPatientInfo, ReportRow } from "../../../types";
+import { settingsService } from "../../settings/services/settingsService";
+import { getErrorMessage, testService } from "../services/testService";
 
 type ReportPageProps = {
   orderId: number;
@@ -21,37 +22,28 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
   const [labAddress, setLabAddress] = useState("");
   const [logo, setLogo] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadReport = async () => {
-      const rows = (await invoke("get_report", { orderId })) as ReportRow[];
-      setData(rows);
-    };
-
-    const loadPatient = async () => {
-      const info = (await invoke("get_patient_by_order", {
-        orderId,
-      })) as ReportPatientInfo;
-      setPatient(info);
-    };
-
-    const loadSettings = async () => {
-      try {
-        setLabName((await invoke("get_setting", { key: "lab_name" })) as string);
-        setLabAddress(
-          (await invoke("get_setting", { key: "lab_address" })) as string
-        );
-        setLogo((await invoke("get_setting", { key: "lab_logo" })) as string);
-      } catch {
-        setLabName("Your Lab Name");
-        setLabAddress("Lab address");
-      }
-    };
-
     const loadAll = async () => {
       try {
         setLoading(true);
-        await Promise.all([loadReport(), loadPatient(), loadSettings()]);
+        setError("");
+
+        const [rows, patientInfo, settings] = await Promise.all([
+          testService.getReport(orderId),
+          testService.getPatientByOrder(orderId),
+          settingsService.getLabSettings(),
+        ]);
+
+        setData(rows);
+        setPatient(patientInfo);
+        setLabName(settings.lab_name || "Your Lab Name");
+        setLabAddress(settings.lab_address || "Lab address");
+        setLogo(settings.lab_logo || "");
+      } catch (err) {
+        console.error("Report load failed:", err);
+        setError(getErrorMessage(err, "Failed to load report"));
       } finally {
         setLoading(false);
       }
@@ -82,6 +74,8 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
     return data.filter((row) => isAbnormal(row.value, row.normal_range)).length;
   }, [data]);
 
+  const logoSrc = useMemo(() => settingsService.getLogoSrc(logo), [logo]);
+
   return (
     <div className="report-page">
       <style>{printCss}</style>
@@ -91,14 +85,16 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
           Back
         </Button>
 
-        <Button onClick={() => window.print()}>Print Report</Button>
+        <Button onClick={() => window.print()} disabled={loading || Boolean(error)}>
+          Print Report
+        </Button>
       </div>
 
       <article className="report-paper">
         <header className="report-paper__header">
           <div className="report-paper__brand">
-            {logo ? (
-              <img src={`file://${logo}`} alt="Lab logo" />
+            {logoSrc ? (
+              <img src={logoSrc} alt="Lab logo" />
             ) : (
               <div className="report-paper__logo-fallback">LM</div>
             )}
@@ -137,13 +133,20 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
         <section className="report-paper__body">
           {loading && <div className="report-paper__empty">Loading report...</div>}
 
-          {!loading && groupedResults.length === 0 && (
+          {!loading && error && (
+            <div className="report-paper__empty report-paper__empty--error">
+              {error}
+            </div>
+          )}
+
+          {!loading && !error && groupedResults.length === 0 && (
             <div className="report-paper__empty">
               No results entered for this order.
             </div>
           )}
 
           {!loading &&
+            !error &&
             groupedResults.map((group) => (
               <section key={group.testName} className="report-paper__test-block">
                 <div className="report-paper__test-head">{group.testName}</div>
@@ -217,11 +220,29 @@ function formatDate(value?: string) {
 
 function isAbnormal(value: string, range: string) {
   const num = Number.parseFloat(value);
-  const [min, max] = range.split("-").map(Number.parseFloat);
 
-  if (Number.isNaN(num) || Number.isNaN(min) || Number.isNaN(max)) {
-    return false;
+  if (Number.isNaN(num) || !range) return false;
+
+  const cleanRange = range.trim();
+
+  if (cleanRange.startsWith("<")) {
+    const max = Number.parseFloat(cleanRange.replace("<", ""));
+    return !Number.isNaN(max) && num >= max;
   }
+
+  if (cleanRange.startsWith(">")) {
+    const min = Number.parseFloat(cleanRange.replace(">", ""));
+    return !Number.isNaN(min) && num <= min;
+  }
+
+  const match = cleanRange.match(/(-?\d+(\.\d+)?)\s*-\s*(-?\d+(\.\d+)?)/);
+
+  if (!match) return false;
+
+  const min = Number.parseFloat(match[1]);
+  const max = Number.parseFloat(match[3]);
+
+  if (Number.isNaN(min) || Number.isNaN(max)) return false;
 
   return num < min || num > max;
 }
