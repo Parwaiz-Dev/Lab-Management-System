@@ -1,101 +1,148 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Toast from "../../../components/ui/Toast";
+import Badge from "../../../components/ui/Badge";
 import TestCatalogManager from "./TestCatalogManager";
-import type { ToastMessage } from "../../../types";
+import type { LabSettings, ToastMessage } from "../../../types";
+import { settingsService } from "../services/settingsService";
 
-type TauriFile = File & {
-  path?: string;
+const emptySettings: LabSettings = {
+  lab_name: "",
+  lab_address: "",
+  doctor_share: "",
+  lab_logo: "",
 };
 
 export default function SettingsPage() {
-  const [labName, setLabName] = useState("");
-  const [address, setAddress] = useState("");
-  const [doctorShare, setDoctorShare] = useState("");
-  const [logoPath, setLogoPath] = useState("");
+  const [settings, setSettings] = useState<LabSettings>(emptySettings);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [backupBusy, setBackupBusy] = useState<"export" | "restore" | null>(null);
 
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        setLoading(true);
+  const [backupBusy, setBackupBusy] = useState<"export" | "restore" | null>(
+    null
+  );
+  const [choosingLogo, setChoosingLogo] = useState(false);
 
-        const [name, labAddress, share, logo] = await Promise.all([
-          invoke("get_setting", { key: "lab_name" }),
-          invoke("get_setting", { key: "lab_address" }),
-          invoke("get_setting", { key: "doctor_share" }),
-          invoke("get_setting", { key: "lab_logo" }),
-        ]);
-
-        setLabName((name as string) || "");
-        setAddress((labAddress as string) || "");
-        setDoctorShare((share as string) || "");
-        setLogoPath((logo as string) || "");
-      } catch (err) {
-        console.error("Failed to load settings:", err);
-        setToast({ message: "Failed to load settings", type: "error" });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void loadSettings();
+  const showToast = useCallback((message: string, type: ToastMessage["type"]) => {
+    setToast({ message, type });
   }, []);
 
-  const doctorSharePreview = useMemo(() => {
-    const value = Number(doctorShare);
+  const loadSettings = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await settingsService.getLabSettings();
+      setSettings(data);
+    } catch (err) {
+      console.error("Failed to load settings:", err);
+      showToast("Failed to load settings", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
-    if (Number.isNaN(value) || doctorShare.trim() === "") {
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  const updateField = useCallback(
+    (key: keyof LabSettings, value: string) => {
+      setSettings((current) => ({
+        ...current,
+        [key]: value,
+      }));
+    },
+    []
+  );
+
+  const doctorSharePreview = useMemo(() => {
+    const value = Number(settings.doctor_share);
+
+    if (Number.isNaN(value) || settings.doctor_share.trim() === "") {
       return "Not configured";
     }
 
-    if (value <= 1) {
-      return `${Math.round(value * 100)}%`;
-    }
+    if (value <= 1) return `${Math.round(value * 100)}%`;
 
     return `${value}%`;
-  }, [doctorShare]);
+  }, [settings.doctor_share]);
+
+  const logoSrc = useMemo(() => {
+    return settingsService.getLogoSrc(settings.lab_logo);
+  }, [settings.lab_logo]);
+
+  const validateSettings = () => {
+    if (!settings.lab_name.trim()) {
+      showToast("Lab name is required", "warning");
+      return false;
+    }
+
+    if (settings.doctor_share.trim()) {
+      const share = Number(settings.doctor_share);
+
+      if (Number.isNaN(share) || share < 0 || share > 100) {
+        showToast("Doctor share must be between 0 and 100", "warning");
+        return false;
+      }
+    }
+
+    return true;
+  };
 
   const save = async () => {
+    if (!validateSettings()) return;
+
     try {
       setSaving(true);
-
-      await Promise.all([
-        invoke("set_setting", { key: "lab_name", value: labName.trim() }),
-        invoke("set_setting", { key: "lab_address", value: address.trim() }),
-        invoke("set_setting", { key: "doctor_share", value: doctorShare.trim() }),
-        invoke("set_setting", { key: "lab_logo", value: logoPath.trim() }),
-      ]);
-
-      setToast({ message: "Settings saved successfully", type: "success" });
+      await settingsService.saveLabSettings(settings);
+      showToast("Settings saved successfully", "success");
     } catch (err) {
       console.error("Failed to save settings:", err);
-      setToast({ message: "Failed to save settings", type: "error" });
+      showToast(typeof err === "string" ? err : "Failed to save settings", "error");
     } finally {
       setSaving(false);
     }
+  };
+
+  const chooseLogo = async () => {
+    try {
+      setChoosingLogo(true);
+
+      const selectedPath = await settingsService.chooseLogo();
+
+      if (!selectedPath) {
+        showToast("Logo selection cancelled", "info");
+        return;
+      }
+
+      updateField("lab_logo", selectedPath);
+      showToast("Logo selected. Click Save to store it.", "success");
+    } catch (err) {
+      console.error("Failed to choose logo:", err);
+      showToast("Failed to choose logo", "error");
+    } finally {
+      setChoosingLogo(false);
+    }
+  };
+
+  const clearLogo = () => {
+    updateField("lab_logo", "");
+    showToast("Logo cleared. Click Save to confirm.", "info");
   };
 
   const exportBackup = async () => {
     try {
       setBackupBusy("export");
 
-      const path = await invoke("export_backup");
+      const path = await settingsService.exportBackup();
 
-      setToast({
-        message: `Backup saved at ${path}`,
-        type: "success",
-      });
+      showToast(`Backup saved at ${path}`, "success");
     } catch (err) {
       console.error("Failed to export backup:", err);
-      setToast({ message: "Failed to export backup", type: "error" });
+      showToast("Failed to export backup", "error");
     } finally {
       setBackupBusy(null);
     }
@@ -107,15 +154,12 @@ export default function SettingsPage() {
     try {
       setBackupBusy("restore");
 
-      await invoke("restore_backup");
+      const message = await settingsService.restoreBackup();
 
-      setToast({
-        message: "Backup restored. Restart the app to reload data.",
-        type: "info",
-      });
+      showToast(message || "Backup restored. Restart the app to reload data.", "info");
     } catch (err) {
       console.error("Failed to restore backup:", err);
-      setToast({ message: "Failed to restore backup", type: "error" });
+      showToast(typeof err === "string" ? err : "Failed to restore backup", "error");
     } finally {
       setBackupBusy(null);
     }
@@ -134,6 +178,10 @@ export default function SettingsPage() {
         </div>
 
         <div className="settings-hero-v2__actions">
+          <Button onClick={loadSettings} variant="secondary" disabled={loading || saving}>
+            {loading ? "Loading..." : "Reload"}
+          </Button>
+
           <Button onClick={save} disabled={saving || loading}>
             {saving ? "Saving..." : "Save Settings"}
           </Button>
@@ -141,9 +189,9 @@ export default function SettingsPage() {
       </section>
 
       <div className="settings-overview-v2">
-        <OverviewItem label="Lab Name" value={labName || "Not configured"} />
+        <OverviewItem label="Lab Name" value={settings.lab_name || "Not configured"} />
         <OverviewItem label="Doctor Share" value={doctorSharePreview} />
-        <OverviewItem label="Logo" value={logoPath ? "Configured" : "Not configured"} />
+        <OverviewItem label="Logo" value={settings.lab_logo ? "Configured" : "Not configured"} />
         <OverviewItem label="Storage" value="Local SQLite" />
       </div>
 
@@ -161,8 +209,8 @@ export default function SettingsPage() {
           <div className="settings-form-v2">
             <Field label="Lab Name" hint="Shown on receipts and reports.">
               <Input
-                value={labName}
-                onChange={(e) => setLabName(e.target.value)}
+                value={settings.lab_name}
+                onChange={(e) => updateField("lab_name", e.target.value)}
                 placeholder="Enter lab name"
                 disabled={loading || saving}
               />
@@ -170,8 +218,8 @@ export default function SettingsPage() {
 
             <Field label="Doctor Share" hint="Use 0.4 for 40%, or 40 for 40%.">
               <Input
-                value={doctorShare}
-                onChange={(e) => setDoctorShare(e.target.value)}
+                value={settings.doctor_share}
+                onChange={(e) => updateField("doctor_share", e.target.value)}
                 placeholder="0.4"
                 disabled={loading || saving}
               />
@@ -179,18 +227,18 @@ export default function SettingsPage() {
 
             <Field label="Lab Address" hint="Printed on laboratory reports.">
               <Input
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
+                value={settings.lab_address}
+                onChange={(e) => updateField("lab_address", e.target.value)}
                 placeholder="Enter lab address"
                 disabled={loading || saving}
               />
             </Field>
 
-            <Field label="Logo Path" hint="Used in report header when available.">
+            <Field label="Logo Path" hint="Stored locally and used in report header.">
               <Input
-                value={logoPath}
-                onChange={(e) => setLogoPath(e.target.value)}
-                placeholder="Choose file below or paste path"
+                value={settings.lab_logo}
+                onChange={(e) => updateField("lab_logo", e.target.value)}
+                placeholder="Choose logo from this machine"
                 disabled={loading || saving}
               />
             </Field>
@@ -198,32 +246,43 @@ export default function SettingsPage() {
 
           <div className="settings-logo-panel-v2">
             <div className="settings-logo-panel-v2__preview">
-              {logoPath ? (
-                <img src={`file://${logoPath}`} alt="Lab logo" />
+              {logoSrc ? (
+                <img src={logoSrc} alt="Lab logo" />
               ) : (
                 <div className="settings-logo-panel-v2__empty">LM</div>
               )}
             </div>
 
             <div className="settings-logo-panel-v2__content">
-              <strong>Lab Logo</strong>
+              <div className="settings-logo-panel-v2__title-row">
+                <strong>Lab Logo</strong>
+                <Badge tone={settings.lab_logo ? "success" : "neutral"}>
+                  {settings.lab_logo ? "Selected" : "Empty"}
+                </Badge>
+              </div>
+
               <p>
-                Select a logo image from this machine. The path will be stored
-                locally and used while printing reports.
+                Select a logo image from this machine. Click Save after choosing
+                the image so it appears in reports, receipts, and branding areas.
               </p>
 
-              <label className="settings-file-button-v2">
-                Choose Logo
-                <input
-                  type="file"
-                  accept="image/*"
-                  disabled={loading || saving}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] as TauriFile | undefined;
-                    if (file?.path) setLogoPath(file.path);
-                  }}
-                />
-              </label>
+              <div className="settings-logo-panel-v2__actions">
+                <Button
+                  onClick={chooseLogo}
+                  variant="secondary"
+                  disabled={loading || saving || choosingLogo}
+                >
+                  {choosingLogo ? "Opening..." : "Choose Logo"}
+                </Button>
+
+                <Button
+                  onClick={clearLogo}
+                  variant="ghost"
+                  disabled={loading || saving || !settings.lab_logo}
+                >
+                  Clear
+                </Button>
+              </div>
             </div>
           </div>
         </Card>

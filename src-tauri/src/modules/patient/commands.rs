@@ -23,8 +23,7 @@ pub fn create_patient(
 
 #[tauri::command]
 pub fn search_patients(query: String) -> Result<Vec<Patient>, String> {
-    service::search_patients(query)
-        .map_err(|e| e.to_string())
+    service::search_patients(query).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -38,4 +37,3 @@ pub fn add_doctor(name: String) -> Result<String, String> {
         .map(|_| "Doctor added".into())
         .map_err(|e| e.to_string())
 }
-

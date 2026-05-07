@@ -8,22 +8,27 @@ use crate::errors::{AppError, AppResult};
 /// Validate patient name
 /// - Not empty
 /// - Not too long (max 100 chars)
-/// - No special SQL characters
+/// - Allows letters, numbers, spaces, hyphens, apostrophes, dots, slashes, parentheses
 pub fn validate_patient_name(name: &str) -> AppResult<()> {
-    if name.trim().is_empty() {
+    let trimmed = name.trim();
+
+    if trimmed.is_empty() {
         return Err(AppError::ValidationError(
             "Patient name cannot be empty".to_string(),
         ));
     }
 
-    if name.len() > 100 {
+    if trimmed.len() > 100 {
         return Err(AppError::ValidationError(
             "Patient name too long (max 100 characters)".to_string(),
         ));
     }
 
-    // ⚠️ Allow basic letters, spaces, hyphens, apostrophes
-    if !name.chars().all(|c| c.is_alphabetic() || " -'".contains(c)) {
+    // Allow alphanumeric, spaces, hyphens, apostrophes, dots, slashes, parentheses
+    if !trimmed
+        .chars()
+        .all(|c| c.is_alphanumeric() || " .-'()/".contains(c))
+    {
         return Err(AppError::ValidationError(
             "Patient name contains invalid characters".to_string(),
         ));

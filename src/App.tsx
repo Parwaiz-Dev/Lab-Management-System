@@ -41,9 +41,16 @@ function App() {
   const [reportOrder, setReportOrder] = useState<number | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const isPrintView = page === "report" || page === "receipt";
 
+  const isPrintView = page === "report" || page === "receipt";
   const currentPage = useMemo(() => pageCopy[page], [page]);
+
+  const goToPatient = () => {
+    setSelectedOrder(null);
+    setReportOrder(null);
+    setReceiptOrder(null);
+    setPage("patient");
+  };
 
   const goToDashboard = () => {
     setSelectedOrder(null);
@@ -52,11 +59,30 @@ function App() {
     setPage("dashboard");
   };
 
-  const goToPatient = () => {
+  const goToSettings = () => {
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
-    setPage("patient");
+    setPage("settings");
+  };
+
+  const openResult = (orderId: number) => {
+    setSelectedOrder(orderId);
+    setReportOrder(null);
+    setReceiptOrder(null);
+    setPage("result");
+  };
+
+  const openReport = (orderId: number) => {
+    setReportOrder(orderId);
+    setReceiptOrder(null);
+    setPage("report");
+  };
+
+  const openReceipt = (orderId: number) => {
+    setReceiptOrder(orderId);
+    setReportOrder(null);
+    setPage("receipt");
   };
 
   return (
@@ -72,13 +98,27 @@ function App() {
           </div>
 
           <nav className="app-nav">
-            <button className={`app-nav__item ${page === "patient" ? "app-nav__item--active" : ""}`} onClick={goToPatient}>
+            <button
+              type="button"
+              className={`app-nav__item ${page === "patient" ? "app-nav__item--active" : ""}`}
+              onClick={goToPatient}
+            >
               Patient Intake
             </button>
-            <button className={`app-nav__item ${page === "dashboard" ? "app-nav__item--active" : ""}`} onClick={goToDashboard}>
+
+            <button
+              type="button"
+              className={`app-nav__item ${["dashboard", "result"].includes(page) ? "app-nav__item--active" : ""}`}
+              onClick={goToDashboard}
+            >
               Operations
             </button>
-            <button className={`app-nav__item ${page === "settings" ? "app-nav__item--active" : ""}`} onClick={() => setPage("settings")}>
+
+            <button
+              type="button"
+              className={`app-nav__item ${page === "settings" ? "app-nav__item--active" : ""}`}
+              onClick={goToSettings}
+            >
               Settings
             </button>
           </nav>
@@ -94,15 +134,25 @@ function App() {
         {!isPrintView && (
           <header className="page-header">
             <div className="page-header__left">
-              <button className="sidebar-toggle" type="button" onClick={() => setSidebarOpen((open) => !open)}>
-                <span className="sidebar-toggle__icon">{sidebarOpen ? "❮" : "❯"}</span>
-                <span className="sidebar-toggle__label">{sidebarOpen ? "Hide menu" : "Show menu"}</span>
+              <button
+                className="sidebar-toggle"
+                type="button"
+                onClick={() => setSidebarOpen((open) => !open)}
+              >
+                <span className="sidebar-toggle__icon">
+                  {sidebarOpen ? "❮" : "❯"}
+                </span>
+                <span className="sidebar-toggle__label">
+                  {sidebarOpen ? "Hide menu" : "Show menu"}
+                </span>
               </button>
+
               <div>
                 <h1 className="page-title">{currentPage.title}</h1>
                 <p className="page-subtitle">{currentPage.subtitle}</p>
               </div>
             </div>
+
             <div className="status-pill">
               <span className="status-dot" />
               System Ready
@@ -111,45 +161,53 @@ function App() {
         )}
 
         <div className={`page-content ${isPrintView ? "page-content--print" : ""}`}>
-          {page === "patient" && (
-            <PatientPage
-              onOpenReceipt={(id: number) => {
-                setReceiptOrder(id);
-                setPage("receipt");
-              }}
-            />
-          )}
+          {page === "patient" && <PatientPage onOpenReceipt={openReceipt} />}
 
           {page === "dashboard" && (
-            <LabDashboard
-              onSelectOrder={(id: number) => {
-                setSelectedOrder(id);
-                setPage("result");
-              }}
-              onOpenReceipt={(id: number) => {
-                setReceiptOrder(id);
-                setPage("receipt");
-              }}
-            />
+            <LabDashboard onSelectOrder={openResult} onOpenReceipt={openReceipt} />
           )}
 
           {page === "result" && selectedOrder !== null && (
             <ResultPage
               orderId={selectedOrder}
               onBack={goToDashboard}
-              onViewReport={(id: number) => {
-                setReportOrder(id);
-                setPage("report");
-              }}
+              onViewReport={openReport}
             />
+          )}
+
+          {page === "result" && selectedOrder === null && (
+            <div className="route-empty-state">
+              <strong>No order selected.</strong>
+              <button type="button" onClick={goToDashboard}>
+                Back to Operations
+              </button>
+            </div>
           )}
 
           {page === "report" && reportOrder !== null && (
             <ReportPage orderId={reportOrder} onBack={goToDashboard} />
           )}
 
+          {page === "report" && reportOrder === null && (
+            <div className="route-empty-state">
+              <strong>No report order selected.</strong>
+              <button type="button" onClick={goToDashboard}>
+                Back to Operations
+              </button>
+            </div>
+          )}
+
           {page === "receipt" && receiptOrder !== null && (
             <ReceiptPage orderId={receiptOrder} onBack={goToDashboard} />
+          )}
+
+          {page === "receipt" && receiptOrder === null && (
+            <div className="route-empty-state">
+              <strong>No receipt order selected.</strong>
+              <button type="button" onClick={goToDashboard}>
+                Back to Operations
+              </button>
+            </div>
           )}
 
           {page === "settings" && <SettingsPage />}

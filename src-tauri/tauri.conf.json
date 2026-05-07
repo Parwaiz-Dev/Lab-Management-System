@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "lms",
         "width": 800,
         "height": 600,
@@ -20,7 +21,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline';",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**/*"]
+      }
     }
   },
   "bundle": {

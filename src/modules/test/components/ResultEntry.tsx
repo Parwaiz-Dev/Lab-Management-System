@@ -1,37 +1,75 @@
 import { useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
 import Toast from "../../../components/ui/Toast";
+import type { ToastMessage } from "../../../types";
+import { getErrorMessage, testService } from "../services/testService";
 
-type ResultParameterRow = [
+type ResultParameterTuple = [
   id: number,
   name: string,
   unit: string,
   normalRange: string,
 ];
 
-type ResultEntryProps = {
-  orderId: number;
-  parameters: ResultParameterRow[];
+type ResultParameterObject = {
+  id: number;
+  name: string;
+  unit?: string;
+  normalRange?: string;
+  normal_range?: string;
 };
 
-type ToastState = {
-  message: string;
-  type: "success" | "error" | "warning" | "info";
+type ResultParameterInput = ResultParameterTuple | ResultParameterObject;
+
+type NormalizedParameter = {
+  id: number;
+  name: string;
+  unit: string;
+  normalRange: string;
 };
+
+type ResultEntryProps = {
+  orderId: number;
+  parameters: ResultParameterInput[];
+};
+
+function normalizeParameter(param: ResultParameterInput): NormalizedParameter {
+  if (Array.isArray(param)) {
+    return {
+      id: Number(param[0]),
+      name: String(param[1] || ""),
+      unit: String(param[2] || ""),
+      normalRange: String(param[3] || ""),
+    };
+  }
+
+  return {
+    id: Number(param.id),
+    name: String(param.name || ""),
+    unit: String(param.unit || ""),
+    normalRange: String(param.normalRange || param.normal_range || ""),
+  };
+}
 
 export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
   const [values, setValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  const normalizedParameters = useMemo(() => {
+    return parameters
+      .map(normalizeParameter)
+      .filter((param) => Number.isFinite(param.id) && param.id > 0);
+  }, [parameters]);
 
   const enteredCount = useMemo(() => {
-    return parameters.filter((param) => values[param[0]]?.trim()).length;
-  }, [parameters, values]);
+    return normalizedParameters.filter((param) => values[param.id]?.trim())
+      .length;
+  }, [normalizedParameters, values]);
 
-  const totalCount = parameters.length;
+  const totalCount = normalizedParameters.length;
 
   const handleChange = (id: number, value: string) => {
     setValues((current) => ({
@@ -49,12 +87,20 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
   };
 
   const saveAll = async () => {
-    const rowsToSave = parameters
+    const rowsToSave = normalizedParameters
       .map((param) => ({
-        parameterId: param[0],
-        value: values[param[0]]?.trim(),
+        parameterId: param.id,
+        value: values[param.id]?.trim() || "",
       }))
       .filter((row) => row.value);
+
+    if (!orderId || orderId <= 0) {
+      setToast({
+        message: "Invalid order selected",
+        type: "error",
+      });
+      return;
+    }
 
     if (rowsToSave.length === 0) {
       setToast({
@@ -67,23 +113,19 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
     try {
       setSaving(true);
 
-      for (const row of rowsToSave) {
-        await invoke("save_result", {
-          orderId,
-          parameterId: row.parameterId,
-          value: row.value,
-        });
-      }
+      await testService.saveResults(orderId, rowsToSave);
 
       setToast({
-        message: `${rowsToSave.length} result${rowsToSave.length > 1 ? "s" : ""} saved successfully`,
+        message: `${rowsToSave.length} result${
+          rowsToSave.length > 1 ? "s" : ""
+        } saved successfully`,
         type: "success",
       });
     } catch (err) {
       console.error("Failed to save results:", err);
 
       setToast({
-        message: typeof err === "string" ? err : "Failed to save results",
+        message: getErrorMessage(err, "Failed to save results"),
         type: "error",
       });
     } finally {
@@ -123,12 +165,16 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
             <p>Enter values against each selected sub test.</p>
           </div>
 
-          <Badge tone={enteredCount === totalCount && totalCount > 0 ? "success" : "info"}>
+          <Badge
+            tone={
+              enteredCount === totalCount && totalCount > 0 ? "success" : "info"
+            }
+          >
             {enteredCount}/{totalCount} completed
           </Badge>
         </div>
 
-        {parameters.length === 0 ? (
+        {normalizedParameters.length === 0 ? (
           <div className="result-entry__empty">
             <div className="result-entry__empty-icon">+</div>
             <strong>No parameters found</strong>
@@ -147,37 +193,36 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
             </div>
 
             <div className="result-entry__table-body">
-              {parameters.map((param, index) => {
-                const [id, name, unit, normalRange] = param;
-                const value = values[id] ?? "";
+              {normalizedParameters.map((param, index) => {
+                const value = values[param.id] ?? "";
                 const hasValue = Boolean(value.trim());
 
                 return (
-                  <div key={id} className="result-entry__row">
+                  <div key={param.id} className="result-entry__row">
                     <div className="result-entry__param">
                       <span className="result-entry__serial">
                         {String(index + 1).padStart(2, "0")}
                       </span>
 
                       <div>
-                        <strong>{name}</strong>
-                        <small>Parameter ID: {id}</small>
+                        <strong>{param.name}</strong>
+                        <small>Parameter ID: {param.id}</small>
                       </div>
                     </div>
 
                     <div className="result-entry__muted">
-                      {unit?.trim() || "—"}
+                      {param.unit.trim() || "—"}
                     </div>
 
                     <div className="result-entry__range">
-                      {normalRange?.trim() || "Not defined"}
+                      {param.normalRange.trim() || "Not defined"}
                     </div>
 
                     <Input
                       value={value}
                       placeholder="Enter value"
                       disabled={saving}
-                      onChange={(e) => handleChange(id, e.target.value)}
+                      onChange={(e) => handleChange(param.id, e.target.value)}
                     />
 
                     <Badge tone={hasValue ? "success" : "neutral"}>
@@ -192,6 +237,7 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
 
         <div className="result-entry__actions">
           <Button
+            type="button"
             onClick={clearAll}
             variant="secondary"
             disabled={saving || enteredCount === 0}
@@ -200,11 +246,12 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
           </Button>
 
           <Button
+            type="button"
             onClick={saveAll}
             loading={saving}
-            disabled={saving || parameters.length === 0 || enteredCount === 0}
+            disabled={saving || normalizedParameters.length === 0 || enteredCount === 0}
           >
-            {saving ? "Saving..." : "Save Results"}
+            Save Results
           </Button>
         </div>
       </div>

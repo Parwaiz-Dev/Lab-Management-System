@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import PaymentModal from "../components/PaymentModal";
-import type { DashboardOrderRow } from "../components/PaymentModal";
 import Card from "../../../components/ui/Card";
 import Badge from "../../../components/ui/Badge";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
+import type { DashboardOrderRow, FinancialSummaryTuple } from "../../../types";
+import { money, testService } from "../services/testService";
 
 type LabDashboardProps = {
   onSelectOrder: (orderId: number) => void;
   onOpenReceipt: (orderId: number) => void;
 };
-
-const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
 
 export default function LabDashboard({
   onSelectOrder,
@@ -20,35 +18,34 @@ export default function LabDashboard({
 }: LabDashboardProps) {
   const [orders, setOrders] = useState<DashboardOrderRow[]>([]);
   const [statuses, setStatuses] = useState<Record<number, string>>({});
-  const [summary, setSummary] = useState<[number, number, number]>([0, 0, 0]);
+  const [summary, setSummary] = useState<FinancialSummaryTuple>([0, 0, 0]);
   const [paymentModal, setPaymentModal] = useState<DashboardOrderRow | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   const loadOrders = useCallback(async () => {
-    const data = (await invoke("get_orders")) as DashboardOrderRow[];
+    const data = await testService.getOrders();
     setOrders(data);
 
-    const map: Record<number, string> = {};
-
-    await Promise.all(
+    const statusPairs = await Promise.all(
       data.map(async (order) => {
+        const orderId = order[0];
+
         try {
-          map[order[0]] = (await invoke("get_order_status", {
-            orderId: order[0],
-          })) as string;
+          const status = await testService.getOrderStatus(orderId);
+          return [orderId, status] as const;
         } catch {
-          map[order[0]] = "Pending";
+          return [orderId, "Pending"] as const;
         }
       })
     );
 
-    setStatuses(map);
+    setStatuses(Object.fromEntries(statusPairs));
   }, []);
 
   const loadSummary = useCallback(async () => {
-    const res = await invoke("get_daily_summary");
-    setSummary(res as [number, number, number]);
+    const res = await testService.getDailySummary();
+    setSummary(res);
   }, []);
 
   const loadAll = useCallback(async () => {
@@ -76,7 +73,13 @@ export default function LabDashboard({
     );
   }, [orders, query, statuses]);
 
-  const pendingOrders = orders.filter((order) => order[5] !== "Completed").length;
+  const pendingCollections = orders.filter(
+    (order) => String(order[5]).toLowerCase() !== "completed"
+  ).length;
+
+  const pendingReports = orders.filter(
+    (order) => String(statuses[order[0]] || "Pending").toLowerCase() !== "completed"
+  ).length;
 
   return (
     <div className="lab-dashboard">
@@ -85,13 +88,13 @@ export default function LabDashboard({
           <div className="lab-dashboard__eyebrow">Lab Operations</div>
           <h2>Orders, payments, receipts, and result entry.</h2>
           <p>
-            Track today&apos;s billing, pending collections, and lab report progress
-            from one clean worklist.
+            Track today&apos;s billing, pending collections, and lab report
+            progress from one clean worklist.
           </p>
         </div>
 
         <div className="lab-dashboard__hero-actions">
-          <Button onClick={loadAll} variant="secondary" disabled={loading}>
+          <Button type="button" onClick={loadAll} variant="secondary" disabled={loading}>
             {loading ? "Refreshing..." : "Refresh"}
           </Button>
         </div>
@@ -100,9 +103,10 @@ export default function LabDashboard({
       <div className="lab-dashboard__metrics">
         <Metric title="Total Billing" value={money(summary[0])} tone="info" />
         <Metric title="Collected" value={money(summary[1])} tone="success" />
-        <Metric title="Pending" value={money(summary[2])} tone="danger" />
+        <Metric title="Pending Amount" value={money(summary[2])} tone="danger" />
         <Metric title="Orders" value={String(orders.length)} tone="neutral" />
-        <Metric title="Pending Orders" value={String(pendingOrders)} tone="warning" />
+        <Metric title="Pending Reports" value={String(pendingReports)} tone="warning" />
+        <Metric title="Pending Collections" value={String(pendingCollections)} tone="warning" />
       </div>
 
       <Card
@@ -116,7 +120,7 @@ export default function LabDashboard({
               placeholder="Search patient, test, status"
             />
 
-            <Button onClick={loadAll} variant="secondary" disabled={loading}>
+            <Button type="button" onClick={loadAll} variant="secondary" disabled={loading}>
               Refresh
             </Button>
           </div>
@@ -145,18 +149,24 @@ export default function LabDashboard({
             )}
 
             {!loading &&
-              filteredOrders.map((order) => {
-                const reportStatus = statuses[order[0]] || "Pending";
-                const paymentStatus = order[5];
+              filteredOrders.map((order, index) => {
+                const orderId = Number(order[0]);
+                const reportStatus = statuses[orderId] || "Pending";
+                const paymentStatus = order[5] || "Pending";
                 const total = Number(order[3] || 0);
                 const paid = Number(order[4] || 0);
                 const pending = Math.max(total - paid, 0);
+                const isCompleted =
+                  String(paymentStatus).toLowerCase() === "completed";
 
                 return (
-                  <div key={order[0]} className="lab-dashboard__row">
+                  <div
+                    key={`${orderId}-${index}`}
+                    className="lab-dashboard__row"
+                  >
                     <div className="lab-dashboard__patient">
-                      <strong>{order[1]}</strong>
-                      <span>Order #{order[0]}</span>
+                      <strong>{order[1] || "Unknown Patient"}</strong>
+                      <span>Order #{orderId}</span>
                     </div>
 
                     <div className="lab-dashboard__tests" title={order[2]}>
@@ -175,9 +185,14 @@ export default function LabDashboard({
                     <StatusBadge status={paymentStatus} />
 
                     <div className="lab-dashboard__actions">
-                      {paymentStatus !== "Completed" && (
+                      {!isCompleted && (
                         <Button
-                          onClick={() => setPaymentModal(order)}
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setPaymentModal(order);
+                          }}
                           variant="success"
                         >
                           Pay
@@ -185,14 +200,24 @@ export default function LabDashboard({
                       )}
 
                       <Button
-                        onClick={() => onOpenReceipt(order[0])}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onOpenReceipt(orderId);
+                        }}
                         variant="secondary"
                       >
                         Receipt
                       </Button>
 
                       <Button
-                        onClick={() => onSelectOrder(order[0])}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onSelectOrder(orderId);
+                        }}
                         variant="primary"
                       >
                         Results
@@ -207,6 +232,7 @@ export default function LabDashboard({
 
       {paymentModal && (
         <PaymentModal
+          key={`payment-${paymentModal[0]}`}
           order={paymentModal}
           onClose={() => setPaymentModal(null)}
           onDone={() => {
@@ -238,11 +264,12 @@ function Metric({
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = status || "Pending";
+  const lower = normalized.toLowerCase();
 
   const tone =
-    normalized === "Completed"
+    lower === "completed" || lower === "paid"
       ? "success"
-      : normalized === "Partial"
+      : lower === "partial"
         ? "warning"
         : "danger";
 

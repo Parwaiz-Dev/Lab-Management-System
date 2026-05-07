@@ -13,20 +13,55 @@ export interface CreatePatientPayload {
   referredBy: string | null;
 }
 
+function toErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  return fallback;
+}
+
 export const patientService = {
-  searchPatients(query: string) {
-    return invoke<Patient[]>("search_patients", { query });
+  async searchPatients(query: string): Promise<Patient[]> {
+    const cleaned = query.trim();
+
+    if (cleaned.length < 2) return [];
+
+    try {
+      return await invoke<Patient[]>("search_patients", { query: cleaned });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to search patients"));
+    }
   },
 
-  getDoctors() {
-    return invoke<string[]>("get_doctors");
+  async getDoctors(): Promise<string[]> {
+    try {
+      return await invoke<string[]>("get_doctors");
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to load doctors"));
+    }
   },
 
-  addDoctor(name: string) {
-    return invoke<void>("add_doctor", { name });
+  async addDoctor(name: string): Promise<void> {
+    const cleanedName = name.trim();
+
+    try {
+      await invoke("add_doctor", { name: cleanedName });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to add doctor"));
+    }
   },
 
-  createPatient(payload: CreatePatientPayload) {
-    return invoke<number>("create_patient", payload);
+  async createPatient(payload: CreatePatientPayload): Promise<number> {
+    try {
+      return await invoke<number>("create_patient", {
+        name: payload.name.trim(),
+        ageValue: payload.ageValue,
+        ageUnit: payload.ageUnit,
+        gender: payload.gender,
+        phone: payload.phone?.trim() || null,
+        referredBy: payload.referredBy?.trim() || null,
+      });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to create patient"));
+    }
   },
 };

@@ -1,8 +1,10 @@
 use crate::db::connection::get_connection;
+use crate::db::migrations::run_migrations;
+use crate::db::seeds::seed_data;
 use rusqlite::Result;
 
 pub fn init_db() -> Result<()> {
-    let conn = get_connection();
+    let conn = get_connection()?;
 
     create_tables(&conn)?;
     run_migrations(&conn)?;
@@ -29,49 +31,69 @@ fn create_tables(conn: &rusqlite::Connection) -> Result<()> {
 
         CREATE TABLE IF NOT EXISTS tests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            price REAL
+            name TEXT UNIQUE NOT NULL,
+            price REAL NOT NULL DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            updated_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS test_parameters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            test_id INTEGER,
-            name TEXT,
+            test_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
             unit TEXT,
             normal_range TEXT,
-            UNIQUE(test_id, name)
+            is_active INTEGER DEFAULT 1,
+            updated_at TEXT,
+            UNIQUE(test_id, name),
+            FOREIGN KEY (test_id) REFERENCES tests(id)
         );
 
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             patient_id INTEGER NOT NULL,
-            total_amount REAL,
+            total_amount REAL DEFAULT 0,
+            total_amount_paise INTEGER DEFAULT 0,
             discount_amount REAL DEFAULT 0,
+            discount_amount_paise INTEGER DEFAULT 0,
             paid_amount REAL DEFAULT 0,
+            paid_amount_paise INTEGER DEFAULT 0,
             invoice_no TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (patient_id) REFERENCES patients(id)
         );
 
         CREATE TABLE IF NOT EXISTS order_tests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER,
-            test_id INTEGER,
-            UNIQUE(order_id, test_id)
+            order_id INTEGER NOT NULL,
+            test_id INTEGER NOT NULL,
+            test_name_snapshot TEXT,
+            price_paise INTEGER DEFAULT 0,
+            UNIQUE(order_id, test_id),
+            FOREIGN KEY (order_id) REFERENCES orders(id),
+            FOREIGN KEY (test_id) REFERENCES tests(id)
         );
 
         CREATE TABLE IF NOT EXISTS order_parameters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER,
-            parameter_id INTEGER,
-            UNIQUE(order_id, parameter_id)
+            order_id INTEGER NOT NULL,
+            parameter_id INTEGER NOT NULL,
+            parameter_name_snapshot TEXT,
+            unit_snapshot TEXT,
+            normal_range_snapshot TEXT,
+            UNIQUE(order_id, parameter_id),
+            FOREIGN KEY (order_id) REFERENCES orders(id),
+            FOREIGN KEY (parameter_id) REFERENCES test_parameters(id)
         );
 
         CREATE TABLE IF NOT EXISTS results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER,
-            parameter_id INTEGER,
-            value TEXT,
-            UNIQUE(order_id, parameter_id)
+            order_id INTEGER NOT NULL,
+            parameter_id INTEGER NOT NULL,
+            value TEXT NOT NULL,
+            UNIQUE(order_id, parameter_id),
+            FOREIGN KEY (order_id) REFERENCES orders(id),
+            FOREIGN KEY (parameter_id) REFERENCES test_parameters(id)
         );
 
         CREATE TABLE IF NOT EXISTS settings (
@@ -81,35 +103,8 @@ fn create_tables(conn: &rusqlite::Connection) -> Result<()> {
 
         CREATE TABLE IF NOT EXISTS doctors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE
+            name TEXT UNIQUE NOT NULL
         );
-        ",
-    )?;
-
-    Ok(())
-}
-
-fn run_migrations(conn: &rusqlite::Connection) -> Result<()> {
-    conn.execute("ALTER TABLE orders ADD COLUMN paid_amount REAL DEFAULT 0", [])
-        .ok();
-    conn.execute("ALTER TABLE orders ADD COLUMN invoice_no TEXT", [])
-        .ok();
-    conn.execute("ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT 0", [])
-        .ok();
-
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS order_parameters (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER,
-            parameter_id INTEGER,
-            UNIQUE(order_id, parameter_id)
-        );
-
-        INSERT OR IGNORE INTO order_parameters (order_id, parameter_id)
-        SELECT ot.order_id, tp.id
-        FROM order_tests ot
-        JOIN test_parameters tp ON tp.test_id = ot.test_id;
         ",
     )?;
 
@@ -150,225 +145,6 @@ fn clean_duplicates(conn: &rusqlite::Connection) -> Result<()> {
             GROUP BY order_id, parameter_id
         )
         ",
-        [],
-    )?;
-
-    Ok(())
-}
-
-fn seed_data(conn: &rusqlite::Connection) -> Result<()> {
-    let tests = [
-        (1, "CBC", 300.0),
-        (2, "Hemoglobin", 120.0),
-        (3, "ESR", 120.0),
-        (4, "Blood Group & Rh", 150.0),
-        (5, "Fasting Blood Sugar", 100.0),
-        (6, "Post Prandial Blood Sugar", 100.0),
-        (7, "Random Blood Sugar", 100.0),
-        (8, "HbA1c", 450.0),
-        (9, "Lipid Profile", 700.0),
-        (10, "Liver Function Test", 700.0),
-        (11, "Kidney Function Test", 650.0),
-        (12, "Thyroid Profile T3 T4 TSH", 650.0),
-        (13, "TSH", 300.0),
-        (14, "Urine Routine", 150.0),
-        (15, "Urine Culture", 600.0),
-        (16, "Stool Routine", 180.0),
-        (17, "Malaria Parasite", 250.0),
-        (18, "Dengue NS1", 700.0),
-        (19, "Dengue IgG IgM", 900.0),
-        (20, "Widal Test", 250.0),
-        (21, "CRP", 500.0),
-        (22, "RA Factor", 450.0),
-        (23, "Uric Acid", 220.0),
-        (24, "Calcium", 220.0),
-        (25, "Vitamin D", 1200.0),
-        (26, "Vitamin B12", 900.0),
-        (27, "Ferritin", 900.0),
-        (28, "Iron Profile", 1000.0),
-        (29, "Electrolytes", 550.0),
-        (30, "Sodium", 200.0),
-        (31, "Potassium", 200.0),
-        (32, "Creatinine", 220.0),
-        (33, "Urea", 180.0),
-        (34, "Bilirubin Total Direct", 300.0),
-        (35, "SGOT", 250.0),
-        (36, "SGPT", 250.0),
-        (37, "Alkaline Phosphatase", 280.0),
-        (38, "Total Protein", 250.0),
-        (39, "Albumin", 250.0),
-        (40, "HIV 1 & 2", 500.0),
-        (41, "HBsAg", 400.0),
-        (42, "HCV", 500.0),
-        (43, "VDRL", 300.0),
-        (44, "Pregnancy Test", 150.0),
-        (45, "PSA Total", 900.0),
-        (46, "Prolactin", 700.0),
-        (47, "LH", 700.0),
-        (48, "FSH", 700.0),
-        (49, "Beta HCG", 900.0),
-        (50, "Troponin I", 1400.0),
-        (51, "D-Dimer", 1400.0),
-        (52, "PT INR", 450.0),
-        (53, "APTT", 450.0),
-        (54, "Peripheral Smear", 300.0),
-        (55, "Complete Hemogram", 500.0),
-        (56, "Blood Urea Nitrogen", 180.0),
-        (57, "Microalbumin Urine", 500.0),
-        (58, "Semen Analysis", 500.0),
-        (59, "Typhidot IgM", 550.0),
-        (60, "Chikungunya IgM", 750.0),
-        (61, "H. pylori IgG", 800.0),
-        (62, "Amylase", 450.0),
-        (63, "Lipase", 600.0),
-        (64, "CK-MB", 700.0),
-        (65, "CPK Total", 500.0),
-        (66, "LDH", 500.0),
-        (67, "Magnesium", 450.0),
-        (68, "Phosphorus", 300.0),
-        (69, "ANA", 1200.0),
-        (70, "H. pylori Antigen Stool", 900.0),
-    ];
-
-    for (id, name, price) in tests {
-        conn.execute(
-            "INSERT OR IGNORE INTO tests (id, name, price) VALUES (?1, ?2, ?3)",
-            (id, name, price),
-        )?;
-    }
-
-    conn.execute_batch(
-        "
-        INSERT OR IGNORE INTO test_parameters (test_id, name, unit, normal_range)
-        VALUES
-        (1, 'Hemoglobin', 'g/dL', '12-16'),
-        (1, 'Total WBC Count', '/uL', '4000-11000'),
-        (1, 'RBC Count', 'million/uL', '4.2-5.9'),
-        (1, 'Platelet Count', '/uL', '150000-450000'),
-        (2, 'Hemoglobin', 'g/dL', '12-16'),
-        (3, 'ESR', 'mm/hr', '0-20'),
-        (4, 'Blood Group', '', 'A/B/AB/O'),
-        (4, 'Rh Type', '', 'Positive/Negative'),
-        (5, 'Glucose Fasting', 'mg/dL', '70-100'),
-        (6, 'Glucose PP', 'mg/dL', '70-140'),
-        (7, 'Glucose Random', 'mg/dL', '70-140'),
-        (8, 'HbA1c', '%', '4.0-5.6'),
-        (9, 'Total Cholesterol', 'mg/dL', '<200'),
-        (9, 'Triglycerides', 'mg/dL', '<150'),
-        (9, 'HDL Cholesterol', 'mg/dL', '>40'),
-        (9, 'LDL Cholesterol', 'mg/dL', '<100'),
-        (10, 'Bilirubin Total', 'mg/dL', '0.3-1.2'),
-        (10, 'Bilirubin Direct', 'mg/dL', '0.0-0.3'),
-        (10, 'SGOT/AST', 'U/L', '0-40'),
-        (10, 'SGPT/ALT', 'U/L', '0-45'),
-        (10, 'Alkaline Phosphatase', 'U/L', '44-147'),
-        (10, 'Total Protein', 'g/dL', '6.0-8.3'),
-        (10, 'Albumin', 'g/dL', '3.5-5.2'),
-        (11, 'Urea', 'mg/dL', '15-45'),
-        (11, 'Creatinine', 'mg/dL', '0.6-1.3'),
-        (11, 'Uric Acid', 'mg/dL', '3.5-7.2'),
-        (11, 'BUN', 'mg/dL', '7-20'),
-        (12, 'T3', 'ng/dL', '80-200'),
-        (12, 'T4', 'ug/dL', '5.1-14.1'),
-        (12, 'TSH', 'uIU/mL', '0.4-4.0'),
-        (13, 'TSH', 'uIU/mL', '0.4-4.0'),
-        (14, 'Colour', '', 'Pale yellow'),
-        (14, 'Appearance', '', 'Clear'),
-        (14, 'Protein', '', 'Negative'),
-        (14, 'Sugar', '', 'Negative'),
-        (14, 'Pus Cells', '/HPF', '0-5'),
-        (14, 'RBC', '/HPF', '0-2'),
-        (15, 'Organism Isolated', '', 'No growth'),
-        (15, 'Colony Count', 'CFU/mL', '<100000'),
-        (16, 'Occult Blood', '', 'Negative'),
-        (16, 'Ova/Cyst', '', 'Not seen'),
-        (17, 'Malaria Parasite', '', 'Not detected'),
-        (18, 'Dengue NS1 Antigen', '', 'Negative'),
-        (19, 'Dengue IgG', '', 'Negative'),
-        (19, 'Dengue IgM', '', 'Negative'),
-        (20, 'Widal O', 'titre', '<1:80'),
-        (20, 'Widal H', 'titre', '<1:80'),
-        (21, 'CRP', 'mg/L', '<6'),
-        (22, 'RA Factor', 'IU/mL', '<14'),
-        (23, 'Uric Acid', 'mg/dL', '3.5-7.2'),
-        (24, 'Calcium', 'mg/dL', '8.6-10.2'),
-        (25, 'Vitamin D 25-OH', 'ng/mL', '30-100'),
-        (26, 'Vitamin B12', 'pg/mL', '200-900'),
-        (27, 'Ferritin', 'ng/mL', '30-400'),
-        (28, 'Serum Iron', 'ug/dL', '60-170'),
-        (28, 'TIBC', 'ug/dL', '240-450'),
-        (28, 'Transferrin Saturation', '%', '20-50'),
-        (29, 'Sodium', 'mmol/L', '135-145'),
-        (29, 'Potassium', 'mmol/L', '3.5-5.1'),
-        (29, 'Chloride', 'mmol/L', '98-107'),
-        (30, 'Sodium', 'mmol/L', '135-145'),
-        (31, 'Potassium', 'mmol/L', '3.5-5.1'),
-        (32, 'Creatinine', 'mg/dL', '0.6-1.3'),
-        (33, 'Urea', 'mg/dL', '15-45'),
-        (34, 'Bilirubin Total', 'mg/dL', '0.3-1.2'),
-        (34, 'Bilirubin Direct', 'mg/dL', '0.0-0.3'),
-        (35, 'SGOT/AST', 'U/L', '0-40'),
-        (36, 'SGPT/ALT', 'U/L', '0-45'),
-        (37, 'Alkaline Phosphatase', 'U/L', '44-147'),
-        (38, 'Total Protein', 'g/dL', '6.0-8.3'),
-        (39, 'Albumin', 'g/dL', '3.5-5.2'),
-        (40, 'HIV 1 & 2', '', 'Non-reactive'),
-        (41, 'HBsAg', '', 'Non-reactive'),
-        (42, 'HCV', '', 'Non-reactive'),
-        (43, 'VDRL', '', 'Non-reactive'),
-        (44, 'Pregnancy Test', '', 'Negative'),
-        (45, 'PSA Total', 'ng/mL', '0-4'),
-        (46, 'Prolactin', 'ng/mL', '4-23'),
-        (47, 'LH', 'mIU/mL', '1.7-8.6'),
-        (48, 'FSH', 'mIU/mL', '1.5-12.4'),
-        (49, 'Beta HCG', 'mIU/mL', '<5'),
-        (50, 'Troponin I', 'ng/mL', '<0.04'),
-        (51, 'D-Dimer', 'ng/mL', '<500'),
-        (52, 'PT', 'sec', '11-14'),
-        (52, 'INR', '', '0.8-1.2'),
-        (53, 'APTT', 'sec', '25-35'),
-        (54, 'Peripheral Smear Impression', '', 'Normal morphology'),
-        (55, 'Hemoglobin', 'g/dL', '12-16'),
-        (55, 'Total WBC Count', '/uL', '4000-11000'),
-        (55, 'RBC Count', 'million/uL', '4.2-5.9'),
-        (55, 'Platelet Count', '/uL', '150000-450000'),
-        (55, 'HCT/PCV', '%', '36-46'),
-        (55, 'MCV', 'fL', '80-100'),
-        (55, 'MCH', 'pg', '27-33'),
-        (55, 'MCHC', 'g/dL', '32-36'),
-        (56, 'Blood Urea Nitrogen', 'mg/dL', '7-20'),
-        (57, 'Urine Microalbumin', 'mg/L', '<30'),
-        (58, 'Volume', 'mL', '1.5-5.0'),
-        (58, 'Sperm Count', 'million/mL', '>15'),
-        (58, 'Motility', '%', '>40'),
-        (59, 'Typhidot IgM', '', 'Negative'),
-        (60, 'Chikungunya IgM', '', 'Negative'),
-        (61, 'H. pylori IgG', '', 'Negative'),
-        (62, 'Amylase', 'U/L', '30-110'),
-        (63, 'Lipase', 'U/L', '13-60'),
-        (64, 'CK-MB', 'ng/mL', '<5'),
-        (65, 'CPK Total', 'U/L', '24-195'),
-        (66, 'LDH', 'U/L', '140-280'),
-        (67, 'Magnesium', 'mg/dL', '1.7-2.2'),
-        (68, 'Phosphorus', 'mg/dL', '2.5-4.5'),
-        (69, 'ANA', '', 'Negative'),
-        (70, 'H. pylori Antigen Stool', '', 'Negative');
-        ",
-    )?;
-
-    conn.execute(
-        "
-        INSERT OR IGNORE INTO settings (key, value) VALUES
-        ('lab_name', 'Your Lab'),
-        ('lab_address', 'Your Address'),
-        ('doctor_share', '0.4'),
-        ('lab_logo', '')
-        ",
-        [],
-    )?;
-
-    conn.execute(
-        "INSERT OR IGNORE INTO doctors (name) VALUES ('Dr Default')",
         [],
     )?;
 

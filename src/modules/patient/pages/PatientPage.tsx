@@ -31,7 +31,10 @@ export default function PatientPage({
         }
         className="patient-page__card patient-page__card--patient"
       >
-        <PatientForm onSelectPatient={setSelectedPatient} />
+        <PatientForm
+          selectedPatient={selectedPatient}
+          onSelectPatient={setSelectedPatient}
+        />
       </Card>
 
       {selectedPatient ? (

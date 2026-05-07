@@ -1,25 +1,15 @@
-import { useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useMemo, useState } from "react";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
-
-export type DashboardOrderRow = [
-  id: number,
-  patientName: string,
-  tests: string,
-  totalAmount: number,
-  paidAmount: number,
-  paymentStatus: string,
-];
+import type { DashboardOrderRow } from "../../../types";
+import { getErrorMessage, money, testService } from "../services/testService";
 
 type PaymentModalProps = {
   order: DashboardOrderRow;
   onClose: () => void;
   onDone: () => void;
 };
-
-const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
 
 export default function PaymentModal({
   order,
@@ -30,23 +20,38 @@ export default function PaymentModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const orderId = order[0];
-  const patientName = order[1];
-  const tests = order[2];
-  const total = Number(order[3] || 0);
-  const paid = Number(order[4] || 0);
-  const paymentStatus = order[5];
+  const [orderId, patientName, tests, totalAmount, paidAmount, paymentStatus] =
+    order;
 
+  const total = Number(totalAmount || 0);
+  const paid = Number(paidAmount || 0);
   const remaining = Math.max(total - paid, 0);
+
+  const paymentValue = Number(amount || 0);
 
   const progressPercent = useMemo(() => {
     if (!total) return 0;
     return Math.min(Math.round((paid / total) * 100), 100);
   }, [paid, total]);
 
-  const paymentValue = Number(amount || 0);
   const afterPaymentPaid = Math.min(paid + paymentValue, total);
   const afterPaymentPending = Math.max(total - afterPaymentPaid, 0);
+
+  const canSubmit =
+    !saving &&
+    remaining > 0 &&
+    paymentValue > 0 &&
+    paymentValue <= remaining;
+
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving) onClose();
+    };
+
+    window.addEventListener("keydown", onEscape);
+
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [onClose, saving]);
 
   const handleAmountChange = (value: string) => {
     setAmount(value);
@@ -75,16 +80,13 @@ export default function PaymentModal({
       setSaving(true);
       setError("");
 
-      await invoke("update_payment", {
-        orderId,
-        paidAmount: paid + pay,
-      });
+      await testService.updatePayment(orderId, paid + pay);
 
       onDone();
       onClose();
     } catch (err) {
       console.error("Failed to record payment:", err);
-      setError(typeof err === "string" ? err : "Failed to record payment");
+      setError(getErrorMessage(err, "Failed to record payment"));
     } finally {
       setSaving(false);
     }
@@ -96,8 +98,11 @@ export default function PaymentModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="payment-modal-title"
+      onClick={() => {
+        if (!saving) onClose();
+      }}
     >
-      <div className="payment-modal">
+      <div className="payment-modal" onClick={(event) => event.stopPropagation()}>
         <div className="payment-modal__topbar" />
 
         <header className="payment-modal__header">
@@ -121,6 +126,7 @@ export default function PaymentModal({
               className="payment-modal__close"
               onClick={onClose}
               disabled={saving}
+              aria-label="Close payment modal"
             >
               ×
             </button>
@@ -176,6 +182,10 @@ export default function PaymentModal({
               onChange={(e) => handleAmountChange(e.target.value)}
               placeholder="Enter amount"
               type="number"
+              min={0}
+              max={remaining}
+              step="0.01"
+              autoFocus
               disabled={saving || remaining <= 0}
             />
 
@@ -239,11 +249,7 @@ export default function PaymentModal({
             Cancel
           </Button>
 
-          <Button
-            onClick={handleSubmit}
-            variant="success"
-            disabled={saving || remaining <= 0}
-          >
+          <Button onClick={handleSubmit} variant="success" disabled={!canSubmit}>
             {saving ? "Saving..." : "Confirm Payment"}
           </Button>
         </footer>
