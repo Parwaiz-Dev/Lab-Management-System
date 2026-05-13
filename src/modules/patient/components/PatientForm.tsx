@@ -245,7 +245,7 @@ export default function PatientForm({
   };
 
   return (
-    <div className="patient-form">
+    <div className="patient-form patient-form-v3">
       <div className="patient-form__search">
         <label className="form-label" htmlFor="patient-name">
           Find or create patient
