@@ -91,20 +91,24 @@ export default function TestSelector({
   }, [patient?.id]);
 
   const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const query = search.trim().toLowerCase();
 
-    const list = query
-      ? tests.filter((test) => {
-          const parameterMatch = test.parameters.some((param) =>
-            param.name.toLowerCase().includes(query)
-          );
+  if (!query) return [];
 
-          return test.name.toLowerCase().includes(query) || parameterMatch;
-        })
-      : tests;
+  return tests
+    .filter((test) => {
+      const parameterMatch = test.parameters.some((param) =>
+        param.name.toLowerCase().includes(query)
+      );
 
-    return list.slice(0, 10);
-  }, [search, tests]);
+      return test.name.toLowerCase().includes(query) || parameterMatch;
+    })
+    .slice(0, 10);
+}, [search, tests]);
+
+const shouldShowCatalogDropdown = search.trim().length > 0 && filtered.length > 0;
+const shouldShowNoCatalogResult =
+  search.trim().length > 0 && !loadingTests && filtered.length === 0;
 
   const addTest = (test: Test) => {
     setSelected((prev) => {
@@ -357,30 +361,36 @@ export default function TestSelector({
             disabled={saving || loadingTests}
           />
 
-          {(search || selected.length === 0) && filtered.length > 0 && (
-            <div className="test-selector__catalog-list">
-              {filtered.map((test) => (
-                <button
-                  key={test.id}
-                  type="button"
-                  onClick={() => addTest(test)}
-                  className="test-selector__catalog-item"
-                  disabled={saving}
-                >
-                  <span>
-                    <strong>{test.name}</strong>
-                    <span className="test-selector__catalog-meta">
-                      {test.parameters.length} sub tests
-                    </span>
-                  </span>
+          {shouldShowCatalogDropdown && (
+  <div className="test-selector__catalog-list">
+    {filtered.map((test) => (
+      <button
+        key={test.id}
+        type="button"
+        onClick={() => addTest(test)}
+        className="test-selector__catalog-item"
+        disabled={saving}
+      >
+        <span>
+          <strong>{test.name}</strong>
+          <span className="test-selector__catalog-meta">
+            {test.parameters.length} sub tests
+          </span>
+        </span>
 
-                  <span className="test-selector__catalog-price">
-                    {money(test.price)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+        <span className="test-selector__catalog-price">
+          {money(test.price)}
+        </span>
+      </button>
+    ))}
+  </div>
+)}
+
+{shouldShowNoCatalogResult && (
+  <div className="test-selector__catalog-empty">
+    No matching tests found.
+  </div>
+)}
         </div>
       </section>
 

@@ -4,7 +4,7 @@ import Card from "../../../components/ui/Card";
 import Badge from "../../../components/ui/Badge";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
-import type { DashboardOrderRow, FinancialSummaryTuple } from "../../../types";
+import type { DashboardOrderRow } from "../../../types";
 import { money, testService } from "../services/testService";
 
 type LabDashboardProps = {
@@ -18,7 +18,6 @@ export default function LabDashboard({
 }: LabDashboardProps) {
   const [orders, setOrders] = useState<DashboardOrderRow[]>([]);
   const [statuses, setStatuses] = useState<Record<number, string>>({});
-  const [summary, setSummary] = useState<FinancialSummaryTuple>([0, 0, 0]);
   const [paymentModal, setPaymentModal] = useState<DashboardOrderRow | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -29,7 +28,7 @@ export default function LabDashboard({
 
     const statusPairs = await Promise.all(
       data.map(async (order) => {
-        const orderId = order[0];
+        const orderId = Number(order[0]);
 
         try {
           const status = await testService.getOrderStatus(orderId);
@@ -43,19 +42,14 @@ export default function LabDashboard({
     setStatuses(Object.fromEntries(statusPairs));
   }, []);
 
-  const loadSummary = useCallback(async () => {
-    const res = await testService.getDailySummary();
-    setSummary(res);
-  }, []);
-
   const loadAll = useCallback(async () => {
     try {
       setLoading(true);
-      await Promise.all([loadOrders(), loadSummary()]);
+      await loadOrders();
     } finally {
       setLoading(false);
     }
-  }, [loadOrders, loadSummary]);
+  }, [loadOrders]);
 
   useEffect(() => {
     void loadAll();
@@ -67,7 +61,7 @@ export default function LabDashboard({
     if (!text) return orders;
 
     return orders.filter((order) =>
-      `${order[1]} ${order[2]} ${order[5]} ${statuses[order[0]] || ""}`
+      `${order[1]} ${order[2]} ${order[5]} ${statuses[Number(order[0])] || ""}`
         .toLowerCase()
         .includes(text)
     );
@@ -78,35 +72,25 @@ export default function LabDashboard({
   ).length;
 
   const pendingReports = orders.filter(
-    (order) => String(statuses[order[0]] || "Pending").toLowerCase() !== "completed"
+    (order) =>
+      String(statuses[Number(order[0])] || "Pending").toLowerCase() !==
+      "completed"
   ).length;
 
   return (
     <div className="lab-dashboard">
-      <section className="lab-dashboard__hero">
-        <div>
-          <div className="lab-dashboard__eyebrow">Lab Operations</div>
-          <h2>Orders, payments, receipts, and result entry.</h2>
-          <p>
-            Track today&apos;s billing, pending collections, and lab report
-            progress from one clean worklist.
-          </p>
-        </div>
-
-        <div className="lab-dashboard__hero-actions">
-          <Button type="button" onClick={loadAll} variant="secondary" disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
-          </Button>
-        </div>
-      </section>
-
       <div className="lab-dashboard__metrics">
-        <Metric title="Total Billing" value={money(summary[0])} tone="info" />
-        <Metric title="Collected" value={money(summary[1])} tone="success" />
-        <Metric title="Pending Amount" value={money(summary[2])} tone="danger" />
         <Metric title="Orders" value={String(orders.length)} tone="neutral" />
-        <Metric title="Pending Reports" value={String(pendingReports)} tone="warning" />
-        <Metric title="Pending Collections" value={String(pendingCollections)} tone="warning" />
+        <Metric
+          title="Pending Reports"
+          value={String(pendingReports)}
+          tone="warning"
+        />
+        <Metric
+          title="Pending Collections"
+          value={String(pendingCollections)}
+          tone="warning"
+        />
       </div>
 
       <Card
@@ -120,8 +104,13 @@ export default function LabDashboard({
               placeholder="Search patient, test, status"
             />
 
-            <Button type="button" onClick={loadAll} variant="secondary" disabled={loading}>
-              Refresh
+            <Button
+              type="button"
+              onClick={loadAll}
+              variant="secondary"
+              disabled={loading}
+            >
+              {loading ? "Refreshing..." : "Refresh"}
             </Button>
           </div>
         }
@@ -237,7 +226,6 @@ export default function LabDashboard({
           onClose={() => setPaymentModal(null)}
           onDone={() => {
             void loadOrders();
-            void loadSummary();
           }}
         />
       )}

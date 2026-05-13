@@ -6943,3 +6943,675 @@ select.ui-input {
         flex-direction: column;
     }
 }
+/* ================================
+   Patient Intake Compact Layout
+   Append at END of global.css
+================================ */
+
+.patient-page.patient-page--intake-grid {
+    display: grid !important;
+    grid-template-columns: minmax(430px, 0.9fr) minmax(520px, 1.1fr);
+    grid-template-areas:
+        "patient tests"
+        "billing billing";
+    gap: 18px;
+    align-items: start;
+    width: 100%;
+    max-width: 100%;
+}
+
+.patient-page--intake-grid .patient-page__card--patient {
+    grid-area: patient;
+    min-width: 0;
+}
+
+.patient-page--intake-grid .patient-page__card--tests {
+    grid-area: tests;
+    min-width: 0;
+}
+
+.patient-page--intake-grid .patient-page__card--billing {
+    grid-area: billing;
+    min-width: 0;
+}
+
+.patient-page--intake-grid .ui-card {
+    margin: 0 !important;
+}
+
+.patient-page--intake-grid .ui-card__header {
+    padding: 18px 20px 10px !important;
+}
+
+.patient-page--intake-grid .ui-card__body {
+    padding: 14px 20px 18px !important;
+}
+
+/* Patient form compact spacing */
+.patient-form--compact {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.patient-form--compact .patient-form__search {
+    margin: 0;
+}
+
+.patient-form--compact .patient-form__search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+}
+
+.patient-form--compact .patient-form__grid {
+    display: grid;
+    grid-template-columns: 0.7fr 0.9fr 0.9fr 1fr;
+    gap: 10px;
+    margin: 0;
+}
+
+.patient-form--compact .patient-form__doctor-panel {
+    display: grid;
+    grid-template-columns: minmax(190px, 0.85fr) minmax(260px, 1.15fr);
+    gap: 12px;
+    align-items: end;
+    padding: 12px;
+    border: 1px solid #d9e3ec;
+    border-radius: 14px;
+    background: #f8fbfd;
+}
+
+.patient-form--compact .patient-form__add-doctor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.patient-form--compact .patient-form__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 0;
+}
+
+.patient-form--compact .form-field {
+    gap: 5px;
+}
+
+.patient-form--compact .form-label {
+    margin-bottom: 5px;
+    color: #14213d;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.patient-form--compact .ui-input,
+.patient-form--compact select.ui-input {
+    min-height: 40px !important;
+    height: 40px !important;
+    padding: 0 12px !important;
+    font-size: 14px !important;
+    border-radius: 11px !important;
+}
+
+.patient-form--compact .ui-button {
+    min-height: 40px !important;
+    padding: 0 14px !important;
+}
+
+.patient-form--compact .ui-badge {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.patient-form--compact .patient-suggestions {
+    position: absolute;
+    z-index: 50;
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    max-height: 230px;
+    overflow: auto;
+    border-radius: 14px;
+    box-shadow: 0 18px 42px rgba(20, 33, 61, 0.14);
+}
+
+.patient-form--compact .patient-form__search {
+    position: relative;
+}
+
+/* Test selector compact alignment */
+.patient-page--intake-grid .test-selector__content {
+    display: grid;
+    gap: 12px;
+}
+
+.patient-page--intake-grid .test-selector__section {
+    padding: 0;
+}
+
+.patient-page--intake-grid .test-selector__section-head {
+    margin-bottom: 10px;
+}
+
+.patient-page--intake-grid .test-selector__section-title {
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.patient-page--intake-grid .test-selector__section-subtitle {
+    font-size: 12px;
+}
+
+.patient-page--intake-grid .test-selector__search {
+    position: relative;
+}
+
+.patient-page--intake-grid .test-selector__catalog-list {
+    max-height: 245px;
+    overflow: auto;
+    border-radius: 14px;
+}
+
+.patient-page--intake-grid .test-selector__catalog-item {
+    min-height: 48px;
+    padding: 10px 12px;
+}
+
+.patient-page--intake-grid .test-selector__selected-list {
+    max-height: 230px;
+    overflow: auto;
+}
+
+.patient-page--intake-grid .test-selector__selected-item {
+    padding: 10px 12px;
+    border-radius: 13px;
+}
+
+/* Billing below, cleaner and less tall */
+.patient-page--intake-grid .patient-page__card--billing {
+    max-width: 100%;
+}
+
+.patient-page--intake-grid .test-selector__billing {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.8fr) auto;
+    gap: 14px;
+    align-items: stretch;
+}
+
+.patient-page--intake-grid .test-selector__bill-card,
+.patient-page--intake-grid .billing-summary,
+.patient-page--intake-grid .payment-panel {
+    margin: 0 !important;
+}
+
+.patient-page--intake-grid .test-selector__bill-card {
+    min-height: 140px;
+}
+
+.patient-page--intake-grid .billing-summary {
+    min-height: 140px;
+}
+
+.patient-page--intake-grid .test-selector__billing>.ui-button,
+.patient-page--intake-grid .test-selector__billing-actions {
+    align-self: end;
+}
+
+/* Empty states should not waste space */
+.patient-page--intake-grid .empty-state,
+.patient-page--intake-grid .test-selector__empty {
+    min-height: 82px;
+    padding: 18px;
+    border-radius: 14px;
+}
+
+/* Responsive fallback */
+@media (max-width: 1180px) {
+    .patient-page.patient-page--intake-grid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "patient"
+            "tests"
+            "billing";
+    }
+
+    .patient-page--intake-grid .test-selector__billing {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .patient-form--compact .patient-form__grid,
+    .patient-form--compact .patient-form__doctor-panel,
+    .patient-form--compact .patient-form__search-row {
+        grid-template-columns: 1fr;
+    }
+
+    .patient-form--compact .patient-form__actions {
+        justify-content: stretch;
+    }
+
+    .patient-form--compact .patient-form__actions .ui-button {
+        width: 100%;
+    }
+}
+/* ======================================================
+   PATIENT INTAKE V3 - FORCE OVERRIDE
+   Keep this at the VERY END of global.css
+====================================================== */
+
+.patient-intake-layout-v3 {
+    display: grid !important;
+    grid-template-columns: minmax(430px, 0.95fr) minmax(520px, 1.05fr) !important;
+    grid-template-areas:
+        "patient tests"
+        "billing billing" !important;
+    gap: 18px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    align-items: start !important;
+}
+
+.patient-intake-layout-v3__patient {
+    grid-area: patient !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+.patient-intake-layout-v3>.patient-page__card--tests {
+    grid-area: tests !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    display: block !important;
+}
+
+.patient-intake-layout-v3>.patient-page__card--billing {
+    grid-area: billing !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    display: block !important;
+}
+
+/* Stop old patient-page styles from forcing full width */
+.patient-intake-layout-v3 .patient-page__card,
+.patient-intake-layout-v3 .ui-card {
+    margin: 0 !important;
+    max-width: none !important;
+}
+
+/* Compact card spacing */
+.patient-intake-layout-v3 .ui-card__header {
+    padding: 14px 18px 8px !important;
+}
+
+.patient-intake-layout-v3 .ui-card__body {
+    padding: 12px 18px 16px !important;
+}
+
+/* Patient form compact */
+.patient-form-v3 {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+}
+
+.patient-form-v3 .patient-form__search {
+    position: relative !important;
+    margin: 0 !important;
+}
+
+.patient-form-v3 .patient-form__search-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px !important;
+    align-items: center !important;
+}
+
+.patient-form-v3 .patient-form__grid {
+    display: grid !important;
+    grid-template-columns: 0.7fr 0.9fr 0.9fr 1fr !important;
+    gap: 8px !important;
+    margin: 0 !important;
+}
+
+.patient-form-v3 .patient-form__doctor-panel {
+    display: grid !important;
+    grid-template-columns: minmax(160px, 0.85fr) minmax(240px, 1.15fr) !important;
+    gap: 10px !important;
+    align-items: end !important;
+    padding: 10px !important;
+    border: 1px solid #d9e3ec !important;
+    border-radius: 13px !important;
+    background: #f8fbfd !important;
+}
+
+.patient-form-v3 .patient-form__add-doctor {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px !important;
+    align-items: end !important;
+}
+
+.patient-form-v3 .patient-form__actions {
+    display: flex !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    margin-top: 4px !important;
+}
+
+.patient-form-v3 .form-label {
+    margin-bottom: 4px !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+}
+
+.patient-form-v3 .form-field {
+    gap: 4px !important;
+}
+
+.patient-form-v3 .ui-input,
+.patient-form-v3 select.ui-input {
+    min-height: 38px !important;
+    height: 38px !important;
+    padding: 0 11px !important;
+    font-size: 14px !important;
+    border-radius: 10px !important;
+}
+
+.patient-form-v3 .ui-button {
+    min-height: 38px !important;
+    height: 38px !important;
+    padding: 0 14px !important;
+}
+
+/* Patient suggestions overlay */
+.patient-form-v3 .patient-suggestions {
+    position: absolute !important;
+    top: calc(100% + 6px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 9999 !important;
+    max-height: 220px !important;
+    overflow-y: auto !important;
+    border-radius: 14px !important;
+    background: #ffffff !important;
+    box-shadow: 0 18px 42px rgba(20, 33, 61, 0.16) !important;
+}
+
+/* Test selector should be visible before patient selection */
+.patient-intake-layout-v3 .patient-page__card--tests {
+    min-height: 360px !important;
+}
+
+.patient-intake-layout-v3 .test-selector__content {
+    display: grid !important;
+    gap: 12px !important;
+}
+
+.patient-intake-layout-v3 .test-selector__catalog-list {
+    max-height: 210px !important;
+    overflow-y: auto !important;
+}
+
+.patient-intake-layout-v3 .test-selector__selected-list {
+    max-height: 165px !important;
+    overflow-y: auto !important;
+}
+
+.patient-intake-layout-v3 .test-selector__catalog-item,
+.patient-intake-layout-v3 .test-selector__selected-item {
+    padding: 10px 12px !important;
+    min-height: 46px !important;
+}
+
+/* Billing full width below */
+.patient-intake-layout-v3 .patient-page__card--billing .test-selector__billing {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 420px) auto !important;
+    gap: 14px !important;
+    align-items: stretch !important;
+}
+
+.patient-intake-layout-v3 .test-selector__bill-card,
+.patient-intake-layout-v3 .billing-summary {
+    margin: 0 !important;
+    min-height: 130px !important;
+}
+
+.patient-intake-layout-v3 .test-selector__billing>.ui-button {
+    align-self: end !important;
+    min-width: 150px !important;
+}
+
+/* Remove large empty height */
+.patient-intake-layout-v3 .test-selector__empty,
+.patient-intake-layout-v3 .empty-state {
+    min-height: 72px !important;
+    padding: 16px !important;
+}
+
+/* Responsive */
+@media (max-width: 1280px) {
+    .patient-intake-layout-v3 {
+        grid-template-columns: 1fr !important;
+        grid-template-areas:
+            "patient"
+            "tests"
+            "billing" !important;
+    }
+
+    .patient-intake-layout-v3 .patient-page__card--billing .test-selector__billing {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .patient-form-v3 .patient-form__grid,
+    .patient-form-v3 .patient-form__doctor-panel,
+    .patient-form-v3 .patient-form__search-row {
+        grid-template-columns: 1fr !important;
+    }
+}
+.test-selector__search {
+    position: relative !important;
+}
+
+.test-selector__catalog-list {
+    position: absolute !important;
+    top: calc(100% + 8px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 9999 !important;
+    max-height: 230px !important;
+    overflow-y: auto !important;
+    background: #ffffff !important;
+    border: 1px solid #d9e3ec !important;
+    border-radius: 14px !important;
+    box-shadow: 0 18px 42px rgba(20, 33, 61, 0.16) !important;
+}
+
+.test-selector__catalog-empty {
+    position: absolute !important;
+    top: calc(100% + 8px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 9999 !important;
+    padding: 14px 16px !important;
+    background: #ffffff !important;
+    border: 1px solid #d9e3ec !important;
+    border-radius: 14px !important;
+    color: #66788a !important;
+    font-weight: 700 !important;
+    box-shadow: 0 18px 42px rgba(20, 33, 61, 0.12) !important;
+}
+/* =========================================================
+   Patient Intake V3 - Final Layout Fix
+   Patient left top, Billing left bottom, Test Order right
+   ========================================================= */
+
+.patient-intake-layout-v3 {
+    display: grid !important;
+    grid-template-columns: minmax(430px, 0.9fr) minmax(520px, 1.1fr) !important;
+    grid-template-areas:
+        "patient tests"
+        "billing tests" !important;
+    gap: 22px !important;
+    align-items: start !important;
+    width: 100% !important;
+    max-width: 1500px !important;
+    margin: 0 auto !important;
+    padding: 22px 28px 36px !important;
+}
+
+/* Patient card should stay left top */
+.patient-intake-layout-v3>.patient-page__card--patient,
+.patient-intake-layout-v3>.patient-intake-layout-v3__patient {
+    grid-area: patient !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    align-self: start !important;
+}
+
+/* Test card should stay on the right and use height only as needed */
+.patient-intake-layout-v3>.patient-page__card--tests {
+    grid-area: tests !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    align-self: start !important;
+}
+
+/* Billing should move below Patient, not full page width */
+.patient-intake-layout-v3>.patient-page__card--billing {
+    grid-area: billing !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    align-self: start !important;
+}
+
+/* Reduce big empty card spacing */
+.patient-intake-layout-v3 .ui-card,
+.patient-intake-layout-v3 .patient-page__card {
+    margin: 0 !important;
+}
+
+/* Make patient form more compact */
+.patient-form-v3,
+.patient-intake-layout-v3 .patient-form {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+}
+
+.patient-intake-layout-v3 .patient-form__grid {
+    display: grid !important;
+    grid-template-columns: 0.8fr 0.9fr 0.9fr 1fr !important;
+    gap: 10px !important;
+}
+
+.patient-intake-layout-v3 .patient-form__doctor-panel {
+    display: grid !important;
+    grid-template-columns: 1fr 1.35fr !important;
+    gap: 10px !important;
+    padding: 12px !important;
+}
+
+.patient-intake-layout-v3 .patient-form__actions {
+    margin-top: 6px !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+}
+
+.patient-intake-layout-v3 .form-label {
+    margin-bottom: 5px !important;
+    font-size: 12px !important;
+}
+
+.patient-intake-layout-v3 .ui-input,
+.patient-intake-layout-v3 input,
+.patient-intake-layout-v3 select {
+    min-height: 42px !important;
+}
+
+/* Test order card compact */
+.patient-intake-layout-v3 .test-selector__content {
+    gap: 14px !important;
+}
+
+.patient-intake-layout-v3 .test-selector__section {
+    padding: 14px !important;
+}
+
+.patient-intake-layout-v3 .test-selector__selected-list {
+    max-height: 210px !important;
+    overflow-y: auto !important;
+    padding-right: 6px !important;
+}
+
+/* Billing compact below Patient */
+.patient-intake-layout-v3 .patient-page__card--billing .test-selector__billing {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 14px !important;
+}
+
+.patient-intake-layout-v3 .patient-page__card--billing .test-selector__bill-card {
+    max-height: 210px !important;
+    overflow: hidden !important;
+}
+
+.patient-intake-layout-v3 .patient-page__card--billing .test-selector__bill-list {
+    max-height: 145px !important;
+    overflow-y: auto !important;
+    padding-right: 6px !important;
+}
+
+.patient-intake-layout-v3 .patient-page__card--billing .billing-summary {
+    padding: 14px !important;
+}
+
+.patient-intake-layout-v3 .patient-page__card--billing .billing-summary__total {
+    padding-top: 14px !important;
+    margin-top: 12px !important;
+}
+
+.patient-intake-layout-v3 .patient-page__card--billing .test-selector__billing>button,
+.patient-intake-layout-v3 .patient-page__card--billing .test-selector__billing-actions {
+    width: 100% !important;
+}
+
+.patient-intake-layout-v3 .patient-page__card--billing .test-selector__billing>button {
+    min-height: 48px !important;
+}
+
+/* Keep dropdown above cards */
+.patient-intake-layout-v3 .test-selector__search {
+    position: relative !important;
+    z-index: 20 !important;
+}
+
+.patient-intake-layout-v3 .test-selector__catalog-list,
+.patient-intake-layout-v3 .test-selector__catalog-empty {
+    z-index: 9999 !important;
+}
+
+/* Responsive */
+@media (max-width: 1180px) {
+    .patient-intake-layout-v3 {
+        grid-template-columns: 1fr !important;
+        grid-template-areas:
+            "patient"
+            "tests"
+            "billing" !important;
+        padding: 18px !important;
+    }
+}
