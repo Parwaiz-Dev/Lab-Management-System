@@ -398,9 +398,6 @@ const shouldShowNoCatalogResult =
         <div className="test-selector__section-head">
           <div>
             <div className="test-selector__section-title">Selected Tests</div>
-            <div className="test-selector__section-subtitle">
-              Click a test to choose sub tests.
-            </div>
           </div>
 
           <Badge tone={selected.length ? "success" : "neutral"}>
