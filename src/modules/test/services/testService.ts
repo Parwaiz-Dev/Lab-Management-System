@@ -1,14 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   DashboardOrderRow,
+  DoctorRevenueRow,
   FinancialSummaryTuple,
   OrderParameter,
+  PaymentHistoryEntry,
   ReceiptData,
   ReceiptLine,
   ReportPatientInfo,
   ReportRow,
   ResultValuePayload,
   Test,
+  UpdateOrderPayload,
 } from "../../../types";
 
 type ExistingResultRow = [parameterId: number, value: string];
@@ -242,11 +245,65 @@ export const testService = {
     return invoke<string>("get_order_status", { orderId });
   },
 
+  async getOrdersByDateRange(
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<DashboardOrderRow[]> {
+    const rows = await invoke<unknown>("get_orders_by_date_range", {
+      dateFrom,
+      dateTo,
+    });
+    const list = Array.isArray(rows) ? rows : [];
+    return list.map(normalizeDashboardOrder).filter((row) => row[0] > 0);
+  },
+
+  async getDoctorRevenue(
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<DoctorRevenueRow[]> {
+    const rows = await invoke<unknown>("get_doctor_revenue", {
+      dateFrom,
+      dateTo,
+    });
+    const list = Array.isArray(rows) ? rows : [];
+    return list.map((row) => {
+      if (Array.isArray(row)) {
+        return {
+          doctor_name: toText(row[0]),
+          order_count: toNumber(row[1]),
+          total_amount: toNumber(row[2]),
+          paid_amount: toNumber(row[3]),
+          pending_amount: toNumber(row[4]),
+        };
+      }
+      const item = row as Record<string, unknown>;
+      return {
+        doctor_name: toText(item.doctor_name ?? item.doctorName),
+        order_count: toNumber(item.order_count ?? item.orderCount),
+        total_amount: toNumber(item.total_amount ?? item.totalAmount),
+        paid_amount: toNumber(item.paid_amount ?? item.paidAmount),
+        pending_amount: toNumber(item.pending_amount ?? item.pendingAmount),
+      };
+    });
+  },
+
   updatePayment(orderId: number, paidAmount: number): Promise<string> {
     return invoke<string>("update_payment", {
       orderId,
       paidAmount,
     });
+  },
+
+  cancelOrder(orderId: number): Promise<void> {
+    return invoke<void>("cancel_order", { orderId });
+  },
+
+  updateOrder(orderId: number, payload: UpdateOrderPayload): Promise<void> {
+    return invoke<void>("update_order", { orderId, payload });
+  },
+
+  updateOrderStatus(orderId: number, newStatus: string): Promise<void> {
+    return invoke<void>("update_order_status", { orderId, newStatus });
   },
 
   async getDailySummary(): Promise<FinancialSummaryTuple> {
@@ -257,6 +314,32 @@ export const testService = {
   async getOverallSummary(): Promise<FinancialSummaryTuple> {
     const row = await invoke<unknown>("get_overall_summary");
     return normalizeSummary(row);
+  },
+
+  async getPaymentHistory(orderId: number): Promise<PaymentHistoryEntry[]> {
+    const rows = await invoke<unknown>("get_payment_history", { orderId });
+    const list = Array.isArray(rows) ? rows : [];
+    return list.map((row) => {
+      if (Array.isArray(row)) {
+        return {
+          id: toNumber(row[0]),
+          order_id: toNumber(row[1]),
+          previous_paid: toNumber(row[2]),
+          new_paid: toNumber(row[3]),
+          total_amount: toNumber(row[4]),
+          created_at: toText(row[5]),
+        };
+      }
+      const item = row as Record<string, unknown>;
+      return {
+        id: toNumber(item.id),
+        order_id: toNumber(item.order_id ?? item.orderId),
+        previous_paid: toNumber(item.previous_paid ?? item.previousPaid),
+        new_paid: toNumber(item.new_paid ?? item.newPaid),
+        total_amount: toNumber(item.total_amount ?? item.totalAmount),
+        created_at: toText(item.created_at ?? item.createdAt),
+      };
+    });
   },
 
   async getParametersByOrder(orderId: number): Promise<OrderParameter[]> {

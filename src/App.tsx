@@ -6,11 +6,12 @@ import ReportPage from "./modules/test/pages/ReportPage";
 import SettingsPage from "./modules/settings/pages/SettingsPage";
 import ReceiptPage from "./modules/test/pages/ReceiptPage";
 import AuditPage from "./modules/audit/pages/AuditPage";
+import PatientHistoryPage from "./modules/patient/pages/PatientHistoryPage";
 import LoginPage from "./modules/auth/pages/LoginPage";
 import { authService } from "./modules/auth/services/authService";
 import type { SessionInfo } from "./types";
 
-type Page = "patient" | "dashboard" | "result" | "report" | "settings" | "receipt" | "audit";
+type Page = "patient" | "dashboard" | "result" | "report" | "settings" | "receipt" | "audit" | "history";
 
 const pageCopy: Record<Page, { title: string; subtitle: string }> = {
   patient: {
@@ -40,6 +41,10 @@ const pageCopy: Record<Page, { title: string; subtitle: string }> = {
   audit: {
     title: "Audit Log",
     subtitle: "Review system activity and change history.",
+  },
+  history: {
+    title: "Patient History",
+    subtitle: "Search patients and view orders, payments, reports, and test results.",
   },
 };
 
@@ -106,6 +111,13 @@ function App() {
     setReportOrder(null);
     setReceiptOrder(null);
     setPage("audit");
+  };
+
+  const goToHistory = () => {
+    setSelectedOrder(null);
+    setReportOrder(null);
+    setReceiptOrder(null);
+    setPage("history");
   };
 
   const openResult = (orderId: number) => {
@@ -188,7 +200,15 @@ function App() {
               Settings
             </button>
 
-            {session.role === "Admin" && (
+            <button
+              type="button"
+              className={`app-nav__item ${page === "history" ? "app-nav__item--active" : ""}`}
+              onClick={goToHistory}
+            >
+              Patient History
+            </button>
+
+            {session.role === "admin" && (
               <button
                 type="button"
                 className={`app-nav__item ${page === "audit" ? "app-nav__item--active" : ""}`}
@@ -302,6 +322,13 @@ function App() {
           {page === "settings" && <SettingsPage session={session} />}
 
           {page === "audit" && <AuditPage />}
+
+          {page === "history" && (
+            <PatientHistoryPage
+              onViewReport={openReport}
+              onViewReceipt={openReceipt}
+            />
+          )}
         </div>
       </main>
     </div>

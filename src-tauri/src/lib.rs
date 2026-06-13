@@ -72,6 +72,11 @@ pub fn run() -> Result<(), String> {
             modules::order::commands::create_order,
             modules::order::commands::get_orders,
             modules::order::commands::get_order_status,
+            modules::order::commands::get_orders_by_date_range,
+            modules::order::commands::get_doctor_revenue,
+            modules::order::commands::cancel_order,
+            modules::order::commands::update_order,
+            modules::order::commands::update_order_status,
 
             // 🧬 Results & Entry
             modules::result::commands::save_result,
@@ -100,6 +105,9 @@ pub fn run() -> Result<(), String> {
             modules::audit::commands::get_audit_logs,
             modules::audit::commands::get_record_history,
             modules::audit::commands::get_user_activity,
+
+            // 🕐 Patient History
+            modules::history::commands::get_patient_history,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| format!("error while running Tauri application: {}", e))

@@ -21,6 +21,13 @@ export interface AuditLogEntry {
   created_at: string;
 }
 
+export interface AuditSummary {
+  totalEvents: number;
+  usersActive: number;
+  createActions: number;
+  updateDeleteActions: number;
+}
+
 export interface SessionInfo {
   user_id: number;
   username: string;
@@ -129,6 +136,15 @@ export interface ToastMessage {
   duration?: number;
 }
 
+export interface PaymentHistoryEntry {
+  id: number;
+  order_id: number;
+  previous_paid: number;
+  new_paid: number;
+  total_amount: number;
+  created_at: string;
+}
+
 export interface ResultValuePayload {
   parameterId: number;
   value: string;
@@ -139,9 +155,100 @@ export interface FieldError {
   message: string;
 }
 
+export interface DoctorRevenueRow {
+  doctor_name: string;
+  order_count: number;
+  total_amount: number;
+  paid_amount: number;
+  pending_amount: number;
+}
+
+export interface UpdateOrderPayload {
+  test_ids: number[];
+  parameter_ids: number[];
+  total_amount: number;
+  discount_amount: number;
+}
+
 export interface FormState<T> {
   data: T;
   errors: Record<string, string>;
   isSubmitting: boolean;
   isDirty: boolean;
+}
+
+// ── Patient History ──────────────────────────────────
+export interface PatientHistoryResponse {
+  patient: PatientHistoryProfile;
+  orders: PatientHistoryOrder[];
+  payments: PatientHistoryPayment[];
+  reports: PatientHistoryReport[];
+  previous_results: PatientHistoryResultGroup[];
+  timeline: PatientHistoryTimelineEntry[];
+}
+
+export interface PatientHistoryProfile {
+  id: number;
+  patient_code: string;
+  name: string;
+  age_value: number | null;
+  age_unit: string | null;
+  gender: string | null;
+  phone: string | null;
+  referred_by: string | null;
+  created_at: string;
+}
+
+export interface PatientHistoryOrder {
+  id: number;
+  invoice_no: string;
+  total_amount: number;
+  paid_amount: number;
+  pending_amount: number;
+  status: string;
+  created_at: string;
+  test_names: string;
+}
+
+export interface PatientHistoryPayment {
+  id: number;
+  order_id: number;
+  invoice_no: string;
+  previous_paid: number;
+  new_paid: number;
+  total_amount: number;
+  created_at: string;
+}
+
+export interface PatientHistoryReport {
+  order_id: number;
+  invoice_no: string;
+  test_name: string;
+  parameter_name: string;
+  value: string;
+  unit: string;
+  normal_range: string;
+  created_at: string;
+}
+
+export interface PatientHistoryResultGroup {
+  parameter_name: string;
+  test_name: string;
+  unit: string;
+  normal_range: string;
+  entries: PatientHistoryResultEntry[];
+}
+
+export interface PatientHistoryResultEntry {
+  order_id: number;
+  invoice_no: string;
+  order_date: string;
+  value: string;
+}
+
+export interface PatientHistoryTimelineEntry {
+  event_type: string;
+  description: string;
+  timestamp: string;
+  order_id: number | null;
 }

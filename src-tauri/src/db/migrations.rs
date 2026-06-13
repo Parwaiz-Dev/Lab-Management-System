@@ -265,5 +265,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         conn.pragma_update(None, "user_version", 8)?;
     }
 
+    if version < 9 {
+        ensure_column(conn, "orders", "status TEXT DEFAULT 'Pending'")?;
+
+        conn.pragma_update(None, "user_version", 9)?;
+    }
+
     Ok(())
 }

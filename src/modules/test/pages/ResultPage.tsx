@@ -4,6 +4,7 @@ import Button from "../../../components/ui/Button";
 import Toast from "../../../components/ui/Toast";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
+import ConfirmationDialog from "../../../components/ui/ConfirmationDialog";
 import type { OrderParameter, ToastMessage } from "../../../types";
 import { getErrorMessage, testService } from "../services/testService";
 
@@ -14,6 +15,44 @@ type ResultPageProps = {
 };
 
 type ExistingResultRow = [parameterId: number, value: string];
+type FlagStatus = "" | "Low" | "High" | "Normal";
+
+function getFlagStatus(value: string, range: string): FlagStatus {
+  const num = Number.parseFloat(String(value || "").replace(/,/g, ""));
+  if (Number.isNaN(num) || !range) return "";
+  const cleanRange = String(range || "").trim().toLowerCase();
+  if (!cleanRange) return "";
+  if (cleanRange.startsWith("<=")) {
+    const max = Number.parseFloat(cleanRange.replace("<=", ""));
+    if (Number.isNaN(max)) return "";
+    return num > max ? "High" : "";
+  }
+  if (cleanRange.startsWith("<")) {
+    const max = Number.parseFloat(cleanRange.replace("<", ""));
+    if (Number.isNaN(max)) return "";
+    return num >= max ? "High" : "";
+  }
+  if (cleanRange.startsWith(">=")) {
+    const min = Number.parseFloat(cleanRange.replace(">=", ""));
+    if (Number.isNaN(min)) return "";
+    return num < min ? "Low" : "";
+  }
+  if (cleanRange.startsWith(">")) {
+    const min = Number.parseFloat(cleanRange.replace(">", ""));
+    if (Number.isNaN(min)) return "";
+    return num <= min ? "Low" : "";
+  }
+  const match = cleanRange.match(
+    /(-?\d+(\.\d+)?)\s*(?:-|to)\s*(-?\d+(\.\d+)?)/
+  );
+  if (!match) return "";
+  const min = Number.parseFloat(match[1]);
+  const max = Number.parseFloat(match[3]);
+  if (Number.isNaN(min) || Number.isNaN(max)) return "";
+  if (num < min) return "Low";
+  if (num > max) return "High";
+  return "";
+}
 
 export default function ResultPage({
   orderId,
@@ -24,6 +63,7 @@ export default function ResultPage({
   const [values, setValues] = useState<Record<number, string>>({});
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const groupedParams = useMemo(() => {
@@ -163,7 +203,7 @@ export default function ResultPage({
             </Button>
 
             <Button
-              onClick={saveResults}
+              onClick={() => setShowConfirm(true)}
               disabled={saving || loading || enteredCount === 0}
             >
               {saving ? "Saving..." : "Save Results"}
@@ -202,6 +242,7 @@ export default function ResultPage({
                     <span>Reference Range</span>
                     <span>Result Value</span>
                     <span>Status</span>
+                    <span>Flag</span>
                   </div>
 
                   {group.parameters.map((param) => {
@@ -235,6 +276,20 @@ export default function ResultPage({
                         <Badge tone={hasValue ? "success" : "neutral"}>
                           {hasValue ? "Entered" : "Pending"}
                         </Badge>
+
+                        <div className="result-page__flag">
+                          {hasValue && param.normal_range ? (
+                            getFlagStatus(value, param.normal_range) === "High" ? (
+                              <Badge tone="danger">High</Badge>
+                            ) : getFlagStatus(value, param.normal_range) === "Low" ? (
+                              <Badge tone="warning">Low</Badge>
+                            ) : (
+                              <Badge tone="success">Normal</Badge>
+                            )
+                          ) : (
+                            <span className="result-page__muted">-</span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -251,6 +306,20 @@ export default function ResultPage({
           />
         )}
       </Card>
+
+      <ConfirmationDialog
+        open={showConfirm}
+        title="Complete Result Entry"
+        description={`You are about to save ${enteredCount} of ${params.length} result values. Values cannot be edited after saving. Proceed?`}
+        confirmLabel="Save Results"
+        cancelLabel="Review Again"
+        loading={saving}
+        onConfirm={() => {
+          setShowConfirm(false);
+          saveResults();
+        }}
+        onCancel={() => setShowConfirm(false)}
+      />
     </div>
   );
 }

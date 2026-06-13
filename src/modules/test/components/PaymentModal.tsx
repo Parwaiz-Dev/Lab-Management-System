@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
-import type { DashboardOrderRow } from "../../../types";
+import type { DashboardOrderRow, PaymentHistoryEntry } from "../../../types";
 import { getErrorMessage, money, testService } from "../services/testService";
 
 type PaymentModalProps = {
@@ -19,6 +19,9 @@ export default function PaymentModal({
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [history, setHistory] = useState<PaymentHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
 
   const [orderId, patientName, tests, totalAmount, paidAmount, paymentStatus] =
     order;
@@ -52,6 +55,24 @@ export default function PaymentModal({
 
     return () => window.removeEventListener("keydown", onEscape);
   }, [onClose, saving]);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      setHistoryLoading(true);
+      setHistoryError("");
+      const rows = await testService.getPaymentHistory(orderId);
+      setHistory(rows);
+    } catch (err) {
+      console.error("Failed to load payment history:", err);
+      setHistoryError(getErrorMessage(err, "Failed to load payment history"));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [orderId]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   const handleAmountChange = (value: string) => {
     setAmount(value);
@@ -89,6 +110,22 @@ export default function PaymentModal({
       setError(getErrorMessage(err, "Failed to record payment"));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const formatDateTime = (iso: string) => {
+    try {
+      const date = new Date(iso);
+      return date.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      return iso;
     }
   };
 
@@ -168,6 +205,78 @@ export default function PaymentModal({
             <span>{money(paid)} collected</span>
             <span>{money(remaining)} pending</span>
           </div>
+        </section>
+
+        <section className="payment-modal__history-section">
+          <div className="payment-modal__history-head">
+            <h3 className="payment-modal__history-title">Payment History</h3>
+            {history.length > 0 && (
+              <span className="payment-modal__history-count">
+                {history.length} {history.length === 1 ? "entry" : "entries"}
+              </span>
+            )}
+          </div>
+
+          {historyLoading && (
+            <div className="payment-modal__history-state">
+              <span className="payment-modal__history-spinner" aria-hidden="true" />
+              <span>Loading payment history…</span>
+            </div>
+          )}
+
+          {historyError && !historyLoading && (
+            <div className="payment-modal__history-state payment-modal__history-state--error">
+              {historyError}
+            </div>
+          )}
+
+          {!historyLoading && !historyError && history.length === 0 && (
+            <div className="payment-modal__history-state">
+              No payment history for this order yet.
+            </div>
+          )}
+
+          {!historyLoading && !historyError && history.length > 0 && (
+            <div className="payment-modal__history-table-wrap">
+              <table className="payment-modal__history-table">
+                <thead>
+                  <tr>
+                    <th>Date / Time</th>
+                    <th>Previous</th>
+                    <th>New</th>
+                    <th>Added</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((entry) => {
+                    const added = entry.new_paid - entry.previous_paid;
+                    return (
+                      <tr key={entry.id}>
+                        <td>
+                          <span className="payment-modal__history-date">
+                            {formatDateTime(entry.created_at)}
+                          </span>
+                        </td>
+                        <td>{money(entry.previous_paid)}</td>
+                        <td>{money(entry.new_paid)}</td>
+                        <td>
+                          <span
+                            className={
+                              added > 0
+                                ? "payment-modal__history-added"
+                                : "payment-modal__history-added--zero"
+                            }
+                          >
+                            {added > 0 ? `+${money(added)}` : money(0)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <section className="payment-modal__form-section">

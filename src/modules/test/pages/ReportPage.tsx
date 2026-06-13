@@ -81,7 +81,6 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
 
   const logoSrc = useMemo(() => settingsService.getLogoSrc(logo), [logo]);
 
-  const displayLabName = String(labName || "GANI").toUpperCase();
   const kannadaLabName = getKannadaLabName(labName);
 
   const ageSex = `${patient?.age_value || "-"} ${normalizeAgeUnit(

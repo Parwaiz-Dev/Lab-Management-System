@@ -6,7 +6,7 @@ import Badge from "../../../components/ui/Badge";
 import type { BadgeTone } from "../../../components/ui/Badge";
 import Toast from "../../../components/ui/Toast";
 import { auditService } from "../services/auditService";
-import type { AuditLogEntry, ToastMessage } from "../../../types";
+import type { AuditLogEntry, AuditSummary, ToastMessage } from "../../../types";
 
 const PAGE_SIZE = 50;
 
@@ -54,8 +54,15 @@ export default function AuditPage() {
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("");
   const [tableFilter, setTableFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Summary card interaction
+  type SummaryCardKey = "totalEvents" | "usersActive" | "create" | "updateDelete";
+  const [activeSummaryCard, setActiveSummaryCard] = useState<SummaryCardKey | null>(null);
 
   // Detail drawer
   const [selectedEntry, setSelectedEntry] = useState<AuditLogEntry | null>(null);
@@ -93,6 +100,27 @@ export default function AuditPage() {
     fetchLogs(true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Summary (computed from ALL loaded logs) ──
+  const summary = useMemo<AuditSummary>(() => {
+    const userIds = new Set<number>();
+    let createCount = 0;
+    let updateDeleteCount = 0;
+
+    for (const l of logs) {
+      userIds.add(l.user_id);
+      if (l.action === "create") createCount++;
+      if (l.action === "update" || l.action === "delete") updateDeleteCount++;
+    }
+
+    return {
+      totalEvents: logs.length,
+      usersActive: userIds.size,
+      createActions: createCount,
+      updateDeleteActions: updateDeleteCount,
+    };
+  }, [logs]);
+
+  // ── Filtered & paginated ──
   const filteredLogs = useMemo(() => {
     let result = logs;
 
@@ -111,12 +139,42 @@ export default function AuditPage() {
       result = result.filter((l) => l.action === actionFilter);
     }
 
+    // Summary card multi-action filter (update + delete)
+    if (activeSummaryCard === "updateDelete") {
+      result = result.filter((l) => l.action === "update" || l.action === "delete");
+    }
+
     if (tableFilter) {
       result = result.filter((l) => l.table_name === tableFilter);
     }
 
+    if (dateFrom) {
+      const from = new Date(dateFrom + "T00:00:00");
+      result = result.filter(
+        (l) => new Date(l.created_at + "Z") >= from,
+      );
+    }
+
+    if (dateTo) {
+      const to = new Date(dateTo + "T23:59:59.999");
+      result = result.filter(
+        (l) => new Date(l.created_at + "Z") <= to,
+      );
+    }
+
     return result;
-  }, [logs, search, actionFilter, tableFilter]);
+  }, [logs, search, actionFilter, tableFilter, dateFrom, dateTo, activeSummaryCard]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
+  const paginatedLogs = filteredLogs.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, actionFilter, tableFilter, dateFrom, dateTo, activeSummaryCard]);
 
   const uniqueActions = useMemo(
     () => [...new Set(logs.map((l) => l.action))].sort(),
@@ -137,12 +195,103 @@ export default function AuditPage() {
     setSearch("");
     setActionFilter("");
     setTableFilter("");
+    setDateFrom("");
+    setDateTo("");
+    setActiveSummaryCard(null);
   };
 
-  const hasActiveFilters = search !== "" || actionFilter !== "" || tableFilter !== "";
+  const handleSummaryCardClick = (key: SummaryCardKey) => {
+    if (activeSummaryCard === key) {
+      setActiveSummaryCard(null);
+      setActionFilter("");
+    } else {
+      setActiveSummaryCard(key);
+      if (key === "totalEvents") setActionFilter("");
+      else if (key === "create") setActionFilter("create");
+      // updateDelete and usersActive: don't touch actionFilter dropdown
+    }
+  };
+
+  const hasActiveFilters =
+    search !== "" ||
+    actionFilter !== "" ||
+    tableFilter !== "" ||
+    dateFrom !== "" ||
+    dateTo !== "" ||
+    activeSummaryCard !== null;
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  // Generate page numbers with ellipsis
+  const pageNumbers = useMemo(() => {
+    const pages: (number | "...")[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push("...");
+
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+
+      if (currentPage < totalPages - 2) pages.push("...");
+      pages.push(totalPages);
+    }
+    return pages;
+  }, [totalPages, currentPage]);
+
+  const hasAllLogs = !hasMore && !hasActiveFilters;
 
   return (
     <div className="audit-page">
+      {/* ── Summary Cards ── */}
+      <div className="audit-summary">
+        <button
+          type="button"
+          className={`audit-summary-card${activeSummaryCard === "totalEvents" ? " audit-summary-card--active" : ""}`}
+          onClick={() => handleSummaryCardClick("totalEvents")}
+          aria-pressed={activeSummaryCard === "totalEvents"}
+          aria-label="Show all events"
+        >
+          <div className="audit-summary-card__value">{summary.totalEvents}</div>
+          <div className="audit-summary-card__label">Total Events</div>
+        </button>
+        <button
+          type="button"
+          className={`audit-summary-card${activeSummaryCard === "usersActive" ? " audit-summary-card--active" : ""}`}
+          onClick={() => handleSummaryCardClick("usersActive")}
+          aria-pressed={activeSummaryCard === "usersActive"}
+          aria-label="Users active (informational only, does not filter)"
+          title="Informational only — shows unique users across all loaded events"
+        >
+          <div className="audit-summary-card__value">{summary.usersActive}</div>
+          <div className="audit-summary-card__label">Users Active</div>
+        </button>
+        <button
+          type="button"
+          className={`audit-summary-card${activeSummaryCard === "create" ? " audit-summary-card--active" : ""}`}
+          onClick={() => handleSummaryCardClick("create")}
+          aria-pressed={activeSummaryCard === "create"}
+          aria-label="Filter by create actions"
+        >
+          <div className="audit-summary-card__value">{summary.createActions}</div>
+          <div className="audit-summary-card__label">Create Actions</div>
+        </button>
+        <button
+          type="button"
+          className={`audit-summary-card${activeSummaryCard === "updateDelete" ? " audit-summary-card--active" : ""}`}
+          onClick={() => handleSummaryCardClick("updateDelete")}
+          aria-pressed={activeSummaryCard === "updateDelete"}
+          aria-label="Filter by update and delete actions"
+        >
+          <div className="audit-summary-card__value">{summary.updateDeleteActions}</div>
+          <div className="audit-summary-card__label">Update / Delete</div>
+        </button>
+      </div>
+
       {/* ── Filter Bar ── */}
       <Card className="audit-filters-card">
         <div className="audit-filters">
@@ -150,7 +299,10 @@ export default function AuditPage() {
             <Input
               placeholder="Search by user, action, table, or record ID…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setActiveSummaryCard(null);
+              }}
             />
           </div>
 
@@ -158,7 +310,10 @@ export default function AuditPage() {
             <select
               className="audit-filter-select"
               value={actionFilter}
-              onChange={(e) => setActionFilter(e.target.value)}
+              onChange={(e) => {
+                setActionFilter(e.target.value);
+                setActiveSummaryCard(null);
+              }}
             >
               <option value="">All Actions</option>
               {uniqueActions.map((a) => (
@@ -171,7 +326,10 @@ export default function AuditPage() {
             <select
               className="audit-filter-select"
               value={tableFilter}
-              onChange={(e) => setTableFilter(e.target.value)}
+              onChange={(e) => {
+                setTableFilter(e.target.value);
+                setActiveSummaryCard(null);
+              }}
             >
               <option value="">All Tables</option>
               {uniqueTables.map((t) => (
@@ -182,15 +340,52 @@ export default function AuditPage() {
             </select>
           </div>
 
-          {hasActiveFilters && (
-            <Button variant="ghost" onClick={clearFilters}>
+          <div className="audit-filters__dates">
+            <div className="audit-filter-date-wrap">
+              <input
+                type="date"
+                className={`audit-filter-date${!dateFrom ? " audit-filter-date--empty" : ""}`}
+                value={dateFrom}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setActiveSummaryCard(null);
+                }}
+                aria-label="From date"
+                title="Start date"
+              />
+              {!dateFrom && <span className="audit-filter-date__placeholder" aria-hidden="true">From</span>}
+            </div>
+            <span className="audit-filters__date-sep">to</span>
+            <div className="audit-filter-date-wrap">
+              <input
+                type="date"
+                className={`audit-filter-date${!dateTo ? " audit-filter-date--empty" : ""}`}
+                value={dateTo}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setActiveSummaryCard(null);
+                }}
+                aria-label="To date"
+                title="End date"
+              />
+              {!dateTo && <span className="audit-filter-date__placeholder" aria-hidden="true">To</span>}
+            </div>
+          </div>
+
+          <div className="audit-filters__actions">
+            <Button
+              variant="ghost"
+              onClick={clearFilters}
+              disabled={!hasActiveFilters}
+              aria-label="Clear all filters"
+            >
               Clear Filters
             </Button>
-          )}
 
-          <Button variant="ghost" onClick={() => fetchLogs(true)} disabled={loading}>
-            {loading ? "Refreshing…" : "Refresh"}
-          </Button>
+            <Button variant="ghost" onClick={() => fetchLogs(true)} disabled={loading}>
+              {loading ? "Refreshing…" : "Refresh"}
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -243,7 +438,7 @@ export default function AuditPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLogs.map((entry) => (
+                  {paginatedLogs.map((entry) => (
                     <tr
                       key={entry.id}
                       className="audit-table__row"
@@ -279,18 +474,63 @@ export default function AuditPage() {
               </table>
             </div>
 
-            {hasMore && filteredLogs.length === logs.length && (
+            {/* ── Pagination ── */}
+            <div className="audit-pagination">
+              <div className="audit-table__count">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+                {Math.min(currentPage * PAGE_SIZE, filteredLogs.length)} of{" "}
+                {filteredLogs.length}
+                {!hasAllLogs && "+"} entries
+              </div>
+
+              <div className="audit-pagination__controls">
+                <Button
+                  variant="ghost"
+                  disabled={currentPage <= 1}
+                  onClick={() => goToPage(currentPage - 1)}
+                  aria-label="Previous page"
+                >
+                  ‹ Prev
+                </Button>
+
+                {pageNumbers.map((p, i) =>
+                  p === "..." ? (
+                    <span key={`ellipsis-${i}`} className="audit-pagination__ellipsis">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`audit-pagination__page${p === currentPage ? " audit-pagination__page--active" : ""}`}
+                      onClick={() => goToPage(p)}
+                      aria-label={`Page ${p}`}
+                      aria-current={p === currentPage ? "page" : undefined}
+                    >
+                      {p}
+                    </button>
+                  ),
+                )}
+
+                <Button
+                  variant="ghost"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => goToPage(currentPage + 1)}
+                  aria-label="Next page"
+                >
+                  Next ›
+                </Button>
+              </div>
+            </div>
+
+            {/* ── Load More (when there's more server data) ── */}
+            {hasMore && !hasActiveFilters && (
               <div className="audit-load-more">
                 <Button variant="ghost" onClick={loadMore} disabled={loading}>
-                  {loading ? "Loading…" : "Load More"}
+                  {loading ? "Loading…" : "Load More Records"}
                 </Button>
               </div>
             )}
-
-            <div className="audit-table__count">
-              Showing {filteredLogs.length} of{" "}
-              {hasActiveFilters ? "filtered" : "loaded"} entries
-            </div>
           </>
         )}
       </Card>
