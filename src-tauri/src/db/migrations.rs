@@ -271,5 +271,20 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         conn.pragma_update(None, "user_version", 9)?;
     }
 
+    if version < 10 {
+        // Drop REAL money columns — all reads use _paise INTEGER columns exclusively
+        if table_has_column(conn, "orders", "total_amount")? {
+            conn.execute("ALTER TABLE orders DROP COLUMN total_amount", [])?;
+        }
+        if table_has_column(conn, "orders", "discount_amount")? {
+            conn.execute("ALTER TABLE orders DROP COLUMN discount_amount", [])?;
+        }
+        if table_has_column(conn, "orders", "paid_amount")? {
+            conn.execute("ALTER TABLE orders DROP COLUMN paid_amount", [])?;
+        }
+
+        conn.pragma_update(None, "user_version", 10)?;
+    }
+
     Ok(())
 }

@@ -35,11 +35,8 @@ mod tests {
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 patient_id INTEGER NOT NULL,
-                total_amount REAL DEFAULT 0,
                 total_amount_paise INTEGER DEFAULT 0,
-                discount_amount REAL DEFAULT 0,
                 discount_amount_paise INTEGER DEFAULT 0,
-                paid_amount REAL DEFAULT 0,
                 paid_amount_paise INTEGER DEFAULT 0,
                 invoice_no TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -81,8 +78,8 @@ mod tests {
         conn.execute("INSERT INTO users (id, username, password_hash, role) VALUES (2, 'staff1', '$2b$12$hash', 'staff')", []).unwrap();
         conn.execute("INSERT INTO patients (id, patient_code, name) VALUES (1, 'P001', 'Test Patient')", []).unwrap();
         conn.execute("INSERT INTO patients (id, patient_code, name) VALUES (2, 'P002', 'John Doe')", []).unwrap();
-        conn.execute("INSERT INTO orders (id, patient_id, total_amount, total_amount_paise, paid_amount, paid_amount_paise) VALUES (1, 1, 500, 50000, 0, 0)", []).unwrap();
-        conn.execute("INSERT INTO orders (id, patient_id, total_amount, total_amount_paise, paid_amount, paid_amount_paise) VALUES (2, 2, 1000, 100000, 200, 20000)", []).unwrap();
+        conn.execute("INSERT INTO orders (id, patient_id, total_amount_paise, paid_amount_paise) VALUES (1, 1, 50000, 0)", []).unwrap();
+        conn.execute("INSERT INTO orders (id, patient_id, total_amount_paise, paid_amount_paise) VALUES (2, 2, 100000, 20000)", []).unwrap();
         conn.execute("INSERT INTO settings (key, value) VALUES ('lab_name', 'Old Lab')", []).unwrap();
         conn
     }

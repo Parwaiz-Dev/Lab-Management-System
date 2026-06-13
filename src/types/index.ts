@@ -80,6 +80,7 @@ export type DashboardOrderRow = [
   totalAmount: number,
   paidAmount: number,
   paymentStatus: OrderStatus | string,
+  reportStatus: string,
 ];
 
 export type FinancialSummaryTuple = [

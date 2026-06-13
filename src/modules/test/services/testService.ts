@@ -40,6 +40,7 @@ function normalizeDashboardOrder(row: unknown): DashboardOrderRow {
       toNumber(row[3]),
       toNumber(row[4]),
       toText(row[5] || "Pending"),
+      toText(row[6] || "Pending"),
     ];
   }
 
@@ -53,6 +54,9 @@ function normalizeDashboardOrder(row: unknown): DashboardOrderRow {
     toNumber(item.paidAmount ?? item.paid_amount ?? item.paid),
     toText(
       item.paymentStatus ?? item.payment_status ?? item.status ?? "Pending",
+    ),
+    toText(
+      item.reportStatus ?? item.report_status ?? "Pending",
     ),
   ];
 }
@@ -239,10 +243,6 @@ export const testService = {
     const list = Array.isArray(rows) ? rows : [];
 
     return list.map(normalizeDashboardOrder).filter((row) => row[0] > 0);
-  },
-
-  getOrderStatus(orderId: number): Promise<string> {
-    return invoke<string>("get_order_status", { orderId });
   },
 
   async getOrdersByDateRange(

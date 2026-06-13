@@ -52,11 +52,8 @@ fn create_tables(conn: &rusqlite::Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             patient_id INTEGER NOT NULL,
-            total_amount REAL DEFAULT 0,
             total_amount_paise INTEGER DEFAULT 0,
-            discount_amount REAL DEFAULT 0,
             discount_amount_paise INTEGER DEFAULT 0,
-            paid_amount REAL DEFAULT 0,
             paid_amount_paise INTEGER DEFAULT 0,
             invoice_no TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,

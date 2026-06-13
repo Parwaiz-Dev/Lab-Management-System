@@ -21,7 +21,6 @@ export default function LabDashboard({
   onEditOrder,
 }: LabDashboardProps) {
   const [orders, setOrders] = useState<DashboardOrderRow[]>([]);
-  const [statuses, setStatuses] = useState<Record<number, string>>({});
   const [paymentModal, setPaymentModal] = useState<DashboardOrderRow | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -56,21 +55,6 @@ export default function LabDashboard({
   const loadOrders = useCallback(async () => {
     const data = await testService.getOrders();
     setOrders(data);
-
-    const statusPairs = await Promise.all(
-      data.map(async (order) => {
-        const orderId = Number(order[0]);
-
-        try {
-          const status = await testService.getOrderStatus(orderId);
-          return [orderId, status] as const;
-        } catch {
-          return [orderId, "Pending"] as const;
-        }
-      })
-    );
-
-    setStatuses(Object.fromEntries(statusPairs));
   }, []);
 
   const loadAll = useCallback(async () => {
@@ -95,18 +79,6 @@ export default function LabDashboard({
       setLoading(true);
       const data = await testService.getOrdersByDateRange(dateFrom, dateTo);
       setOrders(data);
-      const statusPairs = await Promise.all(
-        data.map(async (order) => {
-          const orderId = Number(order[0]);
-          try {
-            const status = await testService.getOrderStatus(orderId);
-            return [orderId, status] as const;
-          } catch {
-            return [orderId, "Pending"] as const;
-          }
-        })
-      );
-      setStatuses(Object.fromEntries(statusPairs));
     } finally {
       setLoading(false);
     }
@@ -169,11 +141,11 @@ export default function LabDashboard({
     if (!text) return orders;
 
     return orders.filter((order) =>
-      `${order[1]} ${order[2]} ${order[5]} ${statuses[Number(order[0])] || ""}`
+      `${order[1]} ${order[2]} ${order[5] || ""} ${order[6] || ""}`
         .toLowerCase()
         .includes(text)
     );
-  }, [orders, query, statuses]);
+  }, [orders, query]);
 
   const exportCSV = useCallback(() => {
     const rows = filteredOrders;
@@ -182,7 +154,7 @@ export default function LabDashboard({
     const body = rows
       .map((order) => {
         const orderId = Number(order[0]);
-        const status = statuses[orderId] || "Pending";
+        const status = order[6] || "Pending";
         const total = Number(order[3] || 0);
         const paid = Number(order[4] || 0);
         const pending = Math.max(total - paid, 0);
@@ -206,7 +178,7 @@ export default function LabDashboard({
     a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [filteredOrders, statuses]);
+  }, [filteredOrders]);
 
   const pendingCollections = orders.filter(
     (order) => String(order[5]).toLowerCase() !== "completed"
@@ -214,7 +186,7 @@ export default function LabDashboard({
 
   const pendingReports = orders.filter(
     (order) =>
-      String(statuses[Number(order[0])] || "Pending").toLowerCase() !==
+      String(order[6] || "Pending").toLowerCase() !==
       "completed"
   ).length;
 
@@ -315,7 +287,7 @@ export default function LabDashboard({
             {!loading &&
               filteredOrders.map((order, index) => {
                 const orderId = Number(order[0]);
-                const reportStatus = statuses[orderId] || "Pending";
+                const reportStatus = order[6] || "Pending";
                 const paymentStatus = order[5] || "Pending";
                 const total = Number(order[3] || 0);
                 const paid = Number(order[4] || 0);

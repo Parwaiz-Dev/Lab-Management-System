@@ -109,19 +109,14 @@ pub fn create_order(
     tx.execute(
         "INSERT INTO orders (
             patient_id,
-            total_amount,
             total_amount_paise,
-            discount_amount,
             discount_amount_paise,
-            paid_amount,
             paid_amount_paise
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0)",
+         VALUES (?1, ?2, ?3, 0)",
         params![
             patient_id,
-            from_paise(computed_total_paise),
             computed_total_paise,
-            from_paise(discount_amount_paise),
             discount_amount_paise,
         ],
     )
@@ -260,7 +255,16 @@ pub fn get_orders(conn: &Connection) -> AppResult<Vec<OrderSummary>> {
                 ),
                 IFNULL(o.total_amount_paise, 0),
                 IFNULL(o.paid_amount_paise, 0),
-                IFNULL(o.created_at, '')
+                IFNULL(o.created_at, ''),
+                CASE
+                    WHEN (SELECT COUNT(*) FROM order_parameters WHERE order_id = o.id) = 0
+                      OR (SELECT COUNT(*) FROM results WHERE order_id = o.id AND TRIM(value) <> '') = 0
+                    THEN 'Pending'
+                    WHEN (SELECT COUNT(*) FROM results WHERE order_id = o.id AND TRIM(value) <> '')
+                         < (SELECT COUNT(*) FROM order_parameters WHERE order_id = o.id)
+                    THEN 'Partial'
+                    ELSE 'Completed'
+                END
              FROM orders o
              JOIN patients p ON p.id = o.patient_id
              LEFT JOIN order_tests ot ON ot.order_id = o.id
@@ -289,6 +293,7 @@ pub fn get_orders(conn: &Connection) -> AppResult<Vec<OrderSummary>> {
                 paid_amount: from_paise(paid_paise),
                 pending_amount: from_paise(pending_paise),
                 status: payment_status(total_paise, paid_paise),
+                report_status: row.get(6)?,
                 created_at: row.get(5)?,
             })
         })
@@ -349,7 +354,16 @@ pub fn get_orders_by_date_range(
                 ),
                 IFNULL(o.total_amount_paise, 0),
                 IFNULL(o.paid_amount_paise, 0),
-                IFNULL(o.created_at, '')
+                IFNULL(o.created_at, ''),
+                CASE
+                    WHEN (SELECT COUNT(*) FROM order_parameters WHERE order_id = o.id) = 0
+                      OR (SELECT COUNT(*) FROM results WHERE order_id = o.id AND TRIM(value) <> '') = 0
+                    THEN 'Pending'
+                    WHEN (SELECT COUNT(*) FROM results WHERE order_id = o.id AND TRIM(value) <> '')
+                         < (SELECT COUNT(*) FROM order_parameters WHERE order_id = o.id)
+                    THEN 'Partial'
+                    ELSE 'Completed'
+                END
              FROM orders o
              JOIN patients p ON p.id = o.patient_id
              LEFT JOIN order_tests ot ON ot.order_id = o.id
@@ -380,6 +394,7 @@ pub fn get_orders_by_date_range(
                 paid_amount: from_paise(paid_paise),
                 pending_amount: from_paise(pending_paise),
                 status: payment_status(total_paise, paid_paise),
+                report_status: row.get(6)?,
                 created_at: row.get(5)?,
             })
         })
@@ -546,15 +561,11 @@ pub fn update_order(
 
     tx.execute(
         "UPDATE orders
-         SET total_amount = ?1,
-             total_amount_paise = ?2,
-             discount_amount = ?3,
-             discount_amount_paise = ?4
-         WHERE id = ?5",
+         SET total_amount_paise = ?1,
+             discount_amount_paise = ?2
+         WHERE id = ?3",
         params![
-            from_paise(computed_total_paise),
             computed_total_paise,
-            from_paise(discount_amount_paise),
             discount_amount_paise,
             order_id,
         ],

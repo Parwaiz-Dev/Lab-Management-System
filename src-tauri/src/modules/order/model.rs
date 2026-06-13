@@ -9,6 +9,7 @@ pub struct OrderSummary {
     pub paid_amount: f64,
     pub pending_amount: f64,
     pub status: String,
+    pub report_status: String,
     pub created_at: String,
 }
 

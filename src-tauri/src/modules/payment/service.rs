@@ -43,10 +43,9 @@ pub fn update_payment(conn: &mut Connection, order_id: i32, paid_amount: f64) ->
 
     tx.execute(
         "UPDATE orders
-         SET paid_amount = ?1,
-             paid_amount_paise = ?2
-         WHERE id = ?3",
-        params![from_paise(paid_amount_paise), paid_amount_paise, order_id],
+         SET paid_amount_paise = ?1
+         WHERE id = ?2",
+        params![paid_amount_paise, order_id],
     )
     .map_err(AppError::from)?;
 
