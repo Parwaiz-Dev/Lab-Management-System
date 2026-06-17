@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { Building2, Database, Download, Image, RefreshCw, Save, Upload, X } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
@@ -179,11 +180,11 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
         </div>
 
         <div className="settings-hero-v2__actions">
-          <Button onClick={loadSettings} variant="secondary" disabled={loading || saving}>
+          <Button onClick={loadSettings} variant="secondary" disabled={loading || saving} icon={<RefreshCw size={16} />}>
             {loading ? "Loading..." : "Reload"}
           </Button>
 
-          <Button onClick={save} disabled={saving || loading}>
+          <Button onClick={save} disabled={saving || loading} icon={<Save size={16} />}>
             {saving ? "Saving..." : "Save Settings"}
           </Button>
         </div>
@@ -198,10 +199,11 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
 
       <div className="settings-page-v2__layout">
         <Card
+          icon={<Building2 size={18} />}
           title="Lab Identity"
           eyebrow="Branding and report details"
           right={
-            <Button onClick={save} disabled={saving || loading}>
+            <Button onClick={save} disabled={saving || loading} icon={<Save size={16} />}>
               {saving ? "Saving..." : "Save"}
             </Button>
           }
@@ -272,6 +274,7 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
                   onClick={chooseLogo}
                   variant="secondary"
                   disabled={loading || saving || choosingLogo}
+                  icon={<Image size={16} />}
                 >
                   {choosingLogo ? "Opening..." : "Choose Logo"}
                 </Button>
@@ -280,6 +283,7 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
                   onClick={clearLogo}
                   variant="ghost"
                   disabled={loading || saving || !settings.lab_logo}
+                  icon={<X size={16} />}
                 >
                   Clear
                 </Button>
@@ -289,6 +293,7 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
         </Card>
 
         <Card
+          icon={<Database size={18} />}
           title="Local Data Backup"
           eyebrow="SQLite database"
           compact
@@ -307,6 +312,7 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
                 onClick={exportBackup}
                 variant="secondary"
                 disabled={backupBusy !== null}
+                icon={<Download size={16} />}
               >
                 {backupBusy === "export" ? "Exporting..." : "Export Backup"}
               </Button>
@@ -315,6 +321,7 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
                 onClick={restoreBackup}
                 variant="danger"
                 disabled={backupBusy !== null}
+                icon={<Upload size={16} />}
               >
                 {backupBusy === "restore" ? "Restoring..." : "Restore Backup"}
               </Button>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Printer } from "lucide-react";
 import Button from "../../../components/ui/Button";
 import Badge from "../../../components/ui/Badge";
 import type { ReceiptData, ReceiptLine } from "../../../types";
@@ -59,27 +60,26 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
       };
     }
 
-    const [patient, invoice, total, paid, discount, tests] = data;
-    const cleanTests = tests || [];
+    const cleanTests = data.tests || [];
 
     const subtotal =
       cleanTests.reduce(
         (sum: number, test: ReceiptLine) => sum + Number(test.price || 0),
         0
-      ) || total + discount;
+      ) || data.total + data.discount;
 
-    const pending = Math.max(Number(total || 0) - Number(paid || 0), 0);
+    const pending = Math.max(Number(data.total || 0) - Number(data.paid || 0), 0);
 
     return {
-      patient,
-      invoice,
-      total: Number(total || 0),
-      paid: Number(paid || 0),
-      discount: Number(discount || 0),
+      patient: data.patient,
+      invoice: data.invoice,
+      total: Number(data.total || 0),
+      paid: Number(data.paid || 0),
+      discount: Number(data.discount || 0),
       tests: cleanTests,
       subtotal,
       pending,
-      status: pending <= 0 ? "Paid" : paid > 0 ? "Partial" : "Pending",
+      status: pending <= 0 ? "Paid" : data.paid > 0 ? "Partial" : "Pending",
     };
   }, [data]);
 
@@ -102,11 +102,11 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
       <style>{printCss}</style>
 
       <div className="receipt-view__toolbar no-print">
-        <Button onClick={onBack} variant="secondary">
+        <Button onClick={onBack} variant="secondary" icon={<ArrowLeft size={16} />}>
           Back
         </Button>
 
-        <Button onClick={() => window.print()}>Print Receipt</Button>
+        <Button onClick={() => window.print()} icon={<Printer size={16} />}>Print Receipt</Button>
       </div>
 
       <article className="receipt-document">

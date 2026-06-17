@@ -49,14 +49,6 @@ impl Config {
                 .unwrap_or_else(|| default_log_level.to_string()),
         }
     }
-
-    pub fn is_production(&self) -> bool {
-        self.environment == Environment::Production
-    }
-
-    pub fn is_development(&self) -> bool {
-        self.environment == Environment::Development
-    }
 }
 
 impl Environment {

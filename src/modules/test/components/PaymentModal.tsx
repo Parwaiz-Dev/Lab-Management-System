@@ -23,8 +23,14 @@ export default function PaymentModal({
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState("");
 
-  const [orderId, patientName, tests, totalAmount, paidAmount, paymentStatus] =
-    order;
+  const {
+    id: orderId,
+    patientName,
+    tests,
+    totalAmount,
+    paidAmount,
+    paymentStatus,
+  } = order;
 
   const total = Number(totalAmount || 0);
   const paid = Number(paidAmount || 0);
@@ -183,9 +189,9 @@ export default function PaymentModal({
         </section>
 
         <section className="payment-modal__summary-grid">
-          <Amount label="Total Amount" value={total} />
-          <Amount label="Paid Amount" value={paid} />
-          <Amount label="Pending" value={remaining} highlight />
+          <Amount icon="&#x1F4B0;" label="Total Amount" value={total} />
+          <Amount icon="&#x2705;" label="Paid Amount" value={paid} />
+          <Amount icon="&#x23F3;" label="Pending" value={remaining} highlight />
         </section>
 
         <section className="payment-modal__progress-card">
@@ -368,10 +374,12 @@ export default function PaymentModal({
 }
 
 function Amount({
+  icon,
   label,
   value,
   highlight,
 }: {
+  icon?: string;
   label: string;
   value: number;
   highlight?: boolean;
@@ -385,6 +393,7 @@ function Amount({
         .filter(Boolean)
         .join(" ")}
     >
+      {icon && <span className="payment-modal__amount-icon">{icon}</span>}
       <span>{label}</span>
       <strong>{money(value)}</strong>
     </div>

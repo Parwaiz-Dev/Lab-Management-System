@@ -1,4 +1,17 @@
 import { useMemo, useState, useEffect } from "react";
+import {
+  Heart,
+  UserPlus,
+  LayoutDashboard,
+  Settings,
+  History,
+  FileText,
+  LogOut,
+  PanelLeftClose,
+  PanelLeft,
+  CalendarDays,
+  Wifi,
+} from "lucide-react";
 import PatientPage from "./modules/patient/pages/PatientPage";
 import LabDashboard from "./modules/test/pages/LabDashboard";
 import ResultPage from "./modules/test/pages/ResultPage";
@@ -59,6 +72,15 @@ function App() {
 
   const isPrintView = page === "report" || page === "receipt";
   const currentPage = useMemo(() => pageCopy[page], [page]);
+
+  const todayDate = useMemo(() => {
+    return new Date().toLocaleDateString("en-IN", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }, []);
 
   // ── Check for existing session on mount ──
   useEffect(() => {
@@ -168,7 +190,9 @@ function App() {
       {!isPrintView && (
         <aside className="app-sidebar">
           <div className="app-sidebar__brand">
-            <div className="app-sidebar__brand-mark">LM</div>
+            <div className="app-sidebar__brand-mark">
+              <Heart size={20} strokeWidth={2.2} />
+            </div>
             <div className="app-sidebar__brand-title">
               <div className="app-sidebar__brand-name">LabManager</div>
               <div className="app-sidebar__brand-sub">Desktop LMS</div>
@@ -181,7 +205,8 @@ function App() {
               className={`app-nav__item ${page === "patient" ? "app-nav__item--active" : ""}`}
               onClick={goToPatient}
             >
-              Patient Intake
+              <UserPlus size={18} strokeWidth={2} className="app-nav__icon" />
+              <span>Patient Intake</span>
             </button>
 
             <button
@@ -189,7 +214,8 @@ function App() {
               className={`app-nav__item ${["dashboard", "result"].includes(page) ? "app-nav__item--active" : ""}`}
               onClick={goToDashboard}
             >
-              Operations
+              <LayoutDashboard size={18} strokeWidth={2} className="app-nav__icon" />
+              <span>Operations</span>
             </button>
 
             <button
@@ -197,7 +223,8 @@ function App() {
               className={`app-nav__item ${page === "settings" ? "app-nav__item--active" : ""}`}
               onClick={goToSettings}
             >
-              Settings
+              <Settings size={18} strokeWidth={2} className="app-nav__icon" />
+              <span>Settings</span>
             </button>
 
             <button
@@ -205,7 +232,8 @@ function App() {
               className={`app-nav__item ${page === "history" ? "app-nav__item--active" : ""}`}
               onClick={goToHistory}
             >
-              Patient History
+              <History size={18} strokeWidth={2} className="app-nav__icon" />
+              <span>Patient History</span>
             </button>
 
             {session.role === "admin" && (
@@ -214,26 +242,36 @@ function App() {
                 className={`app-nav__item ${page === "audit" ? "app-nav__item--active" : ""}`}
                 onClick={goToAudit}
               >
-                Audit Log
+                <FileText size={18} strokeWidth={2} className="app-nav__icon" />
+                <span>Audit Log</span>
               </button>
             )}
           </nav>
 
           <div className="app-sidebar__footer">
             <div className="app-sidebar__user">
-              <div className="app-sidebar__user-name">{session.username}</div>
-              <div className="app-sidebar__user-role">{session.role}</div>
+              <div className="app-sidebar__user-avatar">
+                {session.username.charAt(0).toUpperCase()}
+              </div>
+              <div className="app-sidebar__user-info">
+                <div className="app-sidebar__user-name">{session.username}</div>
+                <div className="app-sidebar__user-role">{session.role}</div>
+              </div>
             </div>
             <button
               type="button"
               className="app-sidebar__logout-btn"
               onClick={handleLogout}
             >
-              Sign Out
+              <LogOut size={14} strokeWidth={2} />
+              <span>Sign Out</span>
             </button>
-            <div className="app-sidebar__sub" style={{ marginTop: 10 }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Offline Ready</div>
-              <div>Data is stored locally in SQLite for fast day-to-day lab work.</div>
+            <div className="app-sidebar__sub">
+              <Wifi className="app-sidebar__sub-icon" size={18} strokeWidth={1.5} />
+              <div className="app-sidebar__sub-content">
+                <p className="app-sidebar__sub-title">Offline Ready</p>
+                <p>Data is stored locally in SQLite for fast day-to-day lab work.</p>
+              </div>
             </div>
           </div>
         </aside>
@@ -248,12 +286,7 @@ function App() {
                 type="button"
                 onClick={() => setSidebarOpen((open) => !open)}
               >
-                <span className="sidebar-toggle__icon">
-                  {sidebarOpen ? "❮" : "❯"}
-                </span>
-                <span className="sidebar-toggle__label">
-                  {sidebarOpen ? "Hide menu" : "Show menu"}
-                </span>
+                {sidebarOpen ? <PanelLeftClose size={16} strokeWidth={2} /> : <PanelLeft size={16} strokeWidth={2} />}
               </button>
 
               <div>
@@ -262,9 +295,21 @@ function App() {
               </div>
             </div>
 
-            <div className="status-pill">
-              <span className="status-dot" />
-              {session.username}
+            <div className="page-header__right">
+              <div className="page-header__date">
+                <CalendarDays size={16} strokeWidth={1.5} />
+                {todayDate}
+              </div>
+
+              <div className="page-header__user-card">
+                <div className="page-header__user-avatar">
+                  {session.username.charAt(0).toUpperCase()}
+                </div>
+                <div className="page-header__user-info">
+                  <span className="page-header__user-name">{session.username}</span>
+                  <span className="page-header__user-role">{session.role}</span>
+                </div>
+              </div>
             </div>
           </header>
         )}

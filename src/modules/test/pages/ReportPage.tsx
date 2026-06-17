@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Eye, EyeOff, Printer } from "lucide-react";
 import Button from "../../../components/ui/Button";
 import type { ReportPatientInfo, ReportRow } from "../../../types";
 import { settingsService } from "../../settings/services/settingsService";
@@ -95,18 +96,19 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
       <style>{reportCss}</style>
 
       <div className="doctor-report-toolbar-v5 no-print">
-        <Button onClick={onBack} variant="secondary">
+        <Button onClick={onBack} variant="secondary" icon={<ArrowLeft size={16} />}>
           Back
         </Button>
 
         <Button
           onClick={() => setShowHeader((current) => !current)}
           variant="secondary"
+          icon={showHeader ? <EyeOff size={16} /> : <Eye size={16} />}
         >
           {showHeader ? "Hide Header" : "Show Header"}
         </Button>
 
-        <Button onClick={() => window.print()} disabled={loading || Boolean(error)}>
+        <Button onClick={() => window.print()} disabled={loading || Boolean(error)} icon={<Printer size={16} />}>
           Print Report
         </Button>
       </div>

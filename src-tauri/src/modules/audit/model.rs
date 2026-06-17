@@ -13,12 +13,3 @@ pub struct AuditLogEntry {
     pub new_data: Option<String>,
     pub created_at: String,
 }
-
-/// Summary of a user's recent actions (for activity feeds / compliance).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserActivitySummary {
-    pub user_id: i64,
-    pub username: String,
-    pub total_actions: i64,
-    pub last_action_at: String,
-}

@@ -1,29 +1,9 @@
-use crate::errors::{AppError, AppResult};
+use crate::errors::AppResult;
 use rusqlite::{params, Connection};
 
 use super::model::AuditLogEntry;
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Serialise an optional value to a JSON string.
-/// Returns `None` when the serialised string is `"null"`, so that
-/// empty / missing data never pollutes the audit log.
-fn maybe_json<T: serde::Serialize>(value: &Option<T>) -> Option<String> {
-    match value {
-        None => None,
-        Some(v) => {
-            let s = serde_json::to_string(v).ok()?;
-            if s == "null" {
-                None
-            } else {
-                Some(s)
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Create — this is the ONLY function that writes to audit_logs.
 // Safety rule: failures here are always non-fatal for the caller.

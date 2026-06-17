@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from "react";
+import { Heart, Lock, LogIn, User } from "lucide-react";
 import { authService } from "../services/authService";
+import Input from "../../../components/ui/Input";
+import Button from "../../../components/ui/Button";
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
@@ -23,8 +26,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       setError("Password is required.");
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
 
@@ -43,7 +46,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-card__header">
-          <div className="login-card__mark">LM</div>
+          <div className="login-card__mark">
+            <Heart size={26} strokeWidth={2} />
+          </div>
           <h1 className="login-card__title">LabManager</h1>
           <p className="login-card__subtitle">Desktop Lab Management System</p>
         </div>
@@ -57,11 +62,12 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
           <div className="form-field">
             <label className="form-label" htmlFor="login-username">
+              <User size={14} className="form-label__icon" />
               Username
             </label>
-            <input
+            <Input
               id="login-username"
-              className={`ui-input ${error && !username.trim() ? "ui-input--invalid" : ""}`}
+              invalid={error !== "" && !username.trim()}
               type="text"
               autoComplete="username"
               placeholder="Enter your username"
@@ -74,11 +80,12 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
           <div className="form-field">
             <label className="form-label" htmlFor="login-password">
+              <Lock size={14} className="form-label__icon" />
               Password
             </label>
-            <input
+            <Input
               id="login-password"
-              className={`ui-input ${error && !password ? "ui-input--invalid" : ""}`}
+              invalid={error !== "" && !password}
               type="password"
               autoComplete="current-password"
               placeholder="Enter your password"
@@ -88,15 +95,17 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             />
           </div>
 
-          <button
+          <Button
             type="submit"
-            className="ui-button ui-button--primary login-card__submit"
+            variant="primary"
+            className="login-card__submit"
             disabled={loading}
             aria-busy={loading}
+            icon={<LogIn size={18} />}
           >
             {loading && <span className="ui-spinner" aria-hidden="true" />}
             <span>{loading ? "Signing in…" : "Sign In"}</span>
-          </button>
+          </Button>
         </form>
 
         <p className="login-card__hint">

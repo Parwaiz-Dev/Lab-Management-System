@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { UserRound } from "lucide-react";
 import PatientForm from "../components/PatientForm";
 import TestSelector from "../../test/components/TestSelector";
 import Card from "../../../components/ui/Card";
@@ -15,6 +16,7 @@ export default function PatientPage({
   return (
     <div className="patient-intake-layout-v3">
       <Card
+        icon={<UserRound size={18} />}
         title="Patient Details"
         eyebrow="Step 1"
         right={

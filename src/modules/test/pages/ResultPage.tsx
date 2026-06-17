@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { FlaskConical } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
 import Toast from "../../../components/ui/Toast";
@@ -14,7 +15,10 @@ type ResultPageProps = {
   onViewReport: (orderId: number) => void;
 };
 
-type ExistingResultRow = [parameterId: number, value: string];
+interface ExistingResultRow {
+  parameterId: number;
+  value: string;
+}
 type FlagStatus = "" | "Low" | "High" | "Normal";
 
 function getFlagStatus(value: string, range: string): FlagStatus {
@@ -108,8 +112,8 @@ export default function ResultPage({
 
         const resultMap: Record<number, string> = {};
 
-        (existingResults as ExistingResultRow[]).forEach(([paramId, value]) => {
-          resultMap[paramId] = value;
+        (existingResults as ExistingResultRow[]).forEach(({ parameterId, value }) => {
+          resultMap[parameterId] = value;
         });
 
         setValues(resultMap);
@@ -190,6 +194,7 @@ export default function ResultPage({
       </section>
 
       <Card
+        icon={<FlaskConical size={18} />}
         title="Result Entry"
         eyebrow="Sub tests and parameters"
         right={

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, ClipboardList, Filter, Folders, RefreshCw, RotateCcw } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Input from "../../../components/ui/Input";
 import Button from "../../../components/ui/Button";
 import Badge from "../../../components/ui/Badge";
+import EmptyState from "../../../components/ui/EmptyState";
 import type { BadgeTone } from "../../../components/ui/Badge";
 import Toast from "../../../components/ui/Toast";
 import { auditService } from "../services/auditService";
@@ -293,7 +295,7 @@ export default function AuditPage() {
       </div>
 
       {/* ── Filter Bar ── */}
-      <Card className="audit-filters-card">
+      <Card className="audit-filters-card" icon={<Filter size={18} />}>
         <div className="audit-filters">
           <div className="audit-filters__search">
             <Input
@@ -390,7 +392,7 @@ export default function AuditPage() {
       </Card>
 
       {/* ── Table ── */}
-      <Card className="audit-table-card">
+      <Card className="audit-table-card" icon={<ClipboardList size={18} />}>
         {loading && logs.length === 0 ? (
           <div className="audit-loading">
             <span className="ui-spinner" aria-hidden="true" />
@@ -401,29 +403,26 @@ export default function AuditPage() {
             <div className="audit-empty__icon">⚠️</div>
             <strong>Failed to load audit logs</strong>
             <p>{error}</p>
-            <Button variant="primary" onClick={() => fetchLogs(true)}>
+            <Button variant="primary" onClick={() => fetchLogs(true)} icon={<RefreshCw size={16} />}>
               Retry
             </Button>
           </div>
         ) : filteredLogs.length === 0 ? (
-          <div className="audit-empty">
-            <div className="audit-empty__icon">📋</div>
-            <strong>
-              {hasActiveFilters
-                ? "No matching audit entries"
-                : "No audit entries yet"}
-            </strong>
-            <p>
-              {hasActiveFilters
+          <EmptyState
+            icon="&#x1F4CB;"
+            title={hasActiveFilters ? "No matching audit entries" : "No audit entries yet"}
+            subtitle={
+              hasActiveFilters
                 ? "Try adjusting your filters or search term."
-                : "Audit logs will appear here as actions are performed in the system."}
-            </p>
+                : "Audit logs will appear here as actions are performed in the system."
+            }
+          >
             {hasActiveFilters && (
-              <Button variant="ghost" onClick={clearFilters}>
+              <Button variant="ghost" onClick={clearFilters} style={{ marginTop: 16 }} icon={<RotateCcw size={16} />}>
                 Clear Filters
               </Button>
             )}
-          </div>
+          </EmptyState>
         ) : (
           <>
             <div className="audit-table-wrap">
@@ -489,8 +488,9 @@ export default function AuditPage() {
                   disabled={currentPage <= 1}
                   onClick={() => goToPage(currentPage - 1)}
                   aria-label="Previous page"
+                  icon={<ChevronLeft size={16} />}
                 >
-                  ‹ Prev
+                  Prev
                 </Button>
 
                 {pageNumbers.map((p, i) =>
@@ -517,8 +517,9 @@ export default function AuditPage() {
                   disabled={currentPage >= totalPages}
                   onClick={() => goToPage(currentPage + 1)}
                   aria-label="Next page"
+                  icon={<ChevronRight size={16} />}
                 >
-                  Next ›
+                  Next
                 </Button>
               </div>
             </div>
@@ -526,7 +527,7 @@ export default function AuditPage() {
             {/* ── Load More (when there's more server data) ── */}
             {hasMore && !hasActiveFilters && (
               <div className="audit-load-more">
-                <Button variant="ghost" onClick={loadMore} disabled={loading}>
+                <Button variant="ghost" onClick={loadMore} disabled={loading} icon={<Folders size={16} />}>
                   {loading ? "Loading…" : "Load More Records"}
                 </Button>
               </div>

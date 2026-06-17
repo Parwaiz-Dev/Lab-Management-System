@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Clock,
+  CreditCard,
+  Eye,
+  FileText,
+  FlaskConical,
+  Package,
+  Printer,
+  ReceiptText,
+  User,
+  X,
+} from "lucide-react";
 import { patientService } from "../services/patientService";
 import { patientHistoryService } from "../services/patientHistoryService";
 import { testService } from "../../test/services/testService";
@@ -18,6 +30,7 @@ import Card from "../../../components/ui/Card";
 import Badge from "../../../components/ui/Badge";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
+import EmptyState from "../../../components/ui/EmptyState";
 import Toast from "../../../components/ui/Toast";
 
 // ── Helpers ──────────────────────────────────────────
@@ -339,6 +352,7 @@ export default function PatientHistoryPage({
               variant="secondary"
               onClick={clearSelection}
               className="patient-history__search-row-btn"
+              icon={<X size={16} />}
             >
               Clear
             </Button>
@@ -407,22 +421,18 @@ export default function PatientHistoryPage({
 
       {/* Empty search state */}
       {!selectedPatient && !historyLoading && !historyError && (
-        <div className="patient-history__empty-search">
-          <span className="patient-history__empty-search-icon">🔍</span>
-          <h2>Patient History</h2>
-          <p>
-            Search for a patient by name, phone number, or patient code to view
-            their complete history including orders, payments, reports, and
-            test results over time.
-          </p>
-        </div>
+        <EmptyState
+          icon="&#x1F50D;"
+          title="Patient History"
+          subtitle="Search for a patient by name, phone number, or patient code to view their complete history including orders, payments, reports, and test results over time."
+        />
       )}
 
       {/* History content */}
       {selectedPatient && history && (
         <div className="patient-history__content">
           {/* Step 1: Patient Profile */}
-          <Card className="patient-history__profile-card">
+          <Card className="patient-history__profile-card" icon={<User size={18} />}>
             <div className="patient-history__profile">
               <div className="patient-history__profile-avatar">
                 {history.patient.name.charAt(0).toUpperCase()}
@@ -452,12 +462,16 @@ export default function PatientHistoryPage({
           {/* Step 2: Orders Section */}
           <Card
             className="patient-history__section-card"
+            icon={<Package size={18} />}
             title={`Orders (${history.orders.length})`}
           >
             {history.orders.length === 0 ? (
-              <div className="patient-history__empty-section">
-                No orders found for this patient.
-              </div>
+              <EmptyState
+                compact
+                icon="&#x1F4E6;"
+                title="No orders found"
+                subtitle="This patient has no orders yet."
+              />
             ) : (
               <>
                 <div className="patient-history__table-wrap">
@@ -522,12 +536,16 @@ export default function PatientHistoryPage({
           {/* Step 3: Payments Section */}
           <Card
             className="patient-history__section-card"
+            icon={<CreditCard size={18} />}
             title={`Payments (${history.payments.length} entries)`}
           >
             {history.payments.length === 0 ? (
-              <div className="patient-history__empty-section">
-                No payment records found.
-              </div>
+              <EmptyState
+                compact
+                icon="&#x1F4B0;"
+                title="No payment records"
+                subtitle="No payment records found for this patient."
+              />
             ) : (
               <>
                 <div className="patient-history__table-wrap">
@@ -586,12 +604,16 @@ export default function PatientHistoryPage({
           {/* Step 4: Reports Section (report-level) */}
           <Card
             className="patient-history__section-card"
+            icon={<FileText size={18} />}
             title={`Reports (${reportEntries.length} reports)`}
           >
             {reportEntries.length === 0 ? (
-              <div className="patient-history__empty-section">
-                No reports found. Results must be entered to generate reports.
-              </div>
+              <EmptyState
+                compact
+                icon="&#x1F4C4;"
+                title="No reports found"
+                subtitle="Results must be entered to generate reports."
+              />
             ) : (
               <>
                 <div className="patient-history__table-wrap">
@@ -623,12 +645,14 @@ export default function PatientHistoryPage({
                               <Button
                                 variant="secondary"
                                 onClick={() => onViewReport?.(entry.order_id)}
+                                icon={<Eye size={16} />}
                               >
                                 View Report
                               </Button>
                               <Button
                                 variant="secondary"
                                 onClick={() => onViewReport?.(entry.order_id)}
+                                icon={<Printer size={16} />}
                               >
                                 Print Report Again
                               </Button>
@@ -674,8 +698,9 @@ export default function PatientHistoryPage({
                       setDetailData(null);
                       setDetailError(null);
                     }}
+                    icon={<X size={16} />}
                   >
-                    ✕ Close
+                    Close
                   </Button>
                 </div>
 
@@ -761,31 +786,31 @@ export default function PatientHistoryPage({
                           <div className="patient-history__detail-info-item">
                             <span className="patient-history__detail-info-label">Total Amount</span>
                             <span className="patient-history__col--mono">
-                              {formatCurrency(detailData.receipt[2])}
+                              {formatCurrency(detailData.receipt.total)}
                             </span>
                           </div>
                           <div className="patient-history__detail-info-item">
                             <span className="patient-history__detail-info-label">Paid Amount</span>
                             <span className="patient-history__col--mono">
-                              {formatCurrency(detailData.receipt[3])}
+                              {formatCurrency(detailData.receipt.paid)}
                             </span>
                           </div>
                           <div className="patient-history__detail-info-item">
                             <span className="patient-history__detail-info-label">Status</span>
                             <Badge
                               tone={
-                                detailData.receipt[3] >= detailData.receipt[2]
+                                detailData.receipt.paid >= detailData.receipt.total
                                   ? "success"
                                   : "warning"
                               }
                             >
-                              {detailData.receipt[3] >= detailData.receipt[2]
+                              {detailData.receipt.paid >= detailData.receipt.total
                                 ? "Paid"
                                 : "Pending"}
                             </Badge>
                           </div>
                         </div>
-                        {detailData.receipt[5].length > 0 && (
+                        {detailData.receipt.tests.length > 0 && (
                           <div className="patient-history__table-wrap" style={{ marginTop: 12 }}>
                             <table className="patient-history__table patient-history__detail-table">
                               <thead>
@@ -796,7 +821,7 @@ export default function PatientHistoryPage({
                                 </tr>
                               </thead>
                               <tbody>
-                                {detailData.receipt[5].map((line, idx) => (
+                                {detailData.receipt.tests.map((line, idx) => (
                                   <tr key={idx}>
                                     <td>{line.test_name}</td>
                                     <td>{line.parameter_names?.join(", ") || "—"}</td>
@@ -816,18 +841,21 @@ export default function PatientHistoryPage({
                     <div className="patient-history__detail-actions">
                       <Button
                         onClick={() => onViewReport?.(detailOrderId)}
+                        icon={<Eye size={16} />}
                       >
                         Preview Report
                       </Button>
                       <Button
                         variant="primary"
                         onClick={() => onViewReport?.(detailOrderId)}
+                        icon={<Printer size={16} />}
                       >
                         Print Report
                       </Button>
                       <Button
                         variant="secondary"
                         onClick={() => onViewReceipt?.(detailOrderId)}
+                        icon={<ReceiptText size={16} />}
                       >
                         Print Receipt
                       </Button>
@@ -841,12 +869,16 @@ export default function PatientHistoryPage({
           {/* Step 5: Previous Results (grouped by parameter) */}
           <Card
             className="patient-history__section-card"
+            icon={<FlaskConical size={18} />}
             title={`Test Results Over Time (${history.previous_results.length} parameters)`}
           >
             {history.previous_results.length === 0 ? (
-              <div className="patient-history__empty-section">
-                No previous test results available.
-              </div>
+              <EmptyState
+                compact
+                icon="&#x1F9EA;"
+                title="No test results"
+                subtitle="No previous test results available for this patient."
+              />
             ) : (
               <>
                 <div className="patient-history__results-grid">
@@ -912,12 +944,16 @@ export default function PatientHistoryPage({
           {/* Step 6: Timeline */}
           <Card
             className="patient-history__section-card"
+            icon={<Clock size={18} />}
             title={`Activity Timeline (${history.timeline.length} events)`}
           >
             {history.timeline.length === 0 ? (
-              <div className="patient-history__empty-section">
-                No activity recorded yet.
-              </div>
+              <EmptyState
+                compact
+                icon="&#x1F4C5;"
+                title="No activity yet"
+                subtitle="No activity has been recorded for this patient."
+              />
             ) : (
               <>
                 <div className="patient-history__timeline">

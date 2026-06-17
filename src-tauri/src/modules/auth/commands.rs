@@ -209,19 +209,3 @@ pub fn require_auth(auth: &AuthState) -> AppResult<SessionInfo> {
         .clone()
         .ok_or_else(|| AppError::AuthError("Authentication required. Please log in.".to_string()))
 }
-
-/// Helper: require a specific role. Returns AuthError if role doesn't match.
-pub fn require_role(auth: &AuthState, allowed: &[UserRole]) -> AppResult<SessionInfo> {
-    let session = require_auth(auth)?;
-
-    if !allowed.contains(&session.role) && !session.role.can_manage_settings() {
-        let role_names: Vec<String> = allowed.iter().map(|r| r.to_string()).collect();
-        return Err(AppError::AuthError(format!(
-            "Access denied. Required role(s): {}. Your role: {}",
-            role_names.join(", "),
-            session.role
-        )));
-    }
-
-    Ok(session)
-}

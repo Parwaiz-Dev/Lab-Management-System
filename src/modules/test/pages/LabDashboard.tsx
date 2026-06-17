@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ClipboardList, TrendingUp } from "lucide-react";
 import PaymentModal from "../components/PaymentModal";
 import ConfirmationDialog from "../../../components/ui/ConfirmationDialog";
 import Toast from "../../../components/ui/Toast";
@@ -6,6 +7,7 @@ import Card from "../../../components/ui/Card";
 import Badge from "../../../components/ui/Badge";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
+import EmptyState from "../../../components/ui/EmptyState";
 import type { DashboardOrderRow, DoctorRevenueRow } from "../../../types";
 import { getErrorMessage, money, testService } from "../services/testService";
 
@@ -141,7 +143,7 @@ export default function LabDashboard({
     if (!text) return orders;
 
     return orders.filter((order) =>
-      `${order[1]} ${order[2]} ${order[5] || ""} ${order[6] || ""}`
+      `${order.patientName} ${order.tests} ${order.paymentStatus || ""} ${order.reportStatus || ""}`
         .toLowerCase()
         .includes(text)
     );
@@ -153,20 +155,20 @@ export default function LabDashboard({
     const header = "Order ID,Patient,Test,Report Status,Total,Paid,Pending,Payment Status\n";
     const body = rows
       .map((order) => {
-        const orderId = Number(order[0]);
-        const status = order[6] || "Pending";
-        const total = Number(order[3] || 0);
-        const paid = Number(order[4] || 0);
+        const orderId = Number(order.id);
+        const status = order.reportStatus || "Pending";
+        const total = Number(order.totalAmount || 0);
+        const paid = Number(order.paidAmount || 0);
         const pending = Math.max(total - paid, 0);
         return [
           orderId,
-          `"${order[1] || "Unknown"}"`,
-          `"${order[2] || "-"}"`,
+          `"${order.patientName || "Unknown"}"`,
+          `"${order.tests || "-"}"`,
           status,
           total,
           paid,
           pending,
-          order[5] || "Pending",
+          order.paymentStatus || "Pending",
         ].join(",");
       })
       .join("\n");
@@ -181,25 +183,27 @@ export default function LabDashboard({
   }, [filteredOrders]);
 
   const pendingCollections = orders.filter(
-    (order) => String(order[5]).toLowerCase() !== "completed"
+    (order) => String(order.paymentStatus).toLowerCase() !== "completed"
   ).length;
 
   const pendingReports = orders.filter(
     (order) =>
-      String(order[6] || "Pending").toLowerCase() !==
+      String(order.reportStatus || "Pending").toLowerCase() !==
       "completed"
   ).length;
 
   return (
     <div className="lab-dashboard">
       <div className="lab-dashboard__metrics">
-        <Metric title="Orders" value={String(orders.length)} tone="neutral" />
+        <Metric icon="&#x1F4CB;" title="Orders" value={String(orders.length)} tone="neutral" />
         <Metric
+          icon="&#x1F4C4;"
           title="Pending Reports"
           value={String(pendingReports)}
           tone="warning"
         />
         <Metric
+          icon="&#x1F4B0;"
           title="Pending Collections"
           value={String(pendingCollections)}
           tone="warning"
@@ -207,8 +211,9 @@ export default function LabDashboard({
       </div>
 
       <Card
+        icon={<ClipboardList size={18} />}
         title="Order Worklist"
-        eyebrow="Today and recent"
+        eyebrow="RECENT"
         right={
           <div className="lab-dashboard__toolbar">
             <Input
@@ -275,22 +280,25 @@ export default function LabDashboard({
             </div>
 
             {loading && (
-              <div className="lab-dashboard__state">Loading orders...</div>
+              <EmptyState compact icon="&#x23F3;" title="Loading orders..." />
             )}
 
             {!loading && filteredOrders.length === 0 && (
-              <div className="lab-dashboard__state">
-                No matching orders yet. Create an order from Patient Intake.
-              </div>
+              <EmptyState
+                compact
+                icon="&#x1F4CB;"
+                title="No matching orders"
+                subtitle="Create an order from Patient Intake to get started."
+              />
             )}
 
             {!loading &&
               filteredOrders.map((order, index) => {
-                const orderId = Number(order[0]);
-                const reportStatus = order[6] || "Pending";
-                const paymentStatus = order[5] || "Pending";
-                const total = Number(order[3] || 0);
-                const paid = Number(order[4] || 0);
+                const orderId = Number(order.id);
+                const reportStatus = order.reportStatus || "Pending";
+                const paymentStatus = order.paymentStatus || "Pending";
+                const total = Number(order.totalAmount || 0);
+                const paid = Number(order.paidAmount || 0);
                 const pending = Math.max(total - paid, 0);
                 const isCompleted =
                   String(paymentStatus).toLowerCase() === "completed";
@@ -301,12 +309,12 @@ export default function LabDashboard({
                     className="lab-dashboard__row"
                   >
                     <div className="lab-dashboard__patient">
-                      <strong>{order[1] || "Unknown Patient"}</strong>
+                      <strong>{order.patientName || "Unknown Patient"}</strong>
                       <span>Order #{orderId}</span>
                     </div>
 
-                    <div className="lab-dashboard__tests" title={order[2]}>
-                      {order[2] || "—"}
+                    <div className="lab-dashboard__tests" title={order.tests}>
+                      {order.tests || "—"}
                     </div>
 
                     <StatusBadge status={reportStatus} />
@@ -441,7 +449,7 @@ export default function LabDashboard({
 
       {paymentModal && (
         <PaymentModal
-          key={`payment-${paymentModal[0]}`}
+          key={`payment-${paymentModal.id}`}
           order={paymentModal}
           onClose={() => setPaymentModal(null)}
           onDone={() => {
@@ -483,6 +491,7 @@ export default function LabDashboard({
 
       {showRevenue && (
         <Card
+          icon={<TrendingUp size={18} />}
           title="Doctor Revenue"
           eyebrow={`${dateFrom || "All time"} – ${dateTo || "Today"}`}
           right={
@@ -535,16 +544,19 @@ export default function LabDashboard({
 }
 
 function Metric({
+  icon,
   title,
   value,
   tone,
 }: {
+  icon?: string;
   title: string;
   value: string;
   tone: "info" | "success" | "danger" | "warning" | "neutral";
 }) {
   return (
     <div className={`lab-dashboard__metric lab-dashboard__metric--${tone}`}>
+      {icon && <span className="lab-dashboard__metric-icon">{icon}</span>}
       <span>{title}</span>
       <strong>{value}</strong>
     </div>

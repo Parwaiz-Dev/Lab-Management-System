@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ClipboardList, CreditCard } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Input from "../../../components/ui/Input";
 import Button from "../../../components/ui/Button";
 import Toast from "../../../components/ui/Toast";
 import Badge from "../../../components/ui/Badge";
+import EmptyState from "../../../components/ui/EmptyState";
 import ConfirmationDialog from "../../../components/ui/ConfirmationDialog";
 import type { Patient, Test, ToastMessage } from "../../../types";
 import { getErrorMessage, money, testService } from "../services/testService";
@@ -406,9 +408,12 @@ const shouldShowNoCatalogResult =
         </div>
 
         {selected.length === 0 ? (
-          <div className="test-selector__empty">
-            Search and add tests to build the order.
-          </div>
+          <EmptyState
+            compact
+            icon="&#x1F50D;"
+            title="No tests selected"
+            subtitle="Search and add tests from the catalog to build the order."
+          />
         ) : (
           <div className="test-selector__selected-list">
             {selected.map((test) => (
@@ -707,6 +712,7 @@ const shouldShowNoCatalogResult =
     return (
       <>
         <Card
+          icon={<ClipboardList size={18} />}
           title="Test Order"
           eyebrow="Step 2"
           right={<Badge tone="success">Active</Badge>}
@@ -716,6 +722,7 @@ const shouldShowNoCatalogResult =
         </Card>
 
         <Card
+          icon={<CreditCard size={18} />}
           title="Billing"
           eyebrow="Create Order"
           right={
@@ -737,11 +744,11 @@ const shouldShowNoCatalogResult =
   return (
     <div className="test-selector test-selector--inline">
       <div className="test-selector__inline-grid">
-        <Card title="Test Order" eyebrow="Tests">
+        <Card icon={<ClipboardList size={18} />} title="Test Order" eyebrow="Tests">
           {selectionContent}
         </Card>
 
-        <Card title="Billing" eyebrow="Create Order" compact>
+        <Card icon={<CreditCard size={18} />} title="Billing" eyebrow="Create Order" compact>
           {billingContent}
         </Card>
       </div>

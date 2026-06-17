@@ -1,5 +1,6 @@
 use crate::errors::{AppError, AppResult};
 use crate::modules::order::model::{DoctorRevenue, OrderSummary};
+use crate::utils::helpers::payment_status;
 use crate::utils::money::{from_paise, to_paise};
 use crate::utils::validation::{validate_amount, validate_positive_id, validate_test_ids};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -14,16 +15,6 @@ fn unique_ids(ids: &[i32]) -> Vec<i32> {
     }
 
     unique
-}
-
-fn payment_status(total_paise: i64, paid_paise: i64) -> String {
-    if paid_paise <= 0 {
-        "Pending".to_string()
-    } else if paid_paise < total_paise {
-        "Partial".to_string()
-    } else {
-        "Completed".to_string()
-    }
 }
 
 pub fn create_order(

@@ -28,30 +28,6 @@ impl UserRole {
         matches!(self, UserRole::Admin)
     }
 
-    /// Returns true if this role can manage test catalog.
-    pub fn can_manage_catalog(&self) -> bool {
-        matches!(self, UserRole::Admin | UserRole::Staff)
-    }
-
-    /// Returns true if this role can enter lab results.
-    pub fn can_enter_results(&self) -> bool {
-        matches!(self, UserRole::Admin | UserRole::Staff)
-    }
-
-    /// Returns true if this role can create orders and patients.
-    pub fn can_create_orders(&self) -> bool {
-        matches!(self, UserRole::Admin | UserRole::Staff)
-    }
-
-    /// Returns true if this role can view reports and receipts.
-    pub fn can_view_reports(&self) -> bool {
-        true // All roles can view reports
-    }
-
-    /// Returns true if this role can process payments.
-    pub fn can_process_payments(&self) -> bool {
-        matches!(self, UserRole::Admin | UserRole::Staff)
-    }
 }
 
 impl std::fmt::Display for UserRole {

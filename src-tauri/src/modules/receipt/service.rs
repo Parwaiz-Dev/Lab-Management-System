@@ -1,19 +1,10 @@
 use crate::errors::{AppError, AppResult};
+use crate::utils::helpers::payment_status;
 use crate::utils::money::from_paise;
 use crate::utils::validation::validate_positive_id;
 use rusqlite::Connection;
 
 use super::model::{ReceiptData, ReceiptLine};
-
-fn payment_status(total_paise: i64, paid_paise: i64) -> String {
-    if total_paise <= 0 || paid_paise >= total_paise {
-        "Completed".to_string()
-    } else if paid_paise <= 0 {
-        "Pending".to_string()
-    } else {
-        "Partial".to_string()
-    }
-}
 
 pub fn get_receipt(conn: &Connection, order_id: i32) -> AppResult<ReceiptData> {
     validate_positive_id(order_id, "order_id")?;

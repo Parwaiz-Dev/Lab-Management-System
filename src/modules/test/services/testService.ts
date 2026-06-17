@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   DashboardOrderRow,
   DoctorRevenueRow,
-  FinancialSummaryTuple,
+  FinancialSummary,
   OrderParameter,
   PaymentHistoryEntry,
   ReceiptData,
@@ -14,7 +14,10 @@ import type {
   UpdateOrderPayload,
 } from "../../../types";
 
-type ExistingResultRow = [parameterId: number, value: string];
+interface ExistingResultRow {
+  parameterId: number;
+  value: string;
+}
 
 const toNumber = (value: unknown) => {
   const parsed = Number(value ?? 0);
@@ -33,46 +36,50 @@ const asRecord = (value: unknown): Record<string, unknown> => {
 
 function normalizeDashboardOrder(row: unknown): DashboardOrderRow {
   if (Array.isArray(row)) {
-    return [
-      toNumber(row[0]),
-      toText(row[1]),
-      toText(row[2]),
-      toNumber(row[3]),
-      toNumber(row[4]),
-      toText(row[5] || "Pending"),
-      toText(row[6] || "Pending"),
-    ];
+    return {
+      id: toNumber(row[0]),
+      patientName: toText(row[1]),
+      tests: toText(row[2]),
+      totalAmount: toNumber(row[3]),
+      paidAmount: toNumber(row[4]),
+      paymentStatus: toText(row[5] || "Pending"),
+      reportStatus: toText(row[6] || "Pending"),
+    };
   }
 
   const item = asRecord(row);
 
-  return [
-    toNumber(item.id ?? item.orderId ?? item.order_id),
-    toText(item.patientName ?? item.patient_name ?? item.patient),
-    toText(item.tests ?? item.testNames ?? item.test_names),
-    toNumber(item.totalAmount ?? item.total_amount ?? item.total),
-    toNumber(item.paidAmount ?? item.paid_amount ?? item.paid),
-    toText(
+  return {
+    id: toNumber(item.id ?? item.orderId ?? item.order_id),
+    patientName: toText(item.patientName ?? item.patient_name ?? item.patient),
+    tests: toText(item.tests ?? item.testNames ?? item.test_names),
+    totalAmount: toNumber(item.totalAmount ?? item.total_amount ?? item.total),
+    paidAmount: toNumber(item.paidAmount ?? item.paid_amount ?? item.paid),
+    paymentStatus: toText(
       item.paymentStatus ?? item.payment_status ?? item.status ?? "Pending",
     ),
-    toText(
+    reportStatus: toText(
       item.reportStatus ?? item.report_status ?? "Pending",
     ),
-  ];
+  };
 }
 
-function normalizeSummary(row: unknown): FinancialSummaryTuple {
+function normalizeSummary(row: unknown): FinancialSummary {
   if (Array.isArray(row)) {
-    return [toNumber(row[0]), toNumber(row[1]), toNumber(row[2])];
+    return {
+      totalAmount: toNumber(row[0]),
+      paidAmount: toNumber(row[1]),
+      pendingAmount: toNumber(row[2]),
+    };
   }
 
   const item = asRecord(row);
 
-  return [
-    toNumber(item.totalAmount ?? item.total_amount ?? item.total),
-    toNumber(item.paidAmount ?? item.paid_amount ?? item.paid),
-    toNumber(item.pendingAmount ?? item.pending_amount ?? item.pending),
-  ];
+  return {
+    totalAmount: toNumber(item.totalAmount ?? item.total_amount ?? item.total),
+    paidAmount: toNumber(item.paidAmount ?? item.paid_amount ?? item.paid),
+    pendingAmount: toNumber(item.pendingAmount ?? item.pending_amount ?? item.pending),
+  };
 }
 
 function normalizeReceiptLine(row: unknown): ReceiptLine {
@@ -104,27 +111,27 @@ function normalizeReceipt(row: unknown): ReceiptData {
   if (Array.isArray(row)) {
     const tests = Array.isArray(row[5]) ? row[5].map(normalizeReceiptLine) : [];
 
-    return [
-      toText(row[0]),
-      toText(row[1]),
-      toNumber(row[2]),
-      toNumber(row[3]),
-      toNumber(row[4]),
+    return {
+      patient: toText(row[0]),
+      invoice: toText(row[1]),
+      total: toNumber(row[2]),
+      paid: toNumber(row[3]),
+      discount: toNumber(row[4]),
       tests,
-    ];
+    };
   }
 
   const item = asRecord(row);
   const rawTests = item.tests ?? item.test_lines ?? item.testLines ?? [];
 
-  return [
-    toText(item.patient ?? item.patient_name ?? item.patientName),
-    toText(item.invoice ?? item.invoice_no ?? item.invoiceNo),
-    toNumber(item.total ?? item.total_amount ?? item.totalAmount),
-    toNumber(item.paid ?? item.paid_amount ?? item.paidAmount),
-    toNumber(item.discount ?? item.discount_amount ?? item.discountAmount),
-    Array.isArray(rawTests) ? rawTests.map(normalizeReceiptLine) : [],
-  ];
+  return {
+    patient: toText(item.patient ?? item.patient_name ?? item.patientName),
+    invoice: toText(item.invoice ?? item.invoice_no ?? item.invoiceNo),
+    total: toNumber(item.total ?? item.total_amount ?? item.totalAmount),
+    paid: toNumber(item.paid ?? item.paid_amount ?? item.paidAmount),
+    discount: toNumber(item.discount ?? item.discount_amount ?? item.discountAmount),
+    tests: Array.isArray(rawTests) ? rawTests.map(normalizeReceiptLine) : [],
+  };
 }
 
 function normalizeOrderParameter(row: unknown): OrderParameter | null {
@@ -162,7 +169,7 @@ function normalizeExistingResult(row: unknown): ExistingResultRow | null {
     const parameterId = toNumber(row[0]);
     if (!parameterId) return null;
 
-    return [parameterId, toText(row[1])];
+    return { parameterId, value: toText(row[1]) };
   }
 
   const item = asRecord(row);
@@ -172,7 +179,7 @@ function normalizeExistingResult(row: unknown): ExistingResultRow | null {
 
   if (!parameterId) return null;
 
-  return [parameterId, toText(item.value ?? item.result)];
+  return { parameterId, value: toText(item.value ?? item.result) };
 }
 
 function normalizeReportRow(row: unknown): ReportRow | null {
@@ -242,7 +249,7 @@ export const testService = {
     const rows = await invoke<unknown>("get_orders");
     const list = Array.isArray(rows) ? rows : [];
 
-    return list.map(normalizeDashboardOrder).filter((row) => row[0] > 0);
+    return list.map(normalizeDashboardOrder).filter((row) => row.id > 0);
   },
 
   async getOrdersByDateRange(
@@ -254,7 +261,7 @@ export const testService = {
       dateTo,
     });
     const list = Array.isArray(rows) ? rows : [];
-    return list.map(normalizeDashboardOrder).filter((row) => row[0] > 0);
+    return list.map(normalizeDashboardOrder).filter((row) => row.id > 0);
   },
 
   async getDoctorRevenue(
@@ -306,12 +313,12 @@ export const testService = {
     return invoke<void>("update_order_status", { orderId, newStatus });
   },
 
-  async getDailySummary(): Promise<FinancialSummaryTuple> {
+  async getDailySummary(): Promise<FinancialSummary> {
     const row = await invoke<unknown>("get_daily_summary");
     return normalizeSummary(row);
   },
 
-  async getOverallSummary(): Promise<FinancialSummaryTuple> {
+  async getOverallSummary(): Promise<FinancialSummary> {
     const row = await invoke<unknown>("get_overall_summary");
     return normalizeSummary(row);
   },

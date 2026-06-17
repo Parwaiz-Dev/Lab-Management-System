@@ -6,8 +6,6 @@
 /// 3. Never breaks primary operations (audit failures are swallowed)
 #[cfg(test)]
 mod tests {
-    use crate::db::connection::get_connection;
-    use crate::db::schema::init_db;
     use crate::modules::audit::model::AuditLogEntry;
     use crate::modules::audit::service;
 
@@ -68,7 +66,8 @@ mod tests {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 order_id INTEGER NOT NULL,
                 parameter_id INTEGER NOT NULL,
-                value TEXT,
+                value TEXT NOT NULL,
+                UNIQUE(order_id, parameter_id),
                 FOREIGN KEY (order_id) REFERENCES orders(id)
             );
             ",
@@ -132,16 +131,16 @@ mod tests {
             "update",
             "orders",
             Some(1),
-            Some(r#"{"paid_amount":"0"}"#),
-            Some(r#"{"paid_amount":"500"}"#),
+            Some(r#"{"paid_amount_paise":"0"}"#),
+            Some(r#"{"paid_amount_paise":"50000"}"#),
         );
 
         let log = get_latest(conn);
         assert_eq!(log.action, "update");
         assert_eq!(log.table_name, "orders");
         assert_eq!(log.record_id, Some(1));
-        assert!(log.old_data.unwrap().contains("paid_amount"));
-        assert!(log.new_data.unwrap().contains("500"));
+        assert!(log.old_data.unwrap().contains("paid_amount_paise"));
+        assert!(log.new_data.unwrap().contains("50000"));
     }
 
     // ------------------------------------------------------------------
@@ -278,17 +277,18 @@ mod tests {
     fn snapshot_row_captures_current_values() {
         let conn = test_db();
 
-        let snap = service::snapshot_row(&conn, "orders", "id", 1, &["paid_amount", "paid_amount_paise"])
+        // Only use columns that exist in the orders table (paid_amount was dropped in v10)
+        let snap = service::snapshot_row(&conn, "orders", "id", 1, &["paid_amount_paise", "total_amount_paise"])
             .unwrap()
             .expect("should capture existing row");
 
-        assert!(snap.contains("paid_amount"), "snapshot: {}", snap);
+        assert!(snap.contains("paid_amount_paise"), "snapshot: {}", snap);
     }
 
     #[test]
     fn snapshot_row_returns_none_for_missing() {
         let conn = test_db();
-        let snap = service::snapshot_row(&conn, "orders", "id", 999, &["paid_amount"]).unwrap();
+        let snap = service::snapshot_row(&conn, "orders", "id", 999, &["paid_amount_paise"]).unwrap();
         assert!(snap.is_none());
     }
 
@@ -301,7 +301,7 @@ mod tests {
         let conn = test_db();
         // Insert a result row so we can snapshot it
         conn.execute(
-            "INSERT INTO results (order_id, parameter_id, value) VALUES (1, 10, 'Normal')",
+            "INSERT OR IGNORE INTO results (order_id, parameter_id, value) VALUES (1, 10, 'Normal')",
             [],
         )
         .unwrap();

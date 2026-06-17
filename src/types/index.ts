@@ -73,21 +73,21 @@ export interface OrderParameter extends TestParameter {
   test_name: string;
 }
 
-export type DashboardOrderRow = [
-  id: number,
-  patientName: string,
-  tests: string,
-  totalAmount: number,
-  paidAmount: number,
-  paymentStatus: OrderStatus | string,
-  reportStatus: string,
-];
+export interface DashboardOrderRow {
+  id: number;
+  patientName: string;
+  tests: string;
+  totalAmount: number;
+  paidAmount: number;
+  paymentStatus: OrderStatus | string;
+  reportStatus: string;
+}
 
-export type FinancialSummaryTuple = [
-  totalAmount: number,
-  paidAmount: number,
-  pendingAmount: number,
-];
+export interface FinancialSummary {
+  totalAmount: number;
+  paidAmount: number;
+  pendingAmount: number;
+}
 
 export interface ReportRow {
   test_name: string;
@@ -115,14 +115,14 @@ export interface ReceiptLine {
   parameter_names: string[];
 }
 
-export type ReceiptData = [
-  patient: string,
-  invoice: string,
-  total: number,
-  paid: number,
-  discount: number,
-  tests: ReceiptLine[],
-];
+export interface ReceiptData {
+  patient: string;
+  invoice: string;
+  total: number;
+  paid: number;
+  discount: number;
+  tests: ReceiptLine[];
+}
 
 export interface LabSettings {
   lab_name: string;

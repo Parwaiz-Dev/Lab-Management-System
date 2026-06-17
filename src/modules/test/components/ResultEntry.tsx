@@ -2,26 +2,18 @@ import { useMemo, useState } from "react";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
+import EmptyState from "../../../components/ui/EmptyState";
 import Toast from "../../../components/ui/Toast";
 import type { ToastMessage } from "../../../types";
 import { getErrorMessage, testService } from "../services/testService";
 
-type ResultParameterTuple = [
-  id: number,
-  name: string,
-  unit: string,
-  normalRange: string,
-];
-
-type ResultParameterObject = {
+interface ResultParameterInput {
   id: number;
   name: string;
   unit?: string;
   normalRange?: string;
   normal_range?: string;
-};
-
-type ResultParameterInput = ResultParameterTuple | ResultParameterObject;
+}
 
 type NormalizedParameter = {
   id: number;
@@ -36,15 +28,6 @@ type ResultEntryProps = {
 };
 
 function normalizeParameter(param: ResultParameterInput): NormalizedParameter {
-  if (Array.isArray(param)) {
-    return {
-      id: Number(param[0]),
-      name: String(param[1] || ""),
-      unit: String(param[2] || ""),
-      normalRange: String(param[3] || ""),
-    };
-  }
-
   return {
     id: Number(param.id),
     name: String(param.name || ""),
@@ -147,11 +130,13 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
 
         <div className="result-entry__stats">
           <div className="result-entry__stat-card">
+            <span className="result-entry__stat-icon">&#x1F9EA;</span>
             <span>Total Parameters</span>
             <strong>{totalCount}</strong>
           </div>
 
           <div className="result-entry__stat-card result-entry__stat-card--active">
+            <span className="result-entry__stat-icon">&#x2705;</span>
             <span>Entered</span>
             <strong>{enteredCount}</strong>
           </div>
@@ -175,13 +160,11 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
         </div>
 
         {normalizedParameters.length === 0 ? (
-          <div className="result-entry__empty">
-            <div className="result-entry__empty-icon">+</div>
-            <strong>No parameters found</strong>
-            <span>
-              This order does not have any result parameters available for entry.
-            </span>
-          </div>
+          <EmptyState
+            icon="&#x1F9EA;"
+            title="No parameters found"
+            subtitle="This order does not have any result parameters available for entry."
+          />
         ) : (
           <div className="result-entry__table">
             <div className="result-entry__table-head">

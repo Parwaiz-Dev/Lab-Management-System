@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Microscope } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
@@ -266,6 +267,7 @@ export default function TestCatalogManager() {
 
   return (
     <Card
+      icon={<Microscope size={18} />}
       title="Test Catalog Management"
       eyebrow="Panels, prices, sub tests, units, and reference ranges"
       right={

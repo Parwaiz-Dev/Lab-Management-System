@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { RefreshCw, UserPlus, Users } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Badge from "../../../components/ui/Badge";
 import Button from "../../../components/ui/Button";
@@ -102,11 +103,12 @@ export default function UserManagement({ showToast }: UserManagementProps) {
 
   return (
     <Card
+      icon={<Users size={18} />}
       title="User Management"
       eyebrow="Admin controls"
       className="user-management-card"
       right={
-        <Button onClick={loadUsers} variant="secondary" disabled={loading}>
+        <Button onClick={loadUsers} variant="secondary" disabled={loading} icon={<RefreshCw size={16} />}>
           {loading ? "Loading..." : "Refresh"}
         </Button>
       }
@@ -152,7 +154,7 @@ export default function UserManagement({ showToast }: UserManagementProps) {
         </div>
 
         <div className="user-management-create__action">
-          <Button type="submit" disabled={creating || !newUsername.trim() || !newPassword.trim()}>
+          <Button type="submit" disabled={creating || !newUsername.trim() || !newPassword.trim()} icon={<UserPlus size={16} />}>
             {creating ? "Creating..." : "Create User"}
           </Button>
         </div>

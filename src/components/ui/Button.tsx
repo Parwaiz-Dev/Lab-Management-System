@@ -12,6 +12,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
   variant?: ButtonVariant;
   loading?: boolean;
+  icon?: ReactNode;
 }
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -20,6 +21,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
     variant = "primary",
     loading = false,
     disabled = false,
+    icon,
     className = "",
     type = "button",
     ...props
@@ -46,6 +48,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
         .join(" ")}
     >
       {loading && <span className="ui-spinner" aria-hidden="true" />}
+      {icon && !loading && <span className="ui-button__icon">{icon}</span>}
       <span className="ui-button__content">{children}</span>
     </button>
   );
