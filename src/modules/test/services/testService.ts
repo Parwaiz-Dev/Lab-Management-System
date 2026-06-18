@@ -1,0 +1,425 @@
+import { invoke } from "@tauri-apps/api/core";
+import type {
+  DashboardOrderRow,
+  DoctorRevenueRow,
+  FinancialSummary,
+  OrderParameter,
+  PaymentHistoryEntry,
+  ReceiptData,
+  ReceiptLine,
+  ReportPatientInfo,
+  ReportRow,
+  ResultValuePayload,
+  Test,
+  UpdateOrderPayload,
+} from "../../../types";
+
+interface ExistingResultRow {
+  parameterId: number;
+  value: string;
+}
+
+const toNumber = (value: unknown) => {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const toText = (value: unknown) => {
+  if (value === null || value === undefined) return "";
+  return String(value);
+};
+
+const asRecord = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+};
+
+function normalizeDashboardOrder(row: unknown): DashboardOrderRow {
+  if (Array.isArray(row)) {
+    return {
+      id: toNumber(row[0]),
+      patientName: toText(row[1]),
+      tests: toText(row[2]),
+      totalAmount: toNumber(row[3]),
+      paidAmount: toNumber(row[4]),
+      paymentStatus: toText(row[5] || "Pending"),
+      reportStatus: toText(row[6] || "Pending"),
+    };
+  }
+
+  const item = asRecord(row);
+
+  return {
+    id: toNumber(item.id ?? item.orderId ?? item.order_id),
+    patientName: toText(item.patientName ?? item.patient_name ?? item.patient),
+    tests: toText(item.tests ?? item.testNames ?? item.test_names),
+    totalAmount: toNumber(item.totalAmount ?? item.total_amount ?? item.total),
+    paidAmount: toNumber(item.paidAmount ?? item.paid_amount ?? item.paid),
+    paymentStatus: toText(
+      item.paymentStatus ?? item.payment_status ?? item.status ?? "Pending",
+    ),
+    reportStatus: toText(
+      item.reportStatus ?? item.report_status ?? "Pending",
+    ),
+  };
+}
+
+function normalizeSummary(row: unknown): FinancialSummary {
+  if (Array.isArray(row)) {
+    return {
+      totalAmount: toNumber(row[0]),
+      paidAmount: toNumber(row[1]),
+      pendingAmount: toNumber(row[2]),
+    };
+  }
+
+  const item = asRecord(row);
+
+  return {
+    totalAmount: toNumber(item.totalAmount ?? item.total_amount ?? item.total),
+    paidAmount: toNumber(item.paidAmount ?? item.paid_amount ?? item.paid),
+    pendingAmount: toNumber(item.pendingAmount ?? item.pending_amount ?? item.pending),
+  };
+}
+
+function normalizeReceiptLine(row: unknown): ReceiptLine {
+  if (Array.isArray(row)) {
+    return {
+      test_name: toText(row[0]),
+      price: toNumber(row[1]),
+      parameter_names: Array.isArray(row[2]) ? row[2].map(toText) : [],
+    };
+  }
+
+  const item = asRecord(row);
+  const rawParameters =
+    item.parameter_names ?? item.parameterNames ?? item.parameters ?? [];
+
+  return {
+    test_name: toText(item.test_name ?? item.testName ?? item.name),
+    price: toNumber(item.price ?? item.amount),
+    parameter_names: Array.isArray(rawParameters)
+      ? rawParameters.map(toText)
+      : toText(rawParameters)
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+  };
+}
+
+function normalizeReceipt(row: unknown): ReceiptData {
+  if (Array.isArray(row)) {
+    const tests = Array.isArray(row[5]) ? row[5].map(normalizeReceiptLine) : [];
+
+    return {
+      patient: toText(row[0]),
+      invoice: toText(row[1]),
+      total: toNumber(row[2]),
+      paid: toNumber(row[3]),
+      discount: toNumber(row[4]),
+      tests,
+    };
+  }
+
+  const item = asRecord(row);
+  const rawTests = item.tests ?? item.test_lines ?? item.testLines ?? [];
+
+  return {
+    patient: toText(item.patient ?? item.patient_name ?? item.patientName),
+    invoice: toText(item.invoice ?? item.invoice_no ?? item.invoiceNo),
+    total: toNumber(item.total ?? item.total_amount ?? item.totalAmount),
+    paid: toNumber(item.paid ?? item.paid_amount ?? item.paidAmount),
+    discount: toNumber(item.discount ?? item.discount_amount ?? item.discountAmount),
+    tests: Array.isArray(rawTests) ? rawTests.map(normalizeReceiptLine) : [],
+  };
+}
+
+function normalizeOrderParameter(row: unknown): OrderParameter | null {
+  if (Array.isArray(row)) {
+    const id = toNumber(row[0]);
+    if (!id) return null;
+
+    return {
+      id,
+      name: toText(row[1]),
+      unit: toText(row[2]),
+      normal_range: toText(row[3]),
+      test_id: toNumber(row[4]),
+      test_name: toText(row[5]),
+    };
+  }
+
+  const item = asRecord(row);
+  const id = toNumber(item.id ?? item.parameterId ?? item.parameter_id);
+
+  if (!id) return null;
+
+  return {
+    id,
+    name: toText(item.name ?? item.parameter_name ?? item.parameterName),
+    unit: toText(item.unit),
+    normal_range: toText(item.normal_range ?? item.normalRange),
+    test_id: toNumber(item.test_id ?? item.testId),
+    test_name: toText(item.test_name ?? item.testName),
+  };
+}
+
+function normalizeExistingResult(row: unknown): ExistingResultRow | null {
+  if (Array.isArray(row)) {
+    const parameterId = toNumber(row[0]);
+    if (!parameterId) return null;
+
+    return { parameterId, value: toText(row[1]) };
+  }
+
+  const item = asRecord(row);
+  const parameterId = toNumber(
+    item.parameterId ?? item.parameter_id ?? item.id,
+  );
+
+  if (!parameterId) return null;
+
+  return { parameterId, value: toText(item.value ?? item.result) };
+}
+
+function normalizeReportRow(row: unknown): ReportRow | null {
+  if (Array.isArray(row)) {
+    return {
+      test_name: toText(row[0]),
+      parameter_name: toText(row[1]),
+      value: toText(row[2]),
+      unit: toText(row[3]),
+      normal_range: toText(row[4]),
+    };
+  }
+
+  const item = asRecord(row);
+
+  return {
+    test_name: toText(item.test_name ?? item.testName),
+    parameter_name: toText(
+      item.parameter_name ?? item.parameterName ?? item.name,
+    ),
+    value: toText(item.value ?? item.result),
+    unit: toText(item.unit),
+    normal_range: toText(item.normal_range ?? item.normalRange),
+  };
+}
+
+function normalizePatientInfo(row: unknown): ReportPatientInfo {
+  const item = asRecord(row);
+
+  return {
+    patient_name: toText(item.patient_name ?? item.patientName ?? item.name),
+    patient_code: toText(item.patient_code ?? item.patientCode),
+    age_value: toNumber(item.age_value ?? item.ageValue),
+    age_unit: toText(item.age_unit ?? item.ageUnit),
+    gender: toText(item.gender),
+    phone: toText(item.phone),
+    referred_by: toText(item.referred_by ?? item.referredBy),
+    invoice_no: toText(item.invoice_no ?? item.invoiceNo),
+    order_date: toText(item.order_date ?? item.orderDate),
+  };
+}
+
+export const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
+
+export const getErrorMessage = (err: unknown, fallback: string) => {
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message;
+  return fallback;
+};
+
+export const testService = {
+  getTests(): Promise<Test[]> {
+    return invoke<Test[]>("get_tests");
+  },
+
+  createOrder(payload: {
+    patientId: number;
+    testIds: number[];
+    parameterIds: number[];
+    totalAmount: number;
+    discountAmount: number;
+  }): Promise<number> {
+    return invoke<number>("create_order", payload);
+  },
+
+  async getOrders(): Promise<DashboardOrderRow[]> {
+    const rows = await invoke<unknown>("get_orders");
+    const list = Array.isArray(rows) ? rows : [];
+
+    return list.map(normalizeDashboardOrder).filter((row) => row.id > 0);
+  },
+
+  async getOrdersByDateRange(
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<DashboardOrderRow[]> {
+    const rows = await invoke<unknown>("get_orders_by_date_range", {
+      dateFrom,
+      dateTo,
+    });
+    const list = Array.isArray(rows) ? rows : [];
+    return list.map(normalizeDashboardOrder).filter((row) => row.id > 0);
+  },
+
+  async getDoctorRevenue(
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<DoctorRevenueRow[]> {
+    const rows = await invoke<unknown>("get_doctor_revenue", {
+      dateFrom,
+      dateTo,
+    });
+    const list = Array.isArray(rows) ? rows : [];
+    return list.map((row) => {
+      if (Array.isArray(row)) {
+        return {
+          doctor_name: toText(row[0]),
+          order_count: toNumber(row[1]),
+          total_amount: toNumber(row[2]),
+          paid_amount: toNumber(row[3]),
+          pending_amount: toNumber(row[4]),
+        };
+      }
+      const item = row as Record<string, unknown>;
+      return {
+        doctor_name: toText(item.doctor_name ?? item.doctorName),
+        order_count: toNumber(item.order_count ?? item.orderCount),
+        total_amount: toNumber(item.total_amount ?? item.totalAmount),
+        paid_amount: toNumber(item.paid_amount ?? item.paidAmount),
+        pending_amount: toNumber(item.pending_amount ?? item.pendingAmount),
+      };
+    });
+  },
+
+  updatePayment(orderId: number, paidAmount: number): Promise<string> {
+    return invoke<string>("update_payment", {
+      orderId,
+      paidAmount,
+    });
+  },
+
+  cancelOrder(orderId: number): Promise<void> {
+    return invoke<void>("cancel_order", { orderId });
+  },
+
+  updateOrder(orderId: number, payload: UpdateOrderPayload): Promise<void> {
+    return invoke<void>("update_order", { orderId, payload });
+  },
+
+  updateOrderStatus(orderId: number, newStatus: string): Promise<void> {
+    return invoke<void>("update_order_status", { orderId, newStatus });
+  },
+
+  async getDailySummary(): Promise<FinancialSummary> {
+    const row = await invoke<unknown>("get_daily_summary");
+    return normalizeSummary(row);
+  },
+
+  async getOverallSummary(): Promise<FinancialSummary> {
+    const row = await invoke<unknown>("get_overall_summary");
+    return normalizeSummary(row);
+  },
+
+  async getPaymentHistory(orderId: number): Promise<PaymentHistoryEntry[]> {
+    const rows = await invoke<unknown>("get_payment_history", { orderId });
+    const list = Array.isArray(rows) ? rows : [];
+    return list.map((row) => {
+      if (Array.isArray(row)) {
+        return {
+          id: toNumber(row[0]),
+          order_id: toNumber(row[1]),
+          previous_paid: toNumber(row[2]),
+          new_paid: toNumber(row[3]),
+          total_amount: toNumber(row[4]),
+          created_at: toText(row[5]),
+        };
+      }
+      const item = row as Record<string, unknown>;
+      return {
+        id: toNumber(item.id),
+        order_id: toNumber(item.order_id ?? item.orderId),
+        previous_paid: toNumber(item.previous_paid ?? item.previousPaid),
+        new_paid: toNumber(item.new_paid ?? item.newPaid),
+        total_amount: toNumber(item.total_amount ?? item.totalAmount),
+        created_at: toText(item.created_at ?? item.createdAt),
+      };
+    });
+  },
+
+  async getParametersByOrder(orderId: number): Promise<OrderParameter[]> {
+    const rows = await invoke<unknown>("get_parameters_by_order", { orderId });
+    const list = Array.isArray(rows) ? rows : [];
+
+    return list
+      .map(normalizeOrderParameter)
+      .filter((row): row is OrderParameter => Boolean(row));
+  },
+
+  async getResultsByOrder(orderId: number): Promise<ExistingResultRow[]> {
+    const rows = await invoke<unknown>("get_results_by_order", { orderId });
+    const list = Array.isArray(rows) ? rows : [];
+
+    return list
+      .map(normalizeExistingResult)
+      .filter((row): row is ExistingResultRow => Boolean(row));
+  },
+
+  saveResult(
+    orderId: number,
+    parameterId: number,
+    value: string,
+  ): Promise<string> {
+    return invoke<string>("save_result", {
+      orderId,
+      parameterId,
+      value: value.trim(),
+    });
+  },
+
+  async saveResults(
+    orderId: number,
+    results: ResultValuePayload[],
+  ): Promise<void> {
+    const cleanResults = results
+      .map((row) => ({
+        parameterId: row.parameterId,
+        value: row.value.trim(),
+      }))
+      .filter((row) => row.value);
+
+    if (cleanResults.length === 0) return;
+
+    try {
+      await invoke("save_results", {
+        orderId,
+        results: cleanResults,
+      });
+    } catch {
+      for (const row of cleanResults) {
+        await this.saveResult(orderId, row.parameterId, row.value);
+      }
+    }
+  },
+
+  async getReport(orderId: number): Promise<ReportRow[]> {
+    const rows = await invoke<unknown>("get_report", { orderId });
+    const list = Array.isArray(rows) ? rows : [];
+
+    return list
+      .map(normalizeReportRow)
+      .filter((row): row is ReportRow => Boolean(row));
+  },
+
+  async getPatientByOrder(orderId: number): Promise<ReportPatientInfo> {
+    const row = await invoke<unknown>("get_patient_by_order", { orderId });
+    return normalizePatientInfo(row);
+  },
+
+  async getReceipt(orderId: number): Promise<ReceiptData> {
+    const row = await invoke<unknown>("get_receipt", { orderId });
+    return normalizeReceipt(row);
+  },
+};

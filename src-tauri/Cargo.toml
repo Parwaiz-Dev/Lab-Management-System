@@ -1,14 +1,12 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+name = "lab-management-system"
+version = "1.0.0"
+description = "A production-grade laboratory management system for local diagnostic labs"
+authors = ["LabMS Team"]
+license = "MIT"
+repository = "https://github.com/labms/lab-management-system"
 edition = "2021"
 rust-version = "1.77.2"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 name = "app_lib"
@@ -18,8 +16,22 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2.10.3", features = ["protocol-asset"] }
 log = "0.4"
-tauri = { version = "2.10.3", features = [] }
-tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+dotenvy = "0.15"
+dirs = "5.0"
+regex = "1"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+rusqlite = { version = "0.30", features = ["bundled"] }
+chrono = "0.4"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-appender = "0.2"
+tracing-log = "0.2"
+
+bcrypt = "0.15"
