@@ -267,7 +267,7 @@ export default function AuditPage() {
           onClick={() => handleSummaryCardClick("usersActive")}
           aria-pressed={activeSummaryCard === "usersActive"}
           aria-label="Users active (informational only, does not filter)"
-          title="Informational only — show unique users across all loaded events"
+          title="Informational only — shows unique users across all loaded events"
         >
           <div className="audit-summary-card__value">{summary.usersActive}</div>
           <div className="audit-summary-card__label">Users Active</div>
