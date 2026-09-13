@@ -101,6 +101,18 @@ pub fn run() -> Result<(), String> {
             modules::settings::commands::get_all_settings,
             modules::settings::commands::save_lab_settings,
 
+            // 📊 Analytics & Reporting
+            modules::analytics::commands::get_analytics_summary,
+            modules::analytics::commands::run_analytics_excel,
+            modules::analytics::commands::run_analytics_charts,
+            modules::analytics::commands::run_analytics_all,
+            modules::analytics::commands::read_chart_image,
+            modules::analytics::commands::open_analytics_folder,
+            modules::analytics::commands::get_monthly_revenue,
+            modules::analytics::commands::get_top_tests,
+            modules::analytics::commands::get_doctor_revenue_chart,
+            modules::analytics::commands::get_patient_growth,
+
             // 📜 Audit Logs (admin-only)
             modules::audit::commands::get_audit_logs,
             modules::audit::commands::get_record_history,

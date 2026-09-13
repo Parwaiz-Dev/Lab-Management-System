@@ -1803,6 +1803,7 @@ dependencies = [
 name = "lab-management-system"
 version = "1.0.0"
 dependencies = [
+ "base64 0.22.1",
  "bcrypt",
  "chrono",
  "dirs 5.0.1",

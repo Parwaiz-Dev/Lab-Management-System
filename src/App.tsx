@@ -11,6 +11,7 @@ import {
   PanelLeft,
   CalendarDays,
   Wifi,
+  BarChart3,
 } from "lucide-react";
 import PatientPage from "./modules/patient/pages/PatientPage";
 import LabDashboard from "./modules/test/pages/LabDashboard";
@@ -20,11 +21,12 @@ import SettingsPage from "./modules/settings/pages/SettingsPage";
 import ReceiptPage from "./modules/test/pages/ReceiptPage";
 import AuditPage from "./modules/audit/pages/AuditPage";
 import PatientHistoryPage from "./modules/patient/pages/PatientHistoryPage";
+import AnalyticsPage from "./modules/analytics/pages/AnalyticsPage";
 import LoginPage from "./modules/auth/pages/LoginPage";
 import { authService } from "./modules/auth/services/authService";
 import type { SessionInfo } from "./types";
 
-type Page = "patient" | "dashboard" | "result" | "report" | "settings" | "receipt" | "audit" | "history";
+type Page = "patient" | "dashboard" | "result" | "report" | "settings" | "receipt" | "audit" | "history" | "analytics";
 
 const pageCopy: Record<Page, { title: string; subtitle: string }> = {
   patient: {
@@ -58,6 +60,10 @@ const pageCopy: Record<Page, { title: string; subtitle: string }> = {
   history: {
     title: "Patient History",
     subtitle: "Search patients and view orders, payments, reports, and test results.",
+  },
+  analytics: {
+    title: "Analytics",
+    subtitle: "Business Insights and Reporting",
   },
 };
 
@@ -140,6 +146,13 @@ function App() {
     setReportOrder(null);
     setReceiptOrder(null);
     setPage("history");
+  };
+
+  const goToAnalytics = () => {
+    setSelectedOrder(null);
+    setReportOrder(null);
+    setReceiptOrder(null);
+    setPage("analytics");
   };
 
   const openResult = (orderId: number) => {
@@ -235,6 +248,17 @@ function App() {
               <History size={18} strokeWidth={2} className="app-nav__icon" />
               <span>Patient History</span>
             </button>
+
+            {session.role === "admin" && (
+              <button
+                type="button"
+                className={`app-nav__item ${page === "analytics" ? "app-nav__item--active" : ""}`}
+                onClick={goToAnalytics}
+              >
+                <BarChart3 size={18} strokeWidth={2} className="app-nav__icon" />
+                <span>Analytics</span>
+              </button>
+            )}
 
             {session.role === "admin" && (
               <button
@@ -374,6 +398,8 @@ function App() {
               onViewReceipt={openReceipt}
             />
           )}
+
+          {page === "analytics" && <AnalyticsPage />}
         </div>
       </main>
     </div>
