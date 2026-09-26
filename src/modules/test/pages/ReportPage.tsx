@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Eye, EyeOff, Printer } from "lucide-react";
 import Button from "../../../components/ui/Button";
 import type { ReportPatientInfo, ReportRow } from "../../../types";
@@ -8,6 +8,12 @@ import { getErrorMessage, testService } from "../services/testService";
 type ReportPageProps = {
   orderId: number;
   onBack: () => void;
+  /**
+   * When true, the report automatically triggers the OS print dialog once the
+   * data has loaded and the report DOM is rendered. Used by
+   * "Print Report Again" so the button actually prints (not just previews).
+   */
+  autoPrint?: boolean;
 };
 
 type GroupedResult = {
@@ -17,23 +23,19 @@ type GroupedResult = {
 
 type FlagStatus = "High" | "Low" | "";
 
-const KANNADA_NAME_MAP: Record<string, string> = {
-  GANI: "ಗಣಿ",
-  "GANI LAB": "ಗಣಿ ಲ್ಯಾಬ್",
-  "GANI DIAGNOSTIC": "ಗಣಿ ಡಯಾಗ್ನೋಸ್ಟಿಕ್",
-  "GANI DIAGNOSTICS": "ಗಣಿ ಡಯಾಗ್ನೋಸ್ಟಿಕ್ಸ್",
-  "GANI DIAGNOSTICS LABORATORY": "ಗಣಿ ಡಯಾಗ್ನೋಸ್ಟಿಕ್ಸ್ ಲ್ಯಾಬೊರೇಟರಿ",
-};
+const LAB_NAME_FALLBACK = "LABORATORY INFORMATION SYSTEM";
 
-export default function ReportPage({ orderId, onBack }: ReportPageProps) {
+export default function ReportPage({ orderId, onBack, autoPrint = false }: ReportPageProps) {
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [patient, setPatient] = useState<ReportPatientInfo | null>(null);
-  const [labName, setLabName] = useState("GANI");
-  const [labAddress, setLabAddress] = useState("Your Address");
+  const [labName, setLabName] = useState("");
+  const [labAddress, setLabAddress] = useState("");
   const [logo, setLogo] = useState("");
-  const [showHeader, setShowHeader] = useState(false);
+  const [showHeader, setShowHeader] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const hasAutoPrinted = useRef(false);
 
   useEffect(() => {
     const loadReport = async () => {
@@ -49,8 +51,8 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
 
         setRows(reportRows || []);
         setPatient(patientInfo);
-        setLabName(settings.lab_name || "GANI");
-        setLabAddress(settings.lab_address || "Your Address");
+        setLabName(settings.lab_name || "");
+        setLabAddress(settings.lab_address || "");
         setLogo(settings.lab_logo || "");
       } catch (err) {
         console.error("Report load failed:", err);
@@ -82,20 +84,44 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
 
   const logoSrc = useMemo(() => settingsService.getLogoSrc(logo), [logo]);
 
-  const kannadaLabName = getKannadaLabName(labName);
+  const displayLabName = labName.trim() || LAB_NAME_FALLBACK;
 
   const ageSex = `${patient?.age_value || "-"} ${normalizeAgeUnit(
     patient?.age_unit
   )} | ${normalizeGender(patient?.gender)}`;
 
+  // Lab Ref No must never expose the internal DB order id — use the invoice
+  // number returned with the patient info, falling back to a neutral placeholder.
+  const labRefNo = String(patient?.invoice_no || "").trim() || "-";
+
   const orderDateTime = formatDateTime(patient?.order_date);
-  const reportingDateTime = formatDateTime(new Date().toISOString());
+  const reportGeneratedAt = formatDateTime(new Date().toISOString());
+
+  const patientCode = String(patient?.patient_code || "").trim();
+  const patientPhone = String(patient?.phone || "").trim();
+
+  const hasResults = groupedResults.length > 0;
+
+  // "Print Report Again": once the report has finished loading and the DOM is
+  // rendered, open the OS print dialog. This is the same window.print() used by
+  // the toolbar button — preview and print share the same report DOM.
+  useEffect(() => {
+    if (!autoPrint || hasAutoPrinted.current) return;
+    if (loading || error || !hasResults) return;
+
+    hasAutoPrinted.current = true;
+    const timer = window.setTimeout(() => {
+      window.print();
+    }, 150);
+
+    return () => window.clearTimeout(timer);
+  }, [autoPrint, loading, error, hasResults]);
 
   return (
-    <div className="doctor-report-page-v5">
+    <div className="lab-report-page">
       <style>{reportCss}</style>
 
-      <div className="doctor-report-toolbar-v5 no-print">
+      <div className="lab-report-toolbar no-print">
         <Button onClick={onBack} variant="secondary" icon={<ArrowLeft size={16} />}>
           Back
         </Button>
@@ -108,117 +134,112 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
           {showHeader ? "Hide Header" : "Show Header"}
         </Button>
 
-        <Button onClick={() => window.print()} disabled={loading || Boolean(error)} icon={<Printer size={16} />}>
+        <Button
+          onClick={() => window.print()}
+          disabled={loading || Boolean(error)}
+          icon={<Printer size={16} />}
+        >
           Print Report
         </Button>
       </div>
 
-      <article
-        className={[
-          "doctor-report-paper-v5",
-          showHeader ? "doctor-report-paper-v5--with-header" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
+      <article className={`lab-report-paper${showHeader ? "" : " lab-report-paper--no-header"}`}>
         {showHeader && (
-          <header className="doctor-report-letterhead-v5">
-            <div className="doctor-report-letterhead-v5__logo">
-              {logoSrc ? (
-                <img src={logoSrc} alt="Lab logo" />
-              ) : (
-                <div className="doctor-report-logo-fallback-v5">LAB</div>
+          <header className="lab-report-letterhead">
+            {logoSrc && (
+              <div className="lab-report-letterhead__logo">
+                <img src={logoSrc} alt="" />
+              </div>
+            )}
+
+            <div className="lab-report-letterhead__brand">
+              <h1 className="lab-report-letterhead__name">{displayLabName}</h1>
+              <p className="lab-report-letterhead__tagline">Laboratory</p>
+              {labAddress.trim() && (
+                <p className="lab-report-letterhead__address">{labAddress}</p>
               )}
-            </div>
-
-            <div className="doctor-report-letterhead-v5__center">
-              <div className="doctor-report-kannada-v5">{kannadaLabName}</div>
-              <p>{labAddress || "Your Address"}</p>
-            </div>
-
-            <div className="doctor-report-letterhead-v5__seal">
-              <span>LAB</span>
             </div>
           </header>
         )}
 
-        <section className="doctor-report-patient-box-v5">
-          <div className="doctor-report-patient-box-v5__left">
-            <InfoLine label="Name" value={patient?.patient_name || "-"} />
-            <InfoLine label="Age & Sex" value={ageSex} />
-            <InfoLine label="Lab Ref No" value={String(orderId)} />
-            <InfoLine label="Referred by" value={patient?.referred_by || "Self"} />
-          </div>
+        <div className="lab-report-title">
+          <h2>Laboratory Report</h2>
+          <p>Diagnostic Test Results</p>
+        </div>
 
-          <div className="doctor-report-patient-box-v5__right">
-
+        <section className="lab-report-patient">
+          <div className="lab-report-patient__title">Patient Information</div>
+          <div className="lab-report-patient__grid">
+            <InfoLine label="Patient Name" value={patient?.patient_name || "-"} />
+            <InfoLine label="Age / Sex" value={ageSex} />
+            <InfoLine label="Lab Ref No" value={labRefNo} />
+            <InfoLine label="Referred By" value={patient?.referred_by || "Self"} />
+            {patientCode && <InfoLine label="Patient ID" value={patientCode} />}
+            {patientPhone && <InfoLine label="Phone" value={patientPhone} />}
             <InfoLine label="Collection Time" value={orderDateTime} />
-            <InfoLine label="Receiving Time" value={orderDateTime} />
-            <InfoLine label="Reporting Time" value={reportingDateTime} />
+            <InfoLine label="Report Generated" value={reportGeneratedAt} />
           </div>
         </section>
 
-        <main className="doctor-report-content-v5">
-          {loading && (
-            <div className="doctor-report-state-v5">Loading report...</div>
-          )}
+        <main className="lab-report-content">
+          {loading && <div className="lab-report-state">Loading report...</div>}
 
           {!loading && error && (
-            <div className="doctor-report-state-v5 doctor-report-state-v5--error">
-              {error}
-            </div>
+            <div className="lab-report-state lab-report-state--error">{error}</div>
           )}
 
-          {!loading && !error && groupedResults.length === 0 && (
-            <div className="doctor-report-state-v5">
-              No results entered for this order.
-            </div>
+          {!loading && !error && !hasResults && (
+            <div className="lab-report-state">No results entered for this order.</div>
           )}
 
-          {!loading && !error && groupedResults.length > 0 && (
+          {!loading && !error && hasResults && (
             <>
-              <div className="doctor-report-result-head-v5">
-                <div>Test Name</div>
-                <div>Results</div>
-                <div>Units</div>
-                <div>
-                  Biological Ref.
-                  <br />
-                  Interval
-                </div>
-              </div>
+              <table className="lab-report-table">
+                <colgroup>
+                  <col className="lab-report-col--param" />
+                  <col className="lab-report-col--value" />
+                  <col className="lab-report-col--unit" />
+                  <col className="lab-report-col--range" />
+                </colgroup>
 
-              <div className="doctor-report-result-body-v5">
-                {groupedResults.map((group) => (
-                  <ResultGroup key={group.testName} group={group} />
-                ))}
-              </div>
+                {/* The <thead> MUST contain only the real column header row.
+                   Browsers/WebViews repeat the whole <thead> on every printed
+                   page, so anything else placed here (e.g. a "Continued"
+                   banner) would also render on PAGE 1. Continuation pages
+                   therefore reproduce just these four column headings. */}
+                <thead>
+                  <tr>
+                    <th className="lab-report-th--left">Test / Parameter</th>
+                    <th>Result</th>
+                    <th>Unit</th>
+                    <th>Biological Reference Interval</th>
+                  </tr>
+                </thead>
 
-              <div className="doctor-report-end-v5">
-                <span />
-                End of Report
-                <span />
-              </div>
+                <tbody>
+                  {groupedResults.map((group) => (
+                    <ResultGroup key={group.testName} group={group} />
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="lab-report-end">End of Report</div>
             </>
           )}
         </main>
 
-        <footer className="doctor-report-footer-v5">
-          <div className="doctor-report-note-v5">
-            The above results are as per the sample received.
-          </div>
+        <footer className="lab-report-footer">
+          <p className="lab-report-footer__note">
+            This report is generated from the laboratory information system.
+          </p>
 
-          <div className="doctor-report-signature-v5">
-            <div />
-            <strong>SIGNATURE</strong>
+          <div className="lab-report-signature">
+            <div className="lab-report-signature__space" />
+            <div className="lab-report-signature__line" />
+            <strong className="lab-report-signature__title">Authorized Signatory</strong>
+            <span className="lab-report-signature__hint">Signature</span>
           </div>
         </footer>
-
-        {showHeader && (
-          <div className="doctor-report-bottom-strip-v5">
-            {labAddress || "Your Address"}
-          </div>
-        )}
       </article>
     </div>
   );
@@ -226,59 +247,56 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
 
 function ResultGroup({ group }: { group: GroupedResult }) {
   return (
-    <section className="doctor-report-group-v5">
-      <div className="doctor-report-group-title-v5">{group.testName}</div>
+    <>
+      <tr className="lab-report-group-row">
+        <td colSpan={4}>{group.testName}</td>
+      </tr>
 
       {group.rows.map((row, index) => {
         const flag = getFlagStatus(row.value, row.normal_range);
+        const rowClass =
+          flag === "High"
+            ? "lab-report-row lab-report-row--high"
+            : flag === "Low"
+              ? "lab-report-row lab-report-row--low"
+              : "lab-report-row";
 
         return (
-          <div
-            key={`${group.testName}-${row.parameter_name}-${index}`}
-            className={[
-              "doctor-report-result-row-v5",
-              flag ? "doctor-report-result-row-v5--flagged" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <div className="doctor-report-test-name-v5">
+          <tr key={`${group.testName}-${row.parameter_name}-${index}`} className={rowClass}>
+            <td className="lab-report-cell lab-report-cell--param">
               {row.parameter_name || "-"}
-            </div>
+            </td>
 
-            <div className="doctor-report-result-value-v5">
-              <span className="doctor-report-result-number-v5">
-                {formatValue(row.value)}
-              </span>
+            <td className="lab-report-cell lab-report-cell--value">
+              <span className="lab-report-value">{formatValue(row.value)}</span>
+              {flag && (
+                <span
+                  className={`lab-report-flag lab-report-flag--${flag.toLowerCase()}`}
+                >
+                  {flag === "High" ? "▲" : "▼"}&nbsp;{flag.toUpperCase()}
+                </span>
+              )}
+            </td>
 
-              <span className="doctor-report-result-flag-v5">{flag}</span>
-            </div>
+            <td className="lab-report-cell lab-report-cell--unit">{row.unit || "-"}</td>
 
-            <div className="doctor-report-unit-v5">{row.unit || "-"}</div>
-
-            <div className="doctor-report-range-v5">
+            <td className="lab-report-cell lab-report-cell--range">
               {formatReferenceRange(row.normal_range, row.unit)}
-            </div>
-          </div>
+            </td>
+          </tr>
         );
       })}
-    </section>
+    </>
   );
 }
 
 function InfoLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="doctor-report-info-line-v5">
-      <span>{label}</span>
-      <b>:</b>
-      <strong>{value}</strong>
+    <div className="lab-report-info">
+      <span className="lab-report-info__label">{label}</span>
+      <span className="lab-report-info__value">{value}</span>
     </div>
   );
-}
-
-function getKannadaLabName(name: string) {
-  const key = String(name || "").trim().toUpperCase();
-  return KANNADA_NAME_MAP[key] || "ಗಣಿ";
 }
 
 function formatValue(value: string) {
@@ -392,365 +410,391 @@ function getFlagStatus(value: string, range: string): FlagStatus {
 }
 
 const reportCss = `
-  .doctor-report-page-v5 {
+  /* ── Screen shell ───────────────────────────────────────── */
+  .lab-report-page {
     min-height: 100%;
     padding: 18px;
-    background: #edf3f7;
-    color: #000000;
+    background: #eef3f2;
+    color: #111827;
   }
 
-  .doctor-report-toolbar-v5 {
+  .lab-report-toolbar {
     width: 210mm;
     max-width: 100%;
     margin: 0 auto 12px;
     display: flex;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 10px;
   }
 
-  .doctor-report-paper-v5 {
+  /* ── A4 paper (screen preview) ──────────────────────────── */
+  .lab-report-paper {
     width: 210mm;
     min-height: 297mm;
     margin: 0 auto;
     background: #ffffff;
-    border: 1px solid #cfcfcf;
-    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.16);
-    padding: 10mm 12mm;
+    border: 1px solid #dde7e6;
+    border-radius: 3px;
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.14);
+    padding: 12mm 14mm;
+    box-sizing: border-box;
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 13.2px;
-    line-height: 1.2;
-    position: relative;
-    box-sizing: border-box;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #111827;
   }
 
-  .doctor-report-paper-v5--with-header {
-    padding-top: 0;
+  /* ── WITHOUT HEADER: reserved pre-printed letterhead area ───
+     When the header is hidden, the report is intended for paper that
+     already carries the laboratory's physical letterhead, so clean blank
+     space is reserved above the report title.
+
+     Geometry vs. the physical A4 top edge:
+       12mm  base paper padding (applies in both header modes)
+     + 43mm  reserved band below
+     ───────
+       55mm  TOTAL from the paper's top edge to "LABORATORY REPORT"
+
+     padding-top (not margin) is used so the reserved band repeats
+     naturally at the top of EVERY printed page when the table spans
+     multiple pages — exactly like the physical pre-printed letterhead.
+     A tall table row cannot carry a band across a page break, so a
+     spacer element would only cover page 1. */
+  .lab-report-paper--no-header {
+    padding-top: 43mm;
   }
 
-  .doctor-report-letterhead-v5 {
-    height: 34mm;
-    margin: 0 -12mm 6mm;
-    padding: 4mm 12mm;
-    background: #2c3d20;
-    color: #fff1c8;
-    display: grid;
-    grid-template-columns: 32mm 1fr 32mm;
+  /* ── Letterhead ─────────────────────────────────────────── */
+  .lab-report-letterhead {
+    display: flex;
     align-items: center;
-    box-sizing: border-box;
+    gap: 4mm;
+    padding-bottom: 3mm;
+    border-bottom: 2px solid #0f766e;
+    margin-bottom: 3.5mm;
   }
 
-  .doctor-report-letterhead-v5__logo {
+  .lab-report-letterhead__logo {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
-  .doctor-report-letterhead-v5__logo img,
-  .doctor-report-logo-fallback-v5 {
-    width: 25mm;
-    height: 25mm;
-    background: #ffffff;
+  .lab-report-letterhead__logo img {
+    width: 18mm;
+    height: 18mm;
     object-fit: contain;
   }
 
-  .doctor-report-logo-fallback-v5 {
-    display: grid;
-    place-items: center;
-    color: #2c3d20;
-    font-weight: 900;
-  }
-
-  .doctor-report-letterhead-v5__center {
-    text-align: center;
+  .lab-report-letterhead__brand {
     min-width: 0;
   }
 
-  .doctor-report-kannada-v5 {
-    font-size: 22px;
-    font-weight: 900;
-    line-height: 1.1;
-    margin-bottom: 2px;
-  }
-
-  .doctor-report-letterhead-v5__center h1 {
+  .lab-report-letterhead__name {
     margin: 0;
     font-size: 21px;
-    line-height: 1.1;
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: 0.02em;
+    color: #134e4a;
+  }
+
+  .lab-report-letterhead__tagline {
+    margin: 0.8mm 0 0;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #0f766e;
+  }
+
+  .lab-report-letterhead__address {
+    margin: 1.5mm 0 0;
+    font-size: 10px;
+    line-height: 1.4;
+    color: #475569;
+  }
+
+  /* ── Report title ───────────────────────────────────────── */
+  .lab-report-title {
+    text-align: center;
+    margin: 0 0 3.5mm;
+  }
+
+  .lab-report-title h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #111827;
+  }
+
+  .lab-report-title p {
+    margin: 1mm 0 0;
+    font-size: 10px;
     letter-spacing: 0.08em;
-    font-weight: 900;
+    text-transform: uppercase;
+    color: #475569;
   }
 
-  .doctor-report-letterhead-v5__center p {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: #fff8df;
+  /* ── Patient information ────────────────────────────────── */
+  .lab-report-patient {
+    border: 1px solid #d5e7e4;
+    border-radius: 1.5mm;
+    background: #f0fdfa;
+    /* Tighter padding/row-gap offsets the larger label/value text so the
+       card stays the same compact height. */
+    padding: 2.6mm 4mm 2.8mm;
+    margin-bottom: 3.5mm;
   }
 
-  .doctor-report-letterhead-v5__seal {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .lab-report-patient__title {
+    margin-bottom: 1.4mm;
+    padding-bottom: 0.8mm;
+    border-bottom: 1px solid #cfe9e5;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #0f766e;
   }
 
-  .doctor-report-letterhead-v5__seal span {
-    width: 24mm;
-    height: 24mm;
-    border: 1.5px solid #fff1c8;
-    border-radius: 999px;
-    display: grid;
-    place-items: center;
-    font-size: 17px;
-    font-weight: 900;
-  }
-
-  .doctor-report-patient-box-v5 {
+  /* 2-column compact metadata grid: label + value on one line */
+  .lab-report-patient__grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    border: 1px solid #111111;
-    min-height: 35mm;
-    margin-bottom: 3mm;
+    column-gap: 8mm;
+    row-gap: 1.2mm;
   }
 
-  .doctor-report-patient-box-v5__left,
-  .doctor-report-patient-box-v5__right {
-    padding: 3.6mm 4.5mm;
-    box-sizing: border-box;
-  }
-
-  .doctor-report-patient-box-v5__left {
-    border-right: 1px solid #111111;
-  }
-
-  .doctor-report-info-line-v5 {
+  .lab-report-info {
     display: grid;
-    grid-template-columns: 30mm 4mm minmax(0, 1fr);
-    gap: 1mm;
-    align-items: start;
-    margin-bottom: 2.2mm;
-    font-size: 13.4px;
-    line-height: 1.15;
+    grid-template-columns: 24mm minmax(0, 1fr);
+    align-items: baseline;
+    column-gap: 2mm;
+    min-width: 0;
+    line-height: 1.25;
   }
 
-  .doctor-report-info-line-v5:last-child {
-    margin-bottom: 0;
-  }
-
-  .doctor-report-info-line-v5 span {
-    font-weight: 800;
+  .lab-report-info__label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #0f766e;
     white-space: nowrap;
   }
 
-  .doctor-report-info-line-v5 b {
-    font-weight: 800;
-    text-align: center;
-  }
-
-  .doctor-report-info-line-v5 strong {
-    font-weight: 700;
-    display: block;
-    min-width: 0;
-    word-break: normal;
+  .lab-report-info__value {
+    font-size: 12px;
+    font-weight: 600;
+    color: #111827;
     overflow-wrap: anywhere;
   }
 
-  .doctor-report-barcode-v5 {
-    height: 7mm;
-    margin-bottom: 2mm;
+  /* ── Result table ───────────────────────────────────────── */
+  .lab-report-content {
+    /* No forced min-height: content flows naturally so short reports stay
+       compact and long reports paginate without large blank areas. */
+  }
+
+  .lab-report-state {
+    padding: 10mm;
+    border: 1px dashed #dde7e6;
+    border-radius: 2mm;
     text-align: center;
-    font-family: "Courier New", monospace;
-    font-size: 20px;
-    line-height: 7mm;
-    letter-spacing: 2px;
-    white-space: nowrap;
-    overflow: hidden;
+    font-size: 11.5px;
+    color: #475569;
   }
 
-  .doctor-report-content-v5 {
-    min-height: 168mm;
+  .lab-report-state--error {
+    border-color: #dc2626;
+    color: #dc2626;
   }
 
-  .doctor-report-state-v5 {
-    padding: 22px;
-    border: 1px dashed #999999;
+  .lab-report-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12.5px;
+    color: #111827;
+  }
+
+  .lab-report-col--param {
+    width: 44%;
+  }
+  .lab-report-col--value {
+    width: 16%;
+  }
+  .lab-report-col--unit {
+    width: 15%;
+  }
+  .lab-report-col--range {
+    width: 25%;
+  }
+
+  .lab-report-table thead th {
+    padding: 2.2mm 2.5mm;
     text-align: center;
-    font-weight: 700;
-  }
-
-  .doctor-report-state-v5--error {
-    color: #b91c1c;
-    border-color: #b91c1c;
-  }
-
-    .doctor-report-result-head-v5 {
-    display: grid;
-    grid-template-columns: 42% 20% 16% 22%;
-    border-top: 1px solid #111111;
-    border-bottom: 1px solid #111111;
-    padding: 1.6mm 0;
-    font-size: 13.8px;
+    font-size: 11.5px;
     font-weight: 800;
-    line-height: 1.05;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #134e4a;
+    background: #f0fdfa;
+    border-top: 1.5px solid #0f766e;
+    border-bottom: 1px solid #0f766e;
   }
 
-  .doctor-report-result-head-v5 div {
-    padding: 0 2mm;
-    box-sizing: border-box;
-  }
-
-  .doctor-report-result-head-v5 div:nth-child(1) {
+  .lab-report-table thead th.lab-report-th--left {
     text-align: left;
   }
 
-  .doctor-report-result-head-v5 div:nth-child(2),
-  .doctor-report-result-head-v5 div:nth-child(3),
-  .doctor-report-result-head-v5 div:nth-child(4) {
-    text-align: center;
+  .lab-report-table tbody td {
+    padding: 2mm 2.5mm;
+    vertical-align: top;
+    border-bottom: 1px solid #e6efee;
+    font-size: 12.5px;
+    line-height: 1.4;
   }
 
-  .doctor-report-result-body-v5 {
-    padding-top: 5mm;
-  }
-
-  .doctor-report-group-v5 {
-    margin-bottom: 6mm;
+  .lab-report-table tbody tr {
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  .doctor-report-group-title-v5 {
+  /* Group heading: keep with the first rows of its group */
+  .lab-report-table tbody tr.lab-report-group-row td {
+    padding: 3.2mm 2.5mm 1.8mm;
+    font-size: 13px;
     font-weight: 800;
-    font-size: 13.8px;
-    margin-bottom: 1.6mm;
-    padding-left: 2mm;
+    letter-spacing: 0.02em;
+    color: #134e4a;
+    background: #f8fbfa;
+    border-left: 2.5px solid #14b8a6;
+    border-bottom: 1px solid #dde7e6;
+    break-after: avoid;
+    page-break-after: avoid;
   }
 
-  .doctor-report-result-row-v5 {
-    display: grid;
-    grid-template-columns: 42% 20% 16% 22%;
-    min-height: 5.2mm;
-    align-items: baseline;
-    font-size: 13.2px;
-  }
-
-  .doctor-report-result-row-v5 > div {
-    padding: 0.55mm 2mm;
-    box-sizing: border-box;
-    min-width: 0;
-  }
-
-  .doctor-report-test-name-v5 {
+  .lab-report-cell--param {
     text-align: left;
-    font-weight: 400;
-    white-space: normal;
     overflow-wrap: anywhere;
   }
 
-  .doctor-report-result-value-v5 {
-    display: grid;
-    grid-template-columns: 18mm 13mm;
-    column-gap: 3mm;
-    justify-content: center;
-    align-items: baseline;
+  .lab-report-cell--value,
+  .lab-report-cell--unit,
+  .lab-report-cell--range {
+    text-align: center;
+  }
+
+  .lab-report-value {
+    font-weight: 700;
+  }
+
+  .lab-report-flag {
+    display: inline-block;
+    margin-left: 1.5mm;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
     white-space: nowrap;
   }
 
-  .doctor-report-result-number-v5 {
-    display: block;
-    width: 18mm;
-    text-align: right;
-    font-weight: 400;
+  .lab-report-flag--high {
+    color: #dc2626;
   }
 
-  .doctor-report-result-flag-v5 {
-    display: block;
-    width: 13mm;
-    text-align: left;
+  .lab-report-flag--low {
+    color: #2563eb;
+  }
+
+  .lab-report-row--high {
+    background: rgba(220, 38, 38, 0.05);
+  }
+
+  .lab-report-row--high .lab-report-value {
+    color: #dc2626;
     font-weight: 800;
   }
 
-  .doctor-report-unit-v5 {
-    text-align: center;
-    font-weight: 400;
-    white-space: nowrap;
+  .lab-report-row--low {
+    background: rgba(37, 99, 235, 0.05);
   }
 
-  .doctor-report-range-v5 {
-    text-align: center;
-    font-weight: 400;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-
-  .doctor-report-result-row-v5--flagged .doctor-report-test-name-v5,
-  .doctor-report-result-row-v5--flagged .doctor-report-result-number-v5,
-  .doctor-report-result-row-v5--flagged .doctor-report-result-flag-v5,
-  .doctor-report-result-row-v5--flagged .doctor-report-unit-v5,
-  .doctor-report-result-row-v5--flagged .doctor-report-range-v5 {
+  .lab-report-row--low .lab-report-value {
+    color: #2563eb;
     font-weight: 800;
   }
 
-  .doctor-report-result-row-v5--flagged .doctor-report-result-number-v5 {
-    text-decoration: underline;
-  }
-
-  .doctor-report-unit-v5,
-  .doctor-report-range-v5 {
+  .lab-report-end {
+    margin: 3.5mm 0 0;
     text-align: center;
-    font-weight: 400;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #94a3b8;
   }
 
-  .doctor-report-end-v5 {
-    margin-top: 7mm;
+  /* ── Footer + signature ─────────────────────────────────── */
+  .lab-report-footer {
+    /* Sits closer to the results so short reports do not leave a large
+       gap below the table (visible as blank space on the last page). */
+    margin-top: 4mm;
+    padding-top: 3mm;
+    border-top: 1px solid #dde7e6;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 2mm;
-    font-size: 13px;
-  }
-
-  .doctor-report-end-v5 span {
-    width: 22mm;
-    border-top: 1px solid #111111;
-  }
-
-  .doctor-report-footer-v5 {
-    margin-top: 28mm;
-    display: grid;
-    grid-template-columns: 1fr 55mm;
+    align-items: flex-end;
+    justify-content: space-between;
     gap: 10mm;
-    align-items: end;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
-  .doctor-report-note-v5 {
-    font-size: 13.2px;
+  .lab-report-footer__note {
+    margin: 0;
+    max-width: 62%;
+    font-size: 10px;
+    line-height: 1.5;
+    color: #475569;
   }
 
-  .doctor-report-signature-v5 {
+  .lab-report-signature {
+    margin-left: auto;
+    min-width: 45mm;
     text-align: center;
-    font-size: 13px;
+  }
+
+  .lab-report-signature__space {
+    height: 10mm;
+  }
+
+  .lab-report-signature__line {
+    border-top: 1px solid #475569;
+  }
+
+  .lab-report-signature__title {
+    display: block;
+    margin-top: 1.5mm;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #111827;
+  }
+
+  .lab-report-signature__hint {
+    display: block;
+    margin-top: 0.5mm;
+    font-size: 9.5px;
     letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #475569;
   }
 
-  .doctor-report-signature-v5 div {
-    height: 16mm;
-  }
-
-  .doctor-report-signature-v5 strong {
-    font-weight: 600;
-  }
-
-  .doctor-report-bottom-strip-v5 {
-    margin: 8mm -12mm -10mm;
-    min-height: 11mm;
-    background: #2c3d20;
-    color: #fff1c8;
-    display: grid;
-    place-items: center;
-    text-align: center;
-    font-size: 15px;
-    font-weight: 800;
-  }
-
+  /* ── Print: same DOM, chrome stripped ───────────────────── */
   @media print {
     .no-print,
     button {
@@ -771,29 +815,83 @@ const reportCss = `
     .app-shell,
     .app-main,
     .page-content,
-    .doctor-report-page-v5 {
+    .page-content--print,
+    .lab-report-page {
       display: block !important;
       width: 210mm !important;
       max-width: none !important;
-      min-height: 297mm !important;
+      height: auto !important;
+      max-height: none !important;
+      min-height: 0 !important;
       margin: 0 !important;
       padding: 0 !important;
       overflow: visible !important;
       background: #ffffff !important;
     }
 
-    .doctor-report-paper-v5 {
+    /* Override the global.css print-view scaffolding (!important there too) */
+    .app-shell:has(.app-main--print) {
+      display: block !important;
+      width: 210mm !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+    }
+
+    .app-main--print {
+      display: block !important;
+      width: 210mm !important;
+      max-width: none !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+    }
+
+    .lab-report-paper {
       width: 210mm !important;
       min-height: 297mm !important;
       margin: 0 !important;
-      padding: 10mm 12mm !important;
+      padding: 12mm 14mm !important;
       border: none !important;
+      border-radius: 0 !important;
       box-shadow: none !important;
-      page-break-after: always;
+      background: #ffffff !important;
+      /* Preserve the light teal header strip and abnormal-result tints in print */
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
 
-    .doctor-report-paper-v5--with-header {
-      padding-top: 0 !important;
+    /* WITHOUT HEADER: keep the reserved letterhead band — 43mm here plus the
+       12mm base paper padding above gives the 55mm total offset from the
+       physical A4 top edge. The explicit print value re-asserts it at full
+       specificity so it cannot be lost, and as paper padding it repeats at the
+       top of every printed page. */
+    .lab-report-paper.lab-report-paper--no-header {
+      padding-top: 43mm !important;
+    }
+
+    /* Repeat column headings on every page */
+    .lab-report-table thead {
+      display: table-header-group;
+    }
+
+    .lab-report-table tbody tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .lab-report-table tbody tr.lab-report-group-row {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+
+    .lab-report-footer {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     @page {

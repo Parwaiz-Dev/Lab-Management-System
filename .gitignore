@@ -43,3 +43,9 @@ src-tauri/target/
 # IDE
 .vscode/
 .idea/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+python_analytics/output/

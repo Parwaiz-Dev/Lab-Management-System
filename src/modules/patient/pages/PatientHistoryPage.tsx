@@ -138,6 +138,7 @@ interface OrderDetailData {
 
 interface PatientHistoryPageProps {
   onViewReport?: (orderId: number) => void;
+  onPrintReport?: (orderId: number) => void;
   onViewReceipt?: (orderId: number) => void;
 }
 
@@ -145,6 +146,7 @@ interface PatientHistoryPageProps {
 
 export default function PatientHistoryPage({
   onViewReport,
+  onPrintReport,
   onViewReceipt,
 }: PatientHistoryPageProps) {
   // Search state
@@ -651,7 +653,7 @@ export default function PatientHistoryPage({
                               </Button>
                               <Button
                                 variant="secondary"
-                                onClick={() => onViewReport?.(entry.order_id)}
+                                onClick={() => onPrintReport?.(entry.order_id)}
                                 icon={<Printer size={16} />}
                               >
                                 Print Report Again

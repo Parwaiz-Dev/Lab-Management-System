@@ -74,6 +74,9 @@ function App() {
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
   const [reportOrder, setReportOrder] = useState<number | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<number | null>(null);
+  // When true, the report page opens and immediately triggers the print dialog
+  // ("Print Report Again"). Reset whenever we navigate away from the report.
+  const [reportAutoPrint, setReportAutoPrint] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const isPrintView = page === "report" || page === "receipt";
@@ -117,6 +120,7 @@ function App() {
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
+    setReportAutoPrint(false);
     setPage("patient");
   };
 
@@ -124,6 +128,7 @@ function App() {
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
+    setReportAutoPrint(false);
     setPage("dashboard");
   };
 
@@ -131,6 +136,7 @@ function App() {
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
+    setReportAutoPrint(false);
     setPage("settings");
   };
 
@@ -138,6 +144,7 @@ function App() {
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
+    setReportAutoPrint(false);
     setPage("audit");
   };
 
@@ -145,6 +152,7 @@ function App() {
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
+    setReportAutoPrint(false);
     setPage("history");
   };
 
@@ -152,6 +160,7 @@ function App() {
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
+    setReportAutoPrint(false);
     setPage("analytics");
   };
 
@@ -159,18 +168,29 @@ function App() {
     setSelectedOrder(orderId);
     setReportOrder(null);
     setReceiptOrder(null);
+    setReportAutoPrint(false);
     setPage("result");
   };
 
   const openReport = (orderId: number) => {
     setReportOrder(orderId);
     setReceiptOrder(null);
+    setReportAutoPrint(false);
+    setPage("report");
+  };
+
+  // Opens the report and asks it to trigger the OS print dialog once loaded.
+  const openReportAndPrint = (orderId: number) => {
+    setReportOrder(orderId);
+    setReceiptOrder(null);
+    setReportAutoPrint(true);
     setPage("report");
   };
 
   const openReceipt = (orderId: number) => {
     setReceiptOrder(orderId);
     setReportOrder(null);
+    setReportAutoPrint(false);
     setPage("receipt");
   };
 
@@ -181,7 +201,7 @@ function App() {
         <div className="login-card" style={{ textAlign: "center" }}>
           <div className="login-card__header">
             <div className="login-card__mark">LM</div>
-            <h1 className="login-card__title">LabManager</h1>
+            <h1 className="login-card__title">LocaLIMS</h1>
           </div>
           <span className="ui-spinner" aria-hidden="true" style={{ marginTop: 24, fontSize: 24 }} />
           <p style={{ marginTop: 12, color: "var(--color-text-muted)" }}>
@@ -207,8 +227,8 @@ function App() {
               <Heart size={20} strokeWidth={2.2} />
             </div>
             <div className="app-sidebar__brand-title">
-              <div className="app-sidebar__brand-name">LabManager</div>
-              <div className="app-sidebar__brand-sub">Desktop LMS</div>
+              <div className="app-sidebar__brand-name">LocaLIMS</div>
+              <div className="app-sidebar__brand-sub">Laboratory Information Management System</div>
             </div>
           </div>
 
@@ -363,7 +383,11 @@ function App() {
           )}
 
           {page === "report" && reportOrder !== null && (
-            <ReportPage orderId={reportOrder} onBack={goToDashboard} />
+            <ReportPage
+              orderId={reportOrder}
+              onBack={goToDashboard}
+              autoPrint={reportAutoPrint}
+            />
           )}
 
           {page === "report" && reportOrder === null && (
@@ -395,6 +419,7 @@ function App() {
           {page === "history" && (
             <PatientHistoryPage
               onViewReport={openReport}
+              onPrintReport={openReportAndPrint}
               onViewReceipt={openReceipt}
             />
           )}

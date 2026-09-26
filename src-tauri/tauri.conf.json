@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "lms",
+  "productName": "LocaLIMS",
   "version": "0.1.0",
-  "identifier": "com.faltu.dev",
+  "identifier": "com.locavanties.localims",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "lms",
+        "title": "LocaLIMS",
         "width": 1920,
         "height": 1080,
         "resizable": true,

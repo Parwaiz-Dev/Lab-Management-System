@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, UserPlus, Users } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Badge from "../../../components/ui/Badge";
@@ -22,24 +22,57 @@ export default function UserManagement({ showToast }: UserManagementProps) {
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState("staff");
 
-  const loadUsers = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await userService.listUsers();
-      setUsers(data);
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to load users",
-        "error"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [showToast]);
+  // ── Async safety ──
+  // fetchSeqRef: id of the latest list request. A response is applied only
+  // if it is still the latest one, so a stale response can never overwrite
+  // newer state. The effect cleanup bumps the counter, which also stops
+  // in-flight requests from touching state after unmount.
+  // mountedRef: set to false on unmount; guards the create/toggle handlers
+  // from writing state after the component is gone.
+  const fetchSeqRef = useRef(0);
+  const mountedRef = useRef(true);
 
+  // Shared fetch core — `seq` must still be the latest request for any state
+  // write to be applied. Never sets state synchronously, so it is safe to
+  // call directly from an effect.
+  const fetchUsers = useCallback(
+    async (seq: number) => {
+      try {
+        const data = await userService.listUsers();
+        if (fetchSeqRef.current === seq) setUsers(data);
+      } catch (err) {
+        if (fetchSeqRef.current === seq) {
+          showToast(
+            err instanceof Error ? err.message : "Failed to load users",
+            "error"
+          );
+        }
+      } finally {
+        if (fetchSeqRef.current === seq) setLoading(false);
+      }
+    },
+    [showToast]
+  );
+
+  // Event-driven reload (Refresh button, after create/toggle).
+  const loadUsers = useCallback(async () => {
+    const seq = ++fetchSeqRef.current;
+    setLoading(true);
+    await fetchUsers(seq);
+  }, [fetchUsers]);
+
+  // Initial load. The `loading` state starts as true, so no synchronous
+  // state write is needed here.
   useEffect(() => {
-    void loadUsers();
-  }, [loadUsers]);
+    mountedRef.current = true;
+    const seq = ++fetchSeqRef.current;
+    void fetchUsers(seq);
+
+    return () => {
+      mountedRef.current = false;
+      fetchSeqRef.current += 1; // invalidate any in-flight request
+    };
+  }, [fetchUsers]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,18 +85,21 @@ export default function UserManagement({ showToast }: UserManagementProps) {
     try {
       setCreating(true);
       await userService.createUser(newUsername.trim(), newPassword, newRole);
+      if (!mountedRef.current) return;
       showToast(`User "${newUsername.trim()}" created`, "success");
       setNewUsername("");
       setNewPassword("");
       setNewRole("staff");
       await loadUsers();
     } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to create user",
-        "error"
-      );
+      if (mountedRef.current) {
+        showToast(
+          err instanceof Error ? err.message : "Failed to create user",
+          "error"
+        );
+      }
     } finally {
-      setCreating(false);
+      if (mountedRef.current) setCreating(false);
     }
   };
 
@@ -71,6 +107,7 @@ export default function UserManagement({ showToast }: UserManagementProps) {
     try {
       setTogglingUserId(user.id);
       await userService.toggleUserActive(user.id);
+      if (!mountedRef.current) return;
       showToast(
         user.is_active
           ? `User "${user.username}" deactivated`
@@ -79,12 +116,14 @@ export default function UserManagement({ showToast }: UserManagementProps) {
       );
       await loadUsers();
     } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to update user",
-        "error"
-      );
+      if (mountedRef.current) {
+        showToast(
+          err instanceof Error ? err.message : "Failed to update user",
+          "error"
+        );
+      }
     } finally {
-      setTogglingUserId(null);
+      if (mountedRef.current) setTogglingUserId(null);
     }
   };
 
