@@ -85,6 +85,14 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
 
   const logoSrc = useMemo(() => settingsService.getLogoSrc(logo), [logo]);
 
+  const printReceipt = async () => {
+    await document.fonts.ready;
+    await Promise.all(
+      Array.from(document.images, (image) => image.decode().catch(() => undefined)),
+    );
+    window.print();
+  };
+
   if (loading) {
     return <ReceiptState text="Loading receipt..." onBack={onBack} />;
   }
@@ -106,20 +114,18 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
           Back
         </Button>
 
-        <Button onClick={() => window.print()} icon={<Printer size={16} />}>Print Receipt</Button>
+        <Button onClick={() => void printReceipt()} icon={<Printer size={16} />}>Print Receipt</Button>
       </div>
 
       <article className="receipt-document">
         <header className="receipt-document__header">
           <div className="receipt-document__brand">
-            {logoSrc ? (
+            {logoSrc && (
               <img
                 className="receipt-document__logo-img"
                 src={logoSrc}
                 alt="Lab logo"
               />
-            ) : (
-              <div className="receipt-document__logo">LM</div>
             )}
 
             <div>
@@ -235,10 +241,10 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
             <p>Computer-generated receipt.</p>
           </div>
 
-          <div className="receipt-document__signature">
+          {/* <div className="receipt-document__signature">
             <div />
             <span>Authorized Signature</span>
-          </div>
+          </div> */}
         </footer>
       </article>
     </div>
@@ -302,6 +308,343 @@ function ReceiptState({
 }
 
 const printCss = `
+  .receipt-view {
+    padding: 24px;
+    background: var(--color-surface-subtle, #f8fafc);
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .receipt-view__toolbar {
+    width: 100%;
+    max-width: 680px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .receipt-document {
+    width: 100%;
+    max-width: 680px;
+    background: #ffffff;
+    border: 1px solid var(--color-border, #e2e8f0);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+    padding: 32px 36px;
+    box-sizing: border-box;
+    font-family: inherit;
+    color: var(--color-text, #0f172a);
+  }
+
+  .receipt-document__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 20px;
+    border-bottom: 2px solid var(--color-primary-600, #4f46e5);
+    margin-bottom: 20px;
+  }
+
+  .receipt-document__brand {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+
+  .receipt-document__logo-img {
+    height: 48px;
+    max-width: 120px;
+    object-fit: contain;
+  }
+
+  .receipt-document__eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-primary-600, #4f46e5);
+    margin-bottom: 2px;
+  }
+
+  .receipt-document__brand h1 {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #0f172a;
+    margin: 0 0 2px 0;
+  }
+
+  .receipt-document__brand p {
+    font-size: 12px;
+    color: #64748b;
+    margin: 0;
+  }
+
+  .receipt-document__meta {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .receipt-document__meta div {
+    font-size: 12px;
+    display: flex;
+    gap: 6px;
+  }
+
+  .receipt-document__meta span {
+    color: #64748b;
+  }
+
+  .receipt-document__meta strong {
+    color: #0f172a;
+    font-family: var(--font-mono, monospace);
+  }
+
+  .receipt-document__patient-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    margin-bottom: 24px;
+  }
+
+  .receipt-document__patient-card div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .receipt-document__patient-card span {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+  }
+
+  .receipt-document__patient-card strong {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .receipt-document__section {
+    margin-bottom: 24px;
+  }
+
+  .receipt-document__section-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+
+  .receipt-document__section-title h2 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #334155;
+    margin: 0;
+  }
+
+  .receipt-document__section-title span {
+    font-size: 11px;
+    color: #94a3b8;
+  }
+
+  .receipt-document__table-wrap {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .receipt-document__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .receipt-document__table th {
+    background: #f8fafc;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #475569;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .receipt-document__table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+
+  .receipt-document__table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .receipt-document__table strong {
+    font-weight: 600;
+    color: #1e293b;
+  }
+
+  .receipt-document__table small {
+    display: block;
+    color: #64748b;
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+
+  .receipt-document__amount {
+    text-align: right;
+    font-family: var(--font-mono, monospace);
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .receipt-document__empty-cell {
+    text-align: center;
+    color: #94a3b8;
+    padding: 20px !important;
+  }
+
+  .receipt-document__bottom {
+    display: grid;
+    grid-template-columns: 1fr 240px;
+    gap: 24px;
+    align-items: start;
+    padding-top: 16px;
+    margin-bottom: 24px;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .receipt-document__note strong {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    margin-bottom: 4px;
+  }
+
+  .receipt-document__note p {
+    font-size: 11.5px;
+    color: #94a3b8;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  .receipt-document__totals {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .receipt-document__total-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #475569;
+  }
+
+  .receipt-document__total-row strong {
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+    color: #1e293b;
+  }
+
+  .receipt-document__total-row--strong {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+    padding-top: 4px;
+    border-top: 1px dashed #cbd5e1;
+  }
+
+  .receipt-document__total-row--strong strong {
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .receipt-document__total-row--danger {
+    color: #dc2626;
+  }
+
+  .receipt-document__total-row--danger strong {
+    color: #dc2626;
+    font-weight: 800;
+  }
+
+  .receipt-document__footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-top: 24px;
+    border-top: 1px solid #e2e8f0;
+    margin-top: 12px;
+  }
+
+  .receipt-document__footer strong {
+    font-size: 12px;
+    color: #334155;
+    display: block;
+  }
+
+  .receipt-document__footer p {
+    font-size: 11px;
+    color: #94a3b8;
+    margin: 2px 0 0 0;
+  }
+
+  .receipt-document__signature {
+    text-align: center;
+    width: 160px;
+  }
+
+  .receipt-document__signature div {
+    border-bottom: 1px solid #94a3b8;
+    margin-bottom: 6px;
+    height: 36px;
+  }
+
+  .receipt-document__signature span {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .receipt-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+  }
+
+  .receipt-state__box {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    padding: 24px 32px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: center;
+  }
+
   @media print {
     .no-print,
     button {

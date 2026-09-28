@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Banknote,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  Calendar,
+} from "lucide-react";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
+import Modal from "../../../components/ui/Modal";
 import type { DashboardOrderRow, PaymentHistoryEntry } from "../../../types";
 import { getErrorMessage, money, testService } from "../services/testService";
 
@@ -52,16 +61,6 @@ export default function PaymentModal({
     paymentValue > 0 &&
     paymentValue <= remaining;
 
-  useEffect(() => {
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !saving) onClose();
-    };
-
-    window.addEventListener("keydown", onEscape);
-
-    return () => window.removeEventListener("keydown", onEscape);
-  }, [onClose, saving]);
-
   const loadHistory = useCallback(async () => {
     try {
       setHistoryLoading(true);
@@ -77,7 +76,7 @@ export default function PaymentModal({
   }, [orderId]);
 
   useEffect(() => {
-    loadHistory();
+    void loadHistory();
   }, [loadHistory]);
 
   const handleAmountChange = (value: string) => {
@@ -136,121 +135,245 @@ export default function PaymentModal({
   };
 
   return (
-    <div
-      className="payment-modal__overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="payment-modal-title"
-      onClick={() => {
-        if (!saving) onClose();
-      }}
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title="Record Payment"
+      subtitle={`Order #${orderId} · ${patientName}`}
+      maxWidth="lg"
+      footer={
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+
+          <Button
+            variant="primary"
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            loading={saving}
+          >
+            <Banknote size={15} />
+            Confirm Payment ({money(paymentValue || 0)})
+          </Button>
+        </div>
+      }
     >
-      <div className="payment-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="payment-modal__topbar" />
+      <div className="payment-modal-box">
+        {/* Order Meta Bar */}
+        <div className="payment-modal-order-bar">
+          <div className="payment-modal-order-meta">
+            <FileText size={15} style={{ color: "var(--color-muted)", flexShrink: 0 }} />
+            <div>
+              <span style={{ color: "var(--color-muted)" }}>Tests: </span>
+              <strong style={{ color: "var(--color-text)" }}>{tests || "No tests listed"}</strong>
+            </div>
+          </div>
+          <Badge
+            tone={
+              remaining <= 0
+                ? "success"
+                : paymentStatus === "Partial"
+                ? "warning"
+                : "danger"
+            }
+          >
+            {remaining <= 0 ? "Fully Paid" : paymentStatus || "Pending"}
+          </Badge>
+        </div>
 
-        <header className="payment-modal__header">
-          <div>
-            <div className="payment-modal__eyebrow">Payment Collection</div>
-            <h2 id="payment-modal-title" className="payment-modal__title">
-              Record Payment
-            </h2>
-            <p className="payment-modal__subtitle">
-              {patientName} · Order #{orderId}
-            </p>
+        {/* 3 Summary Stats */}
+        <div className="payment-modal-stats-grid">
+          <div className="payment-modal-stat-box">
+            <span className="payment-modal-stat-label">Total Bill</span>
+            <span className="payment-modal-stat-val">{money(total)}</span>
           </div>
 
-          <div className="payment-modal__header-actions">
-            <Badge tone={remaining <= 0 ? "success" : "warning"}>
-              {remaining <= 0 ? "Paid" : paymentStatus || "Pending"}
-            </Badge>
-
-            <button
-              type="button"
-              className="payment-modal__close"
-              onClick={onClose}
-              disabled={saving}
-              aria-label="Close payment modal"
-            >
-              ×
-            </button>
-          </div>
-        </header>
-
-        <section className="payment-modal__order-card">
-          <div>
-            <span className="payment-modal__label">Selected Tests</span>
-            <strong>{tests || "No tests available"}</strong>
+          <div className="payment-modal-stat-box payment-modal-stat-box--paid">
+            <span className="payment-modal-stat-label" style={{ color: "var(--color-emerald-700)" }}>
+              Paid Amount
+            </span>
+            <span className="payment-modal-stat-val" style={{ color: "var(--color-emerald-700)" }}>
+              {money(paid)}
+            </span>
           </div>
 
-          <div className="payment-modal__order-id">
-            <span>Order</span>
-            <strong>#{orderId}</strong>
+          <div className="payment-modal-stat-box payment-modal-stat-box--due">
+            <span className="payment-modal-stat-label" style={{ color: "var(--color-rose-700)" }}>
+              Pending Due
+            </span>
+            <span className="payment-modal-stat-val" style={{ color: "var(--color-rose-700)" }}>
+              {money(remaining)}
+            </span>
           </div>
-        </section>
+        </div>
 
-        <section className="payment-modal__summary-grid">
-          <Amount icon="&#x1F4B0;" label="Total Amount" value={total} />
-          <Amount icon="&#x2705;" label="Paid Amount" value={paid} />
-          <Amount icon="&#x23F3;" label="Pending" value={remaining} highlight />
-        </section>
-
-        <section className="payment-modal__progress-card">
-          <div className="payment-modal__progress-head">
+        {/* Progress Track */}
+        <div className="payment-modal-progress-wrap">
+          <div className="payment-modal-progress-label">
             <span>Payment Progress</span>
-            <strong>{progressPercent}%</strong>
+            <strong style={{ fontFamily: "var(--font-mono)" }}>{progressPercent}%</strong>
           </div>
-
-          <div className="payment-modal__progress-track">
+          <div className="payment-modal-progress-track">
             <div
-              className="payment-modal__progress-fill"
+              className="payment-modal-progress-fill"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
+        </div>
 
-          <div className="payment-modal__progress-meta">
-            <span>{money(paid)} collected</span>
-            <span>{money(remaining)} pending</span>
+        {/* Payment Entry Form */}
+        {remaining > 0 ? (
+          <div className="payment-modal-entry-card">
+            <div className="payment-modal-entry-header">
+              <label className="payment-modal-entry-title">
+                <Banknote size={14} style={{ color: "var(--color-primary)" }} />
+                Collect Amount (₹)
+              </label>
+
+              {/* Quick Preset Buttons */}
+              <div className="payment-modal-quick-chips">
+                <button
+                  type="button"
+                  onClick={() => setQuickAmount(Math.round(remaining / 2))}
+                  disabled={saving}
+                  className="payment-modal-chip-btn"
+                >
+                  50% ({money(Math.round(remaining / 2))})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickAmount(remaining)}
+                  disabled={saving}
+                  className="payment-modal-chip-btn payment-modal-chip-btn--full"
+                >
+                  Full Pending ({money(remaining)})
+                </button>
+                {amount && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAmount("");
+                      setError("");
+                    }}
+                    disabled={saving}
+                    className="payment-modal-chip-btn"
+                    style={{ color: "var(--color-rose-600)" }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <Input
+              id="payment-amount"
+              value={amount}
+              onChange={(e) => handleAmountChange(e.target.value)}
+              placeholder={`Enter amount up to ${remaining}`}
+              type="number"
+              min={0}
+              max={remaining}
+              step="1"
+              autoFocus
+              disabled={saving}
+            />
+
+            {error && (
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: "var(--color-danger)",
+                background: "rgba(239, 68, 68, 0.08)",
+                padding: "6px 10px",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid rgba(239, 68, 68, 0.2)",
+                fontWeight: 600,
+              }}>
+                <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Live Impact Preview */}
+            {paymentValue > 0 && paymentValue <= remaining && (
+              <div className="payment-modal-impact-preview">
+                <div>
+                  <span style={{ color: "var(--color-muted)", display: "block" }}>Total Paid After:</span>
+                  <strong style={{ color: "var(--color-emerald-700)", fontFamily: "var(--font-mono)" }}>
+                    {money(afterPaymentPaid)}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ color: "var(--color-muted)", display: "block" }}>Remaining Due:</span>
+                  <strong style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}>
+                    {money(afterPaymentPending)}
+                  </strong>
+                </div>
+              </div>
+            )}
           </div>
-        </section>
+        ) : (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 12px",
+            background: "rgba(16, 185, 129, 0.08)",
+            border: "1px solid rgba(16, 185, 129, 0.25)",
+            borderRadius: "var(--radius-md)",
+            color: "var(--color-emerald-800)",
+            fontSize: 12,
+            fontWeight: 600,
+          }}>
+            <CheckCircle2 size={16} style={{ color: "var(--color-emerald-600)" }} />
+            <span>This order is fully settled. No further payments pending.</span>
+          </div>
+        )}
 
-        <section className="payment-modal__history-section">
-          <div className="payment-modal__history-head">
-            <h3 className="payment-modal__history-title">Payment History</h3>
+        {/* Payment History Audit Section */}
+        <div className="payment-modal-history-wrap">
+          <div className="payment-modal-history-head">
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Clock size={13} style={{ color: "var(--color-muted)" }} />
+              <span>Payment History</span>
+            </div>
             {history.length > 0 && (
-              <span className="payment-modal__history-count">
-                {history.length} {history.length === 1 ? "entry" : "entries"}
+              <span style={{ fontSize: 11, color: "var(--color-muted)", textTransform: "none", fontWeight: 500 }}>
+                {history.length} {history.length === 1 ? "transaction" : "transactions"}
               </span>
             )}
           </div>
 
-          {historyLoading && (
-            <div className="payment-modal__history-state">
-              <span className="payment-modal__history-spinner" aria-hidden="true" />
-              <span>Loading payment history…</span>
+          {historyLoading ? (
+            <div style={{ fontSize: 12, color: "var(--color-muted)", padding: "16px 0", textAlign: "center" }}>
+              Loading transactions…
             </div>
-          )}
-
-          {historyError && !historyLoading && (
-            <div className="payment-modal__history-state payment-modal__history-state--error">
-              {historyError}
+          ) : historyError ? (
+            <div style={{ fontSize: 12, color: "var(--color-danger)", padding: "8px 0" }}>{historyError}</div>
+          ) : history.length === 0 ? (
+            <div style={{
+              fontSize: 12,
+              color: "var(--color-muted)",
+              padding: 12,
+              textAlign: "center",
+              background: "var(--color-surface-soft)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--color-border)",
+            }}>
+              No previous payments recorded for this order.
             </div>
-          )}
-
-          {!historyLoading && !historyError && history.length === 0 && (
-            <div className="payment-modal__history-state">
-              No payment history for this order yet.
-            </div>
-          )}
-
-          {!historyLoading && !historyError && history.length > 0 && (
-            <div className="payment-modal__history-table-wrap">
-              <table className="payment-modal__history-table">
+          ) : (
+            <div className="payment-modal-history-scroll">
+              <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Date / Time</th>
-                    <th>Previous</th>
-                    <th>New</th>
-                    <th>Added</th>
+                    <th>Date & Time</th>
+                    <th style={{ textAlign: "right" }}>Previous</th>
+                    <th style={{ textAlign: "right" }}>New Paid</th>
+                    <th style={{ textAlign: "right" }}>Added</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -259,22 +382,19 @@ export default function PaymentModal({
                     return (
                       <tr key={entry.id}>
                         <td>
-                          <span className="payment-modal__history-date">
-                            {formatDateTime(entry.created_at)}
-                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--color-text)" }}>
+                            <Calendar size={12} style={{ color: "var(--color-muted)" }} />
+                            <span>{formatDateTime(entry.created_at)}</span>
+                          </div>
                         </td>
-                        <td>{money(entry.previous_paid)}</td>
-                        <td>{money(entry.new_paid)}</td>
-                        <td>
-                          <span
-                            className={
-                              added > 0
-                                ? "payment-modal__history-added"
-                                : "payment-modal__history-added--zero"
-                            }
-                          >
-                            {added > 0 ? `+${money(added)}` : money(0)}
-                          </span>
+                        <td style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--color-muted)" }}>
+                          {money(entry.previous_paid)}
+                        </td>
+                        <td style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
+                          {money(entry.new_paid)}
+                        </td>
+                        <td style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--color-emerald-700)" }}>
+                          {added > 0 ? `+${money(added)}` : money(0)}
                         </td>
                       </tr>
                     );
@@ -283,119 +403,8 @@ export default function PaymentModal({
               </table>
             </div>
           )}
-        </section>
-
-        <section className="payment-modal__form-section">
-          <label className="payment-modal__field-label" htmlFor="payment-amount">
-            Payment amount
-          </label>
-
-          <div className="payment-modal__amount-row">
-            <Input
-              id="payment-amount"
-              value={amount}
-              onChange={(e) => handleAmountChange(e.target.value)}
-              placeholder="Enter amount"
-              type="number"
-              min={0}
-              max={remaining}
-              step="0.01"
-              autoFocus
-              disabled={saving || remaining <= 0}
-            />
-
-            <Button
-              onClick={() => setQuickAmount(remaining)}
-              variant="secondary"
-              disabled={saving || remaining <= 0}
-            >
-              Full
-            </Button>
-          </div>
-
-          <div className="payment-modal__quick-actions">
-            <button
-              type="button"
-              onClick={() => setQuickAmount(Math.round(remaining / 2))}
-              disabled={saving || remaining <= 0}
-            >
-              50%
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickAmount(remaining)}
-              disabled={saving || remaining <= 0}
-            >
-              Full pending
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setAmount("");
-                setError("");
-              }}
-              disabled={saving || !amount}
-            >
-              Clear
-            </button>
-          </div>
-
-          {amount && Number(amount) > 0 && (
-            <div className="payment-modal__preview">
-              <div>
-                <span>Paid after this payment</span>
-                <strong>{money(afterPaymentPaid)}</strong>
-              </div>
-
-              <div>
-                <span>Pending after payment</span>
-                <strong>{money(afterPaymentPending)}</strong>
-              </div>
-            </div>
-          )}
-
-          {error && <div className="payment-modal__error">{error}</div>}
-        </section>
-
-        <footer className="payment-modal__footer">
-          <Button onClick={onClose} variant="secondary" disabled={saving}>
-            Cancel
-          </Button>
-
-          <Button onClick={handleSubmit} variant="success" disabled={!canSubmit}>
-            {saving ? "Saving..." : "Confirm Payment"}
-          </Button>
-        </footer>
+        </div>
       </div>
-    </div>
-  );
-}
-
-function Amount({
-  icon,
-  label,
-  value,
-  highlight,
-}: {
-  icon?: string;
-  label: string;
-  value: number;
-  highlight?: boolean;
-}) {
-  return (
-    <div
-      className={[
-        "payment-modal__amount-box",
-        highlight ? "payment-modal__amount-box--highlight" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {icon && <span className="payment-modal__amount-icon">{icon}</span>}
-      <span>{label}</span>
-      <strong>{money(value)}</strong>
-    </div>
+    </Modal>
   );
 }

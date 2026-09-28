@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, ClipboardList, Filter, Folders, RefreshCw, RotateCcw } from "lucide-react";
+import {
+  Activity,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Edit3,
+  Filter,
+  Folders,
+  RefreshCw,
+  RotateCcw,
+  UserCheck,
+} from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Input from "../../../components/ui/Input";
 import Button from "../../../components/ui/Button";
 import Badge from "../../../components/ui/Badge";
+import Modal from "../../../components/ui/Modal";
 import EmptyState from "../../../components/ui/EmptyState";
 import type { BadgeTone } from "../../../components/ui/Badge";
 import Toast from "../../../components/ui/Toast";
@@ -22,7 +35,7 @@ const ACTION_TONES: Record<string, BadgeTone> = {
 
 function formatTimestamp(iso: string): string {
   try {
-    const d = new Date(iso + "Z");
+    const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
     return d.toLocaleString("en-IN", {
       day: "2-digit",
       month: "short",
@@ -38,7 +51,7 @@ function formatTimestamp(iso: string): string {
 }
 
 function renderJson(data: string | null): string {
-  if (!data) return "—";
+  if (!data || data.trim() === "" || data.trim() === "null") return "—";
   try {
     return JSON.stringify(JSON.parse(data), null, 2);
   } catch {
@@ -66,7 +79,7 @@ export default function AuditPage() {
   type SummaryCardKey = "totalEvents" | "usersActive" | "create" | "updateDelete";
   const [activeSummaryCard, setActiveSummaryCard] = useState<SummaryCardKey | null>(null);
 
-  // Detail drawer
+  // Detail Modal
   const [selectedEntry, setSelectedEntry] = useState<AuditLogEntry | null>(null);
 
   const fetchLogs = useCallback(
@@ -102,7 +115,7 @@ export default function AuditPage() {
     fetchLogs(true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Summary (computed from ALL loaded logs) ──
+  // ── Summary (computed from loaded logs) ──
   const summary = useMemo<AuditSummary>(() => {
     const userIds = new Set<number>();
     let createCount = 0;
@@ -141,7 +154,6 @@ export default function AuditPage() {
       result = result.filter((l) => l.action === actionFilter);
     }
 
-    // Summary card multi-action filter (update + delete)
     if (activeSummaryCard === "updateDelete") {
       result = result.filter((l) => l.action === "update" || l.action === "delete");
     }
@@ -153,14 +165,14 @@ export default function AuditPage() {
     if (dateFrom) {
       const from = new Date(dateFrom + "T00:00:00");
       result = result.filter(
-        (l) => new Date(l.created_at + "Z") >= from,
+        (l) => new Date(l.created_at.endsWith("Z") ? l.created_at : l.created_at + "Z") >= from,
       );
     }
 
     if (dateTo) {
       const to = new Date(dateTo + "T23:59:59.999");
       result = result.filter(
-        (l) => new Date(l.created_at + "Z") <= to,
+        (l) => new Date(l.created_at.endsWith("Z") ? l.created_at : l.created_at + "Z") <= to,
       );
     }
 
@@ -173,7 +185,6 @@ export default function AuditPage() {
     currentPage * PAGE_SIZE,
   );
 
-  // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [search, actionFilter, tableFilter, dateFrom, dateTo, activeSummaryCard]);
@@ -210,7 +221,6 @@ export default function AuditPage() {
       setActiveSummaryCard(key);
       if (key === "totalEvents") setActionFilter("");
       else if (key === "create") setActionFilter("create");
-      // updateDelete and usersActive: don't touch actionFilter dropdown
     }
   };
 
@@ -226,7 +236,6 @@ export default function AuditPage() {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
   };
 
-  // Generate page numbers with ellipsis
   const pageNumbers = useMemo(() => {
     const pages: (number | "...")[] = [];
     if (totalPages <= 7) {
@@ -249,57 +258,94 @@ export default function AuditPage() {
 
   return (
     <div className="audit-page">
-      {/* ── Summary Cards ── */}
+      {/* ── Metric Summary Cards ── */}
       <div className="audit-summary">
         <button
           type="button"
           className={`audit-summary-card${activeSummaryCard === "totalEvents" ? " audit-summary-card--active" : ""}`}
           onClick={() => handleSummaryCardClick("totalEvents")}
           aria-pressed={activeSummaryCard === "totalEvents"}
-          aria-label="Show all events"
         >
+          <div className="audit-summary-card__header">
+            <span className="audit-summary-card__label">Total Events</span>
+            <Activity size={16} className="text-slate-400" />
+          </div>
           <div className="audit-summary-card__value">{summary.totalEvents}</div>
-          <div className="audit-summary-card__label">Total Events</div>
         </button>
+
         <button
           type="button"
           className={`audit-summary-card${activeSummaryCard === "usersActive" ? " audit-summary-card--active" : ""}`}
           onClick={() => handleSummaryCardClick("usersActive")}
           aria-pressed={activeSummaryCard === "usersActive"}
-          aria-label="Users active (informational only, does not filter)"
-          title="Informational only — shows unique users across all loaded events"
         >
+          <div className="audit-summary-card__header">
+            <span className="audit-summary-card__label">Active Users</span>
+            <UserCheck size={16} className="text-emerald-500" />
+          </div>
           <div className="audit-summary-card__value">{summary.usersActive}</div>
-          <div className="audit-summary-card__label">Users Active</div>
         </button>
+
         <button
           type="button"
           className={`audit-summary-card${activeSummaryCard === "create" ? " audit-summary-card--active" : ""}`}
           onClick={() => handleSummaryCardClick("create")}
           aria-pressed={activeSummaryCard === "create"}
-          aria-label="Filter by create actions"
         >
+          <div className="audit-summary-card__header">
+            <span className="audit-summary-card__label">Create Actions</span>
+            <CheckCircle2 size={16} className="text-blue-500" />
+          </div>
           <div className="audit-summary-card__value">{summary.createActions}</div>
-          <div className="audit-summary-card__label">Create Actions</div>
         </button>
+
         <button
           type="button"
           className={`audit-summary-card${activeSummaryCard === "updateDelete" ? " audit-summary-card--active" : ""}`}
           onClick={() => handleSummaryCardClick("updateDelete")}
           aria-pressed={activeSummaryCard === "updateDelete"}
-          aria-label="Filter by update and delete actions"
         >
+          <div className="audit-summary-card__header">
+            <span className="audit-summary-card__label">Updates & Deletes</span>
+            <Edit3 size={16} className="text-amber-500" />
+          </div>
           <div className="audit-summary-card__value">{summary.updateDeleteActions}</div>
-          <div className="audit-summary-card__label">Update / Delete</div>
         </button>
       </div>
 
-      {/* ── Filter Bar ── */}
-      <Card className="audit-filters-card" icon={<Filter size={18} />}>
+      {/* ── Filter Toolbar ── */}
+      <Card
+        className="audit-filters-card"
+        icon={<Filter size={18} />}
+        title="Audit Filters"
+        eyebrow="Filter and search system change records"
+        right={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearFilters}
+              disabled={!hasActiveFilters}
+              icon={<RotateCcw size={14} />}
+            >
+              Reset
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => fetchLogs(true)}
+              disabled={loading}
+              icon={<RefreshCw size={14} className={loading ? "animate-spin" : ""} />}
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </Button>
+          </div>
+        }
+      >
         <div className="audit-filters">
           <div className="audit-filters__search">
             <Input
-              placeholder="Search by user, action, table, or record ID…"
+              placeholder="Search user, action, table, or record ID…"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -320,7 +366,7 @@ export default function AuditPage() {
               <option value="">All Actions</option>
               {uniqueActions.map((a) => (
                 <option key={a} value={a}>
-                  {a}
+                  {a.toUpperCase()}
                 </option>
               ))}
             </select>
@@ -344,55 +390,46 @@ export default function AuditPage() {
 
           <div className="audit-filters__dates">
             <div className="audit-filter-date-wrap">
+              <span className="audit-filter-date-label">From</span>
               <input
                 type="date"
-                className={`audit-filter-date${!dateFrom ? " audit-filter-date--empty" : ""}`}
+                className="audit-filter-date"
                 value={dateFrom}
                 onChange={(e) => {
                   setDateFrom(e.target.value);
                   setActiveSummaryCard(null);
                 }}
-                aria-label="From date"
-                title="Start date"
               />
-              {!dateFrom && <span className="audit-filter-date__placeholder" aria-hidden="true">From</span>}
             </div>
-            <span className="audit-filters__date-sep">to</span>
+
             <div className="audit-filter-date-wrap">
+              <span className="audit-filter-date-label">To</span>
               <input
                 type="date"
-                className={`audit-filter-date${!dateTo ? " audit-filter-date--empty" : ""}`}
+                className="audit-filter-date"
                 value={dateTo}
                 onChange={(e) => {
                   setDateTo(e.target.value);
                   setActiveSummaryCard(null);
                 }}
-                aria-label="To date"
-                title="End date"
               />
-              {!dateTo && <span className="audit-filter-date__placeholder" aria-hidden="true">To</span>}
             </div>
-          </div>
-
-          <div className="audit-filters__actions">
-            <Button
-              variant="ghost"
-              onClick={clearFilters}
-              disabled={!hasActiveFilters}
-              aria-label="Clear all filters"
-            >
-              Clear Filters
-            </Button>
-
-            <Button variant="ghost" onClick={() => fetchLogs(true)} disabled={loading}>
-              {loading ? "Refreshing…" : "Refresh"}
-            </Button>
           </div>
         </div>
       </Card>
 
-      {/* ── Table ── */}
-      <Card className="audit-table-card" icon={<ClipboardList size={18} />}>
+      {/* ── Table Card ── */}
+      <Card
+        className="audit-table-card"
+        icon={<ClipboardList size={18} />}
+        title="Audit Logs History"
+        eyebrow="Click any entry to view full before / after data payload"
+        right={
+          <span className="text-xs text-slate-500 font-medium">
+            {filteredLogs.length} total entries
+          </span>
+        }
+      >
         {loading && logs.length === 0 ? (
           <div className="audit-loading">
             <span className="ui-spinner" aria-hidden="true" />
@@ -409,7 +446,7 @@ export default function AuditPage() {
           </div>
         ) : filteredLogs.length === 0 ? (
           <EmptyState
-            icon="&#x1F4CB;"
+            icon="📋"
             title={hasActiveFilters ? "No matching audit entries" : "No audit entries yet"}
             subtitle={
               hasActiveFilters
@@ -457,15 +494,13 @@ export default function AuditPage() {
                         <span className="audit-table__user">{entry.username}</span>
                       </td>
                       <td>
-                        <Badge
-                          tone={ACTION_TONES[entry.action] ?? "neutral"}
-                        >
+                        <Badge tone={ACTION_TONES[entry.action] ?? "neutral"}>
                           {entry.action}
                         </Badge>
                       </td>
                       <td className="audit-table__table">{entry.table_name}</td>
                       <td className="audit-table__record-id">
-                        {entry.record_id !== null ? entry.record_id : "—"}
+                        {entry.record_id !== null ? `#${entry.record_id}` : "—"}
                       </td>
                     </tr>
                   ))}
@@ -473,62 +508,66 @@ export default function AuditPage() {
               </table>
             </div>
 
-            {/* ── Pagination ── */}
+            {/* ── Compact Pagination Bar ── */}
             <div className="audit-pagination">
               <div className="audit-table__count">
                 Showing {(currentPage - 1) * PAGE_SIZE + 1}–
                 {Math.min(currentPage * PAGE_SIZE, filteredLogs.length)} of{" "}
                 {filteredLogs.length}
-                {!hasAllLogs && "+"} entries
+                {!hasAllLogs && "+"} records
               </div>
 
               <div className="audit-pagination__controls">
                 <Button
-                  variant="ghost"
+                  variant="outline"
+                  size="sm"
                   disabled={currentPage <= 1}
                   onClick={() => goToPage(currentPage - 1)}
                   aria-label="Previous page"
-                  icon={<ChevronLeft size={16} />}
+                  icon={<ChevronLeft size={14} />}
                 >
                   Prev
                 </Button>
 
-                {pageNumbers.map((p, i) =>
-                  p === "..." ? (
-                    <span key={`ellipsis-${i}`} className="audit-pagination__ellipsis">
-                      …
-                    </span>
-                  ) : (
-                    <button
-                      key={p}
-                      type="button"
-                      className={`audit-pagination__page${p === currentPage ? " audit-pagination__page--active" : ""}`}
-                      onClick={() => goToPage(p)}
-                      aria-label={`Page ${p}`}
-                      aria-current={p === currentPage ? "page" : undefined}
-                    >
-                      {p}
-                    </button>
-                  ),
-                )}
+                <div className="audit-pagination__pages">
+                  {pageNumbers.map((p, i) =>
+                    p === "..." ? (
+                      <span key={`ellipsis-${i}`} className="audit-pagination__ellipsis">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`audit-pagination__page${p === currentPage ? " audit-pagination__page--active" : ""}`}
+                        onClick={() => goToPage(p)}
+                        aria-label={`Page ${p}`}
+                        aria-current={p === currentPage ? "page" : undefined}
+                      >
+                        {p}
+                      </button>
+                    ),
+                  )}
+                </div>
 
                 <Button
-                  variant="ghost"
+                  variant="outline"
+                  size="sm"
                   disabled={currentPage >= totalPages}
                   onClick={() => goToPage(currentPage + 1)}
                   aria-label="Next page"
-                  icon={<ChevronRight size={16} />}
+                  icon={<ChevronRight size={14} />}
                 >
                   Next
                 </Button>
               </div>
             </div>
 
-            {/* ── Load More (when there's more server data) ── */}
+            {/* ── Load More Records ── */}
             {hasMore && !hasActiveFilters && (
               <div className="audit-load-more">
-                <Button variant="ghost" onClick={loadMore} disabled={loading} icon={<Folders size={16} />}>
-                  {loading ? "Loading…" : "Load More Records"}
+                <Button variant="outline" size="sm" onClick={loadMore} disabled={loading} icon={<Folders size={14} />}>
+                  {loading ? "Loading…" : "Load More Records from Database"}
                 </Button>
               </div>
             )}
@@ -536,99 +575,81 @@ export default function AuditPage() {
         )}
       </Card>
 
-      {/* ── Detail Drawer ── */}
-      {selectedEntry && (
-        <div
-          className="audit-drawer-overlay"
-          onClick={() => setSelectedEntry(null)}
-        >
-          <div
-            className="audit-drawer"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-label="Audit log detail"
-          >
-            <div className="audit-drawer__header">
-              <h2 className="audit-drawer__title">Audit Entry Detail</h2>
-              <button
-                type="button"
-                className="audit-drawer__close"
-                onClick={() => setSelectedEntry(null)}
-                aria-label="Close detail"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="audit-drawer__body">
-              <div className="audit-detail-grid">
-                <div className="audit-detail-item">
-                  <span className="audit-detail-label">ID</span>
-                  <span className="audit-detail-value">{selectedEntry.id}</span>
-                </div>
-                <div className="audit-detail-item">
-                  <span className="audit-detail-label">Timestamp</span>
-                  <span className="audit-detail-value">
-                    {formatTimestamp(selectedEntry.created_at)}
-                  </span>
-                </div>
-                <div className="audit-detail-item">
-                  <span className="audit-detail-label">User</span>
-                  <span className="audit-detail-value">
-                    {selectedEntry.username}
-                  </span>
-                </div>
-                <div className="audit-detail-item">
-                  <span className="audit-detail-label">Action</span>
-                  <span className="audit-detail-value">
-                    <Badge
-                      tone={
-                        ACTION_TONES[selectedEntry.action] ?? "neutral"
-                      }
-                    >
-                      {selectedEntry.action}
-                    </Badge>
-                  </span>
-                </div>
-                <div className="audit-detail-item">
-                  <span className="audit-detail-label">Table</span>
-                  <span className="audit-detail-value">
-                    {selectedEntry.table_name}
-                  </span>
-                </div>
-                <div className="audit-detail-item">
-                  <span className="audit-detail-label">Record ID</span>
-                  <span className="audit-detail-value">
-                    {selectedEntry.record_id !== null
-                      ? selectedEntry.record_id
-                      : "—"}
-                  </span>
-                </div>
+      {/* ── Modal Dialog for Audit Details ── */}
+      <Modal
+        open={Boolean(selectedEntry)}
+        onClose={() => setSelectedEntry(null)}
+        title="Audit Entry Detail"
+        subtitle={selectedEntry ? `Log #${selectedEntry.id} • Recorded ${formatTimestamp(selectedEntry.created_at)}` : ""}
+        maxWidth="lg"
+        footer={
+          <div className="flex justify-end gap-2 w-full">
+            <Button variant="secondary" size="sm" onClick={() => setSelectedEntry(null)}>
+              Close
+            </Button>
+          </div>
+        }
+      >
+        {selectedEntry && (
+          <div className="audit-detail-modal-body">
+            {/* Meta Grid */}
+            <div className="audit-detail-grid">
+              <div className="audit-detail-item">
+                <span className="audit-detail-label">User</span>
+                <span className="audit-detail-value font-semibold text-slate-800">
+                  {selectedEntry.username}
+                </span>
               </div>
 
-              <div className="audit-detail-json-group">
-                <h3 className="audit-detail-subtitle">Old Data</h3>
-                <pre className="audit-detail-json">
+              <div className="audit-detail-item">
+                <span className="audit-detail-label">Action</span>
+                <span className="audit-detail-value">
+                  <Badge tone={ACTION_TONES[selectedEntry.action] ?? "neutral"}>
+                    {selectedEntry.action.toUpperCase()}
+                  </Badge>
+                </span>
+              </div>
+
+              <div className="audit-detail-item">
+                <span className="audit-detail-label">Target Table</span>
+                <span className="audit-detail-value font-mono text-indigo-600 font-medium">
+                  {selectedEntry.table_name}
+                </span>
+              </div>
+
+              <div className="audit-detail-item">
+                <span className="audit-detail-label">Record ID</span>
+                <span className="audit-detail-value font-mono text-slate-700">
+                  {selectedEntry.record_id !== null ? `#${selectedEntry.record_id}` : "—"}
+                </span>
+              </div>
+            </div>
+
+            {/* Payload Changes */}
+            <div className="audit-payload-grid">
+              <div className="audit-payload-card">
+                <div className="audit-payload-card__header">
+                  <span>Previous Data State</span>
+                  <Badge tone="neutral">Before</Badge>
+                </div>
+                <pre className="audit-payload-pre">
                   {renderJson(selectedEntry.old_data)}
                 </pre>
               </div>
 
-              <div className="audit-detail-json-group">
-                <h3 className="audit-detail-subtitle">New Data</h3>
-                <pre className="audit-detail-json">
+              <div className="audit-payload-card">
+                <div className="audit-payload-card__header">
+                  <span>New Data State</span>
+                  <Badge tone="success">After</Badge>
+                </div>
+                <pre className="audit-payload-pre">
                   {renderJson(selectedEntry.new_data)}
                 </pre>
               </div>
             </div>
-
-            <div className="audit-drawer__footer">
-              <Button variant="ghost" onClick={() => setSelectedEntry(null)}>
-                Close
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* ── Toast ── */}
       {toast && (

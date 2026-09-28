@@ -99,19 +99,23 @@ mod tests {
     fn set_setting_validates_doctor_share_range() {
         let conn = test_db();
         // Negative value (< 0)
-        let result = set_setting(&conn, "doctor_share".into(), "-0.1".into());
+        let result = set_setting(&conn, "doctor_share".into(), "-1".into());
         assert!(result.is_err());
-        // Value > 1.0
-        let result2 = set_setting(&conn, "doctor_share".into(), "1.5".into());
+        // Value > 100
+        let result2 = set_setting(&conn, "doctor_share".into(), "105".into());
         assert!(result2.is_err());
     }
 
     #[test]
     fn set_setting_accepts_valid_doctor_share() {
         let conn = test_db();
-        set_setting(&conn, "doctor_share".into(), "0.4".into()).unwrap();
+        set_setting(&conn, "doctor_share".into(), "40".into()).unwrap();
         let value = get_setting(&conn, "doctor_share".into()).unwrap();
-        assert_eq!(value, "0.4");
+        assert_eq!(value, "40");
+
+        set_setting(&conn, "doctor_share".into(), "20%".into()).unwrap();
+        let value2 = get_setting(&conn, "doctor_share".into()).unwrap();
+        assert_eq!(value2, "20%");
     }
 
     // ── get_all_settings ──

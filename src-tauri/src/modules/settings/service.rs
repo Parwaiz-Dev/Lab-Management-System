@@ -30,7 +30,7 @@ fn clean_value(value: &str) -> String {
 }
 
 fn validate_doctor_share(value: &str) -> AppResult<()> {
-    let cleaned = value.trim();
+    let cleaned = value.trim().trim_end_matches('%').trim();
 
     if cleaned.is_empty() {
         return Ok(());
@@ -40,9 +40,9 @@ fn validate_doctor_share(value: &str) -> AppResult<()> {
         AppError::ValidationError("Doctor share must be a valid number".to_string())
     })?;
 
-    if !(0.0..=1.0).contains(&share) {
+    if !share.is_finite() || !(0.0..=100.0).contains(&share) {
         return Err(AppError::ValidationError(
-            "Doctor share must be between 0 and 1. Example: 0.4".to_string(),
+            "Doctor share must be between 0 and 100%. Example: 20 or 40".to_string(),
         ));
     }
 

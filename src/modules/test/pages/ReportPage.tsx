@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Eye, EyeOff, Printer } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Printer } from "lucide-react";
 import Button from "../../../components/ui/Button";
 import type { ReportPatientInfo, ReportRow } from "../../../types";
 import { settingsService } from "../../settings/services/settingsService";
@@ -15,23 +15,14 @@ type GroupedResult = {
   rows: ReportRow[];
 };
 
-type FlagStatus = "High" | "Low" | "";
-
-const KANNADA_NAME_MAP: Record<string, string> = {
-  GANI: "ಗಣಿ",
-  "GANI LAB": "ಗಣಿ ಲ್ಯಾಬ್",
-  "GANI DIAGNOSTIC": "ಗಣಿ ಡಯಾಗ್ನೋಸ್ಟಿಕ್",
-  "GANI DIAGNOSTICS": "ಗಣಿ ಡಯಾಗ್ನೋಸ್ಟಿಕ್ಸ್",
-  "GANI DIAGNOSTICS LABORATORY": "ಗಣಿ ಡಯಾಗ್ನೋಸ್ಟಿಕ್ಸ್ ಲ್ಯಾಬೊರೇಟರಿ",
-};
+type FlagStatus = "High" | "Low" | "Normal" | "";
 
 export default function ReportPage({ orderId, onBack }: ReportPageProps) {
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [patient, setPatient] = useState<ReportPatientInfo | null>(null);
-  const [labName, setLabName] = useState("GANI");
-  const [labAddress, setLabAddress] = useState("Your Address");
+  const [labName, setLabName] = useState("Laboratory");
+  const [labAddress, setLabAddress] = useState("");
   const [logo, setLogo] = useState("");
-  const [showHeader, setShowHeader] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -49,8 +40,8 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
 
         setRows(reportRows || []);
         setPatient(patientInfo);
-        setLabName(settings.lab_name || "GANI");
-        setLabAddress(settings.lab_address || "Your Address");
+        setLabName(settings.lab_name || "Laboratory");
+        setLabAddress(settings.lab_address || "");
         setLogo(settings.lab_logo || "");
       } catch (err) {
         console.error("Report load failed:", err);
@@ -67,7 +58,7 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
     const groups: GroupedResult[] = [];
 
     rows.forEach((row) => {
-      const testName = row.test_name || "LABORATORY TEST";
+      const testName = row.test_name || "LABORATORY INVESTIGATION";
       const existing = groups.find((group) => group.testName === testName);
 
       if (existing) {
@@ -82,203 +73,268 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
 
   const logoSrc = useMemo(() => settingsService.getLogoSrc(logo), [logo]);
 
-  const kannadaLabName = getKannadaLabName(labName);
-
   const ageSex = `${patient?.age_value || "-"} ${normalizeAgeUnit(
     patient?.age_unit
-  )} | ${normalizeGender(patient?.gender)}`;
+  )} / ${normalizeGender(patient?.gender)}`;
 
   const orderDateTime = formatDateTime(patient?.order_date);
   const reportingDateTime = formatDateTime(new Date().toISOString());
 
+  const printReport = async () => {
+    await document.fonts.ready;
+    await Promise.all(
+      Array.from(document.images, (image) => image.decode().catch(() => undefined)),
+    );
+    window.print();
+  };
+
   return (
-    <div className="doctor-report-page-v5">
+    <div className="clinical-report-page">
       <style>{reportCss}</style>
 
-      <div className="doctor-report-toolbar-v5 no-print">
-        <Button onClick={onBack} variant="secondary" icon={<ArrowLeft size={16} />}>
-          Back
+      {/* Toolbar for preview & print */}
+      <div className="clinical-report-toolbar no-print">
+        <Button onClick={onBack} variant="secondary" icon={<ArrowLeft size={15} />}>
+          Back to Worklist
         </Button>
 
         <Button
-          onClick={() => setShowHeader((current) => !current)}
-          variant="secondary"
-          icon={showHeader ? <EyeOff size={16} /> : <Eye size={16} />}
+          onClick={() => void printReport()}
+          disabled={loading || Boolean(error)}
+          variant="primary"
+          icon={<Printer size={15} />}
         >
-          {showHeader ? "Hide Header" : "Show Header"}
-        </Button>
-
-        <Button onClick={() => window.print()} disabled={loading || Boolean(error)} icon={<Printer size={16} />}>
           Print Report
         </Button>
       </div>
 
+      {/* Main Printable A4 Report Paper */}
       <article
         className={[
-          "doctor-report-paper-v5",
-          showHeader ? "doctor-report-paper-v5--with-header" : "",
+          "clinical-report-paper",
         ]
           .filter(Boolean)
           .join(" ")}
       >
-        {showHeader && (
-          <header className="doctor-report-letterhead-v5">
-            <div className="doctor-report-letterhead-v5__logo">
+        {/* Header Letterhead */}
+        <header className="clinical-report-header">
+            <div className="clinical-report-header__left">
               {logoSrc ? (
-                <img src={logoSrc} alt="Lab logo" />
+                <img
+                  src={logoSrc}
+                  alt="Lab Logo"
+                  className="clinical-report-logo-img"
+                />
               ) : (
-                <div className="doctor-report-logo-fallback-v5">LAB</div>
+                <div className="clinical-report-emblem">
+                  <div className="clinical-report-emblem__shield">
+                    <span className="clinical-report-emblem__cross">✚</span>
+                  </div>
+                </div>
               )}
+
+              <div className="clinical-report-brand">
+                <h1 className="clinical-report-title">{labName || "Laboratory"}</h1>
+                {labAddress && <div className="clinical-report-address">{labAddress}</div>}
+              </div>
             </div>
 
-            <div className="doctor-report-letterhead-v5__center">
-              <div className="doctor-report-kannada-v5">{kannadaLabName}</div>
-              <p>{labAddress || "Your Address"}</p>
-            </div>
-
-            <div className="doctor-report-letterhead-v5__seal">
-              <span>LAB</span>
-            </div>
+            {/* <div className="clinical-report-header__right">
+              <div className="clinical-report-barcode">
+                *{String(orderId).padStart(6, "0")}*
+              </div>
+            </div> */}
           </header>
-        )}
 
-        <section className="doctor-report-patient-box-v5">
-          <div className="doctor-report-patient-box-v5__left">
-            <InfoLine label="Name" value={patient?.patient_name || "-"} />
-            <InfoLine label="Age & Sex" value={ageSex} />
-            <InfoLine label="Lab Ref No" value={String(orderId)} />
-            <InfoLine label="Referred by" value={patient?.referred_by || "Self"} />
-          </div>
+        {/* Patient Demographic & Specimen Information */}
+        <section className="clinical-patient-card">
+          <div className="clinical-patient-grid">
+            <div className="clinical-patient-cell">
+              <span className="clinical-field-label">Patient Name</span>
+              <span className="clinical-field-value clinical-field-value--bold">
+                {patient?.patient_name || "—"}
+              </span>
+            </div>
 
-          <div className="doctor-report-patient-box-v5__right">
+            <div className="clinical-patient-cell">
+              <span className="clinical-field-label">Lab Reference #</span>
+              <span className="clinical-field-value font-mono">
+                ORD-{String(orderId).padStart(5, "0")}
+              </span>
+            </div>
 
-            <InfoLine label="Collection Time" value={orderDateTime} />
-            <InfoLine label="Receiving Time" value={orderDateTime} />
-            <InfoLine label="Reporting Time" value={reportingDateTime} />
+            <div className="clinical-patient-cell">
+              <span className="clinical-field-label">Age / Gender</span>
+              <span className="clinical-field-value">{ageSex}</span>
+            </div>
+
+            <div className="clinical-patient-cell">
+              <span className="clinical-field-label">Order Date</span>
+              <span className="clinical-field-value font-mono">{orderDateTime}</span>
+            </div>
+
+            <div className="clinical-patient-cell">
+              <span className="clinical-field-label">Patient ID / UHID</span>
+              <span className="clinical-field-value font-mono">
+                {patient?.patient_code || `P-${orderId}`}
+              </span>
+            </div>
+
+            <div className="clinical-patient-cell">
+              <span className="clinical-field-label">Referred By</span>
+              <span className="clinical-field-value clinical-field-value--bold">
+                {patient?.referred_by || "Self / Direct Walk-in"}
+              </span>
+            </div>
+
+            <div className="clinical-patient-cell">
+              <span className="clinical-field-label">Report Generated</span>
+              <span className="clinical-field-value font-mono">{reportingDateTime}</span>
+            </div>
           </div>
         </section>
 
-        <main className="doctor-report-content-v5">
+        {/* Clinical Report Investigation Content */}
+        <main className="clinical-report-content">
           {loading && (
-            <div className="doctor-report-state-v5">Loading report...</div>
+            <div className="clinical-report-state">
+              Loading verified lab report findings…
+            </div>
           )}
 
           {!loading && error && (
-            <div className="doctor-report-state-v5 doctor-report-state-v5--error">
+            <div className="clinical-report-state clinical-report-state--error">
               {error}
             </div>
           )}
 
           {!loading && !error && groupedResults.length === 0 && (
-            <div className="doctor-report-state-v5">
-              No results entered for this order.
+            <div className="clinical-report-state">
+              No results recorded for this laboratory order.
             </div>
           )}
 
           {!loading && !error && groupedResults.length > 0 && (
-            <>
-              <div className="doctor-report-result-head-v5">
-                <div>Test Name</div>
-                <div>Results</div>
-                <div>Units</div>
-                <div>
-                  Biological Ref.
-                  <br />
-                  Interval
-                </div>
-              </div>
+            <div className="clinical-table-container">
+              <table className="clinical-report-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: "36%" }}>TEST / PARAMETER</th>
+                    <th style={{ width: "18%", textAlign: "center" }}>OBSERVED VALUE</th>
+                    <th style={{ width: "12%", textAlign: "center" }}>FLAG</th>
+                    <th style={{ width: "14%", textAlign: "center" }}>UNITS</th>
+                    <th style={{ width: "20%", textAlign: "center" }}>REFERENCE INTERVAL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedResults.map((group) => (
+                    <React.Fragment key={group.testName}>
+                      <tr className="clinical-panel-header-row">
+                        <td colSpan={5}>
+                          <div className="clinical-panel-name">
+                            {group.testName.toUpperCase()}
+                          </div>
+                        </td>
+                      </tr>
+                      {group.rows.map((row, idx) => {
+                        const flag = getFlagStatus(row.value, row.normal_range);
+                        return (
+                          <tr
+                            key={idx}
+                            className={`clinical-data-row ${
+                              flag === "High" || flag === "Low"
+                                ? "clinical-data-row--flagged"
+                                : ""
+                            }`}
+                          >
+                            <td className="clinical-test-title">
+                              {row.parameter_name || "—"}
+                            </td>
 
-              <div className="doctor-report-result-body-v5">
-                {groupedResults.map((group) => (
-                  <ResultGroup key={group.testName} group={group} />
-                ))}
-              </div>
+                            <td
+                              className="clinical-observed-val"
+                              style={{ textAlign: "center" }}
+                            >
+                              <span
+                                className={
+                                  flag === "High" || flag === "Low"
+                                    ? "clinical-val--flagged font-mono"
+                                    : "font-mono"
+                                }
+                              >
+                                {formatValue(row.value)}
+                              </span>
+                            </td>
 
-              <div className="doctor-report-end-v5">
-                <span />
-                End of Report
-                <span />
-              </div>
-            </>
+                            <td style={{ textAlign: "center" }}>
+                              {flag === "High" ? (
+                                <span className="clinical-flag clinical-flag--high">
+                                  HIGH
+                                </span>
+                              ) : flag === "Low" ? (
+                                <span className="clinical-flag clinical-flag--low">
+                                  LOW
+                                </span>
+                              ) : flag === "Normal" ? (
+                                <span className="clinical-flag clinical-flag--normal">
+                                  NORMAL
+                                </span>
+                              ) : (
+                                <span style={{ color: "#94a3b8" }}>—</span>
+                              )}
+                            </td>
+
+                            <td
+                              style={{
+                                textAlign: "center",
+                                fontFamily: "var(--font-mono)",
+                                fontSize: "11px",
+                              }}
+                            >
+                              {row.unit || "—"}
+                            </td>
+
+                            <td
+                              style={{
+                                textAlign: "center",
+                                fontFamily: "var(--font-mono)",
+                                fontSize: "11px",
+                              }}
+                            >
+                              {formatReferenceRange(row.normal_range, row.unit)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* <div className="clinical-report-end">
+                <span className="clinical-end-line" />
+                <span>*** End of Examination Report ***</span>
+                <span className="clinical-end-line" />
+              </div> */}
+            </div>
           )}
         </main>
 
-        <footer className="doctor-report-footer-v5">
-          <div className="doctor-report-note-v5">
-            The above results are as per the sample received.
+        {/* Clinical Interpretation Disclaimer Notes */}
+        {/* Signatures Block */}
+        {/* <footer className="clinical-report-footer">
+          <div className="clinical-signature-col">
+            <div className="clinical-signature-space" />
+            <div className="clinical-signature-line" />
+            <div className="clinical-signatory-name">Authorized Signatory</div>
           </div>
+        </footer> */}
 
-          <div className="doctor-report-signature-v5">
-            <div />
-            <strong>SIGNATURE</strong>
-          </div>
-        </footer>
-
-        {showHeader && (
-          <div className="doctor-report-bottom-strip-v5">
-            {labAddress || "Your Address"}
-          </div>
-        )}
+        {/* Bottom Strip */}
+        {/* <div className="clinical-report-strip">Computer-generated laboratory report</div> */}
       </article>
     </div>
   );
-}
-
-function ResultGroup({ group }: { group: GroupedResult }) {
-  return (
-    <section className="doctor-report-group-v5">
-      <div className="doctor-report-group-title-v5">{group.testName}</div>
-
-      {group.rows.map((row, index) => {
-        const flag = getFlagStatus(row.value, row.normal_range);
-
-        return (
-          <div
-            key={`${group.testName}-${row.parameter_name}-${index}`}
-            className={[
-              "doctor-report-result-row-v5",
-              flag ? "doctor-report-result-row-v5--flagged" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <div className="doctor-report-test-name-v5">
-              {row.parameter_name || "-"}
-            </div>
-
-            <div className="doctor-report-result-value-v5">
-              <span className="doctor-report-result-number-v5">
-                {formatValue(row.value)}
-              </span>
-
-              <span className="doctor-report-result-flag-v5">{flag}</span>
-            </div>
-
-            <div className="doctor-report-unit-v5">{row.unit || "-"}</div>
-
-            <div className="doctor-report-range-v5">
-              {formatReferenceRange(row.normal_range, row.unit)}
-            </div>
-          </div>
-        );
-      })}
-    </section>
-  );
-}
-
-function InfoLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="doctor-report-info-line-v5">
-      <span>{label}</span>
-      <b>:</b>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function getKannadaLabName(name: string) {
-  const key = String(name || "").trim().toUpperCase();
-  return KANNADA_NAME_MAP[key] || "ಗಣಿ";
 }
 
 function formatValue(value: string) {
@@ -326,11 +382,11 @@ function formatDateTime(value?: string) {
 function normalizeAgeUnit(unit?: string) {
   const value = String(unit || "").toLowerCase();
 
-  if (value.startsWith("year")) return "Year";
-  if (value.startsWith("month")) return "Month";
-  if (value.startsWith("day")) return "Day";
+  if (value.startsWith("year")) return "Yrs";
+  if (value.startsWith("month")) return "Mo";
+  if (value.startsWith("day")) return "Days";
 
-  return unit || "Year";
+  return unit || "Yrs";
 }
 
 function normalizeGender(gender?: string) {
@@ -352,26 +408,22 @@ function getFlagStatus(value: string, range: string): FlagStatus {
 
   if (cleanRange.startsWith("<=")) {
     const max = Number.parseFloat(cleanRange.replace("<=", ""));
-    if (Number.isNaN(max)) return "";
-    return num > max ? "High" : "";
+    if (!Number.isNaN(max)) return num > max ? "High" : "Normal";
   }
 
   if (cleanRange.startsWith("<")) {
     const max = Number.parseFloat(cleanRange.replace("<", ""));
-    if (Number.isNaN(max)) return "";
-    return num >= max ? "High" : "";
+    if (!Number.isNaN(max)) return num >= max ? "High" : "Normal";
   }
 
   if (cleanRange.startsWith(">=")) {
     const min = Number.parseFloat(cleanRange.replace(">=", ""));
-    if (Number.isNaN(min)) return "";
-    return num < min ? "Low" : "";
+    if (!Number.isNaN(min)) return num < min ? "Low" : "Normal";
   }
 
   if (cleanRange.startsWith(">")) {
     const min = Number.parseFloat(cleanRange.replace(">", ""));
-    if (Number.isNaN(min)) return "";
-    return num <= min ? "Low" : "";
+    if (!Number.isNaN(min)) return num <= min ? "Low" : "Normal";
   }
 
   const match = cleanRange.match(
@@ -388,369 +440,312 @@ function getFlagStatus(value: string, range: string): FlagStatus {
   if (num < min) return "Low";
   if (num > max) return "High";
 
-  return "";
+  return "Normal";
 }
 
 const reportCss = `
-  .doctor-report-page-v5 {
+  .clinical-report-page {
     min-height: 100%;
-    padding: 18px;
-    background: #edf3f7;
-    color: #000000;
+    padding: 16px;
+    background: #edf2f7;
+    color: #0f172a;
   }
 
-  .doctor-report-toolbar-v5 {
+  .clinical-report-toolbar {
     width: 210mm;
     max-width: 100%;
     margin: 0 auto 12px;
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
+    gap: 8px;
   }
 
-  .doctor-report-paper-v5 {
+  .clinical-report-paper {
     width: 210mm;
     min-height: 297mm;
     margin: 0 auto;
     background: #ffffff;
-    border: 1px solid #cfcfcf;
-    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.16);
-    padding: 10mm 12mm;
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 13.2px;
-    line-height: 1.2;
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+    padding: 8mm 10mm;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 11.5px;
+    line-height: 1.3;
     position: relative;
     box-sizing: border-box;
   }
 
-  .doctor-report-paper-v5--with-header {
-    padding-top: 0;
-  }
-
-  .doctor-report-letterhead-v5 {
-    height: 34mm;
-    margin: 0 -12mm 6mm;
-    padding: 4mm 12mm;
-    background: #2c3d20;
-    color: #fff1c8;
-    display: grid;
-    grid-template-columns: 32mm 1fr 32mm;
-    align-items: center;
-    box-sizing: border-box;
-  }
-
-  .doctor-report-letterhead-v5__logo {
+  .clinical-report-header {
     display: flex;
     align-items: center;
-    justify-content: center;
-  }
-
-  .doctor-report-letterhead-v5__logo img,
-  .doctor-report-logo-fallback-v5 {
-    width: 25mm;
-    height: 25mm;
-    background: #ffffff;
-    object-fit: contain;
-  }
-
-  .doctor-report-logo-fallback-v5 {
-    display: grid;
-    place-items: center;
-    color: #2c3d20;
-    font-weight: 900;
-  }
-
-  .doctor-report-letterhead-v5__center {
-    text-align: center;
-    min-width: 0;
-  }
-
-  .doctor-report-kannada-v5 {
-    font-size: 22px;
-    font-weight: 900;
-    line-height: 1.1;
-    margin-bottom: 2px;
-  }
-
-  .doctor-report-letterhead-v5__center h1 {
-    margin: 0;
-    font-size: 21px;
-    line-height: 1.1;
-    letter-spacing: 0.08em;
-    font-weight: 900;
-  }
-
-  .doctor-report-letterhead-v5__center p {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: #fff8df;
-  }
-
-  .doctor-report-letterhead-v5__seal {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .doctor-report-letterhead-v5__seal span {
-    width: 24mm;
-    height: 24mm;
-    border: 1.5px solid #fff1c8;
-    border-radius: 999px;
-    display: grid;
-    place-items: center;
-    font-size: 17px;
-    font-weight: 900;
-  }
-
-  .doctor-report-patient-box-v5 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    border: 1px solid #111111;
-    min-height: 35mm;
+    justify-content: space-between;
+    padding-bottom: 3.5mm;
+    border-bottom: 2px solid #0f172a;
     margin-bottom: 3mm;
   }
 
-  .doctor-report-patient-box-v5__left,
-  .doctor-report-patient-box-v5__right {
-    padding: 3.6mm 4.5mm;
-    box-sizing: border-box;
+  .clinical-report-header__left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
 
-  .doctor-report-patient-box-v5__left {
-    border-right: 1px solid #111111;
+  .clinical-report-logo-img {
+    height: 16mm;
+    max-width: 32mm;
+    object-fit: contain;
   }
 
-  .doctor-report-info-line-v5 {
-    display: grid;
-    grid-template-columns: 30mm 4mm minmax(0, 1fr);
-    gap: 1mm;
-    align-items: start;
-    margin-bottom: 2.2mm;
-    font-size: 13.4px;
-    line-height: 1.15;
-  }
-
-  .doctor-report-info-line-v5:last-child {
-    margin-bottom: 0;
-  }
-
-  .doctor-report-info-line-v5 span {
-    font-weight: 800;
-    white-space: nowrap;
-  }
-
-  .doctor-report-info-line-v5 b {
-    font-weight: 800;
-    text-align: center;
-  }
-
-  .doctor-report-info-line-v5 strong {
-    font-weight: 700;
-    display: block;
-    min-width: 0;
-    word-break: normal;
-    overflow-wrap: anywhere;
-  }
-
-  .doctor-report-barcode-v5 {
-    height: 7mm;
-    margin-bottom: 2mm;
-    text-align: center;
-    font-family: "Courier New", monospace;
-    font-size: 20px;
-    line-height: 7mm;
-    letter-spacing: 2px;
-    white-space: nowrap;
-    overflow: hidden;
-  }
-
-  .doctor-report-content-v5 {
-    min-height: 168mm;
-  }
-
-  .doctor-report-state-v5 {
-    padding: 22px;
-    border: 1px dashed #999999;
-    text-align: center;
-    font-weight: 700;
-  }
-
-  .doctor-report-state-v5--error {
-    color: #b91c1c;
-    border-color: #b91c1c;
-  }
-
-    .doctor-report-result-head-v5 {
-    display: grid;
-    grid-template-columns: 42% 20% 16% 22%;
-    border-top: 1px solid #111111;
-    border-bottom: 1px solid #111111;
-    padding: 1.6mm 0;
-    font-size: 13.8px;
-    font-weight: 800;
-    line-height: 1.05;
-  }
-
-  .doctor-report-result-head-v5 div {
-    padding: 0 2mm;
-    box-sizing: border-box;
-  }
-
-  .doctor-report-result-head-v5 div:nth-child(1) {
-    text-align: left;
-  }
-
-  .doctor-report-result-head-v5 div:nth-child(2),
-  .doctor-report-result-head-v5 div:nth-child(3),
-  .doctor-report-result-head-v5 div:nth-child(4) {
-    text-align: center;
-  }
-
-  .doctor-report-result-body-v5 {
-    padding-top: 5mm;
-  }
-
-  .doctor-report-group-v5 {
-    margin-bottom: 6mm;
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-
-  .doctor-report-group-title-v5 {
-    font-weight: 800;
-    font-size: 13.8px;
-    margin-bottom: 1.6mm;
-    padding-left: 2mm;
-  }
-
-  .doctor-report-result-row-v5 {
-    display: grid;
-    grid-template-columns: 42% 20% 16% 22%;
-    min-height: 5.2mm;
-    align-items: baseline;
-    font-size: 13.2px;
-  }
-
-  .doctor-report-result-row-v5 > div {
-    padding: 0.55mm 2mm;
-    box-sizing: border-box;
-    min-width: 0;
-  }
-
-  .doctor-report-test-name-v5 {
-    text-align: left;
-    font-weight: 400;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-
-  .doctor-report-result-value-v5 {
-    display: grid;
-    grid-template-columns: 18mm 13mm;
-    column-gap: 3mm;
-    justify-content: center;
-    align-items: baseline;
-    white-space: nowrap;
-  }
-
-  .doctor-report-result-number-v5 {
-    display: block;
-    width: 18mm;
-    text-align: right;
-    font-weight: 400;
-  }
-
-  .doctor-report-result-flag-v5 {
-    display: block;
+  .clinical-report-emblem {
     width: 13mm;
-    text-align: left;
-    font-weight: 800;
-  }
-
-  .doctor-report-unit-v5 {
-    text-align: center;
-    font-weight: 400;
-    white-space: nowrap;
-  }
-
-  .doctor-report-range-v5 {
-    text-align: center;
-    font-weight: 400;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-
-  .doctor-report-result-row-v5--flagged .doctor-report-test-name-v5,
-  .doctor-report-result-row-v5--flagged .doctor-report-result-number-v5,
-  .doctor-report-result-row-v5--flagged .doctor-report-result-flag-v5,
-  .doctor-report-result-row-v5--flagged .doctor-report-unit-v5,
-  .doctor-report-result-row-v5--flagged .doctor-report-range-v5 {
-    font-weight: 800;
-  }
-
-  .doctor-report-result-row-v5--flagged .doctor-report-result-number-v5 {
-    text-decoration: underline;
-  }
-
-  .doctor-report-unit-v5,
-  .doctor-report-range-v5 {
-    text-align: center;
-    font-weight: 400;
-  }
-
-  .doctor-report-end-v5 {
-    margin-top: 7mm;
+    height: 13mm;
+    border-radius: 4px;
+    background: #0f172a;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 2mm;
-    font-size: 13px;
+    color: #ffffff;
   }
 
-  .doctor-report-end-v5 span {
-    width: 22mm;
-    border-top: 1px solid #111111;
+  .clinical-report-emblem__shield {
+    font-size: 18px;
+    font-weight: 900;
+    color: #ffffff;
   }
 
-  .doctor-report-footer-v5 {
-    margin-top: 28mm;
+  .clinical-report-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .clinical-report-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #0f172a;
+    text-transform: uppercase;
+  }
+
+  .clinical-report-address {
+    font-size: 10px;
+    color: #475569;
+  }
+
+  .clinical-report-header__right {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+  }
+
+  .clinical-report-barcode {
+    font-family: "Courier New", Courier, monospace;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #0f172a;
+    background: #f1f5f9;
+    padding: 1px 6px;
+    border-radius: 2px;
+  }
+
+  /* Patient Card Box */
+  .clinical-patient-card {
+    border: 1px solid #0f172a;
+    border-radius: 2px;
+    margin-bottom: 3.5mm;
+    background: #fafafa;
+  }
+
+  .clinical-patient-grid {
     display: grid;
-    grid-template-columns: 1fr 55mm;
-    gap: 10mm;
-    align-items: end;
+    grid-template-columns: 1fr 1fr;
+    row-gap: 1.5mm;
+    column-gap: 4mm;
+    padding: 2.5mm 3.5mm;
   }
 
-  .doctor-report-note-v5 {
-    font-size: 13.2px;
+  .clinical-patient-cell {
+    display: grid;
+    grid-template-columns: 28mm 1fr;
+    font-size: 11px;
+    line-height: 1.25;
   }
 
-  .doctor-report-signature-v5 {
+  .clinical-field-label {
+    font-weight: 700;
+    color: #475569;
+  }
+
+  .clinical-field-value {
+    color: #0f172a;
+    word-break: break-word;
+  }
+
+  .clinical-field-value--bold {
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  /* Main Table */
+  .clinical-report-state {
+    padding: 20px;
     text-align: center;
-    font-size: 13px;
-    letter-spacing: 0.08em;
+    border: 1px dashed #cbd5e1;
+    color: #64748b;
   }
 
-  .doctor-report-signature-v5 div {
-    height: 16mm;
+  .clinical-report-state--error {
+    color: #b91c1c;
+    border-color: #fca5a5;
   }
 
-  .doctor-report-signature-v5 strong {
+  .clinical-table-container {
+    width: 100%;
+  }
+
+  .clinical-report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+
+  .clinical-report-table thead th {
+    border-top: 1.5px solid #0f172a;
+    border-bottom: 1.5px solid #0f172a;
+    padding: 1.8mm 1.5mm;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    color: #0f172a;
+    background: #f8fafc;
+  }
+
+  .clinical-panel-header-row td {
+    padding: 2mm 1.5mm 1mm;
+    background: transparent;
+  }
+
+  .clinical-panel-name {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #1e293b;
+    border-bottom: 1px solid #94a3b8;
+    padding-bottom: 1px;
+    display: inline-block;
+  }
+
+  .clinical-data-row td {
+    padding: 1.4mm 1.5mm;
+    border-bottom: 1px solid #e2e8f0;
+    color: #1e293b;
+  }
+
+  .clinical-data-row--flagged td {
+    background: rgba(254, 242, 242, 0.4);
+  }
+
+  .clinical-test-title {
+    font-weight: 500;
+  }
+
+  .clinical-val--flagged {
+    font-weight: 800;
+    color: #b91c1c;
+    text-decoration: underline;
+  }
+
+  .clinical-flag {
+    display: inline-block;
+    padding: 0 4px;
+    font-size: 9px;
+    font-weight: 800;
+    border-radius: 2px;
+  }
+
+  .clinical-flag--high {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+  }
+
+  .clinical-flag--low {
+    background: #fef3c7;
+    color: #b45309;
+    border: 1px solid #fde68a;
+  }
+
+  .clinical-flag--normal {
+    color: #15803d;
     font-weight: 600;
   }
 
-  .doctor-report-bottom-strip-v5 {
-    margin: 8mm -12mm -10mm;
-    min-height: 11mm;
-    background: #2c3d20;
-    color: #fff1c8;
-    display: grid;
-    place-items: center;
-    text-align: center;
-    font-size: 15px;
-    font-weight: 800;
+  .clinical-report-end {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3mm;
+    margin: 4mm 0 2mm;
+    font-size: 10px;
+    font-weight: 600;
+    color: #64748b;
   }
 
+  .clinical-end-line {
+    width: 25mm;
+    border-top: 1px solid #cbd5e1;
+  }
+
+  /* Signatures */
+  .clinical-report-footer {
+    display: flex;
+    justify-content: center;
+    margin-top: 8mm;
+    padding: 0 4mm;
+  }
+
+  .clinical-signature-col {
+    width: 55mm;
+    text-align: center;
+  }
+
+  .clinical-signature-space {
+    height: 12mm;
+  }
+
+  .clinical-signature-line {
+    border-top: 1px solid #0f172a;
+    margin-bottom: 1.5mm;
+  }
+
+  .clinical-signatory-name {
+    font-weight: 700;
+    font-size: 11px;
+    color: #0f172a;
+  }
+
+  .clinical-signatory-title {
+    font-size: 9.5px;
+    color: #64748b;
+  }
+
+  /* Bottom Strip */
+  .clinical-report-strip {
+    border-top: 1px solid #e2e8f0;
+    margin-top: 4mm;
+    padding-top: 1.5mm;
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    font-size: 9px;
+    color: #94a3b8;
+  }
+
+  /* Print Isolation */
   @media print {
     .no-print,
     button {
@@ -760,45 +755,60 @@ const reportCss = `
     html,
     body,
     #root {
-      width: 210mm !important;
-      min-height: 297mm !important;
+      width: auto !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      height: auto !important;
       margin: 0 !important;
       padding: 0 !important;
-      overflow: visible !important;
       background: #ffffff !important;
+      overflow: visible !important;
     }
 
     .app-shell,
     .app-main,
     .page-content,
-    .doctor-report-page-v5 {
+    .clinical-report-page {
       display: block !important;
-      width: 210mm !important;
-      max-width: none !important;
-      min-height: 297mm !important;
+      width: auto !important;
+      height: auto !important;
       margin: 0 !important;
       padding: 0 !important;
-      overflow: visible !important;
       background: #ffffff !important;
+      overflow: visible !important;
     }
 
-    .doctor-report-paper-v5 {
-      width: 210mm !important;
-      min-height: 297mm !important;
+    .clinical-report-paper {
+      width: auto !important;
+      min-height: 0 !important;
       margin: 0 !important;
-      padding: 10mm 12mm !important;
+      padding: 0 !important;
       border: none !important;
       box-shadow: none !important;
-      page-break-after: always;
     }
 
-    .doctor-report-paper-v5--with-header {
-      padding-top: 0 !important;
+    .clinical-report-header,
+    .clinical-patient-card,
+    .clinical-panel-header-row,
+    .clinical-data-row,
+    .clinical-report-end,
+    .clinical-report-footer {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .clinical-panel-header-row {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+
+    .clinical-report-table thead {
+      display: table-header-group;
     }
 
     @page {
-      size: A4;
-      margin: 0;
+      size: A4 portrait;
+      margin: 10mm;
     }
   }
 `;

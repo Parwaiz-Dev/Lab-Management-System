@@ -155,8 +155,8 @@ mod tests {
     #[test]
     fn create_user_with_short_password() {
         let conn = test_db();
-        let err = service::create_user(&conn, "newuser", "abc1234", UserRole::Staff).unwrap_err();
-        assert!(err.to_string().contains("at least 8 characters"));
+        let err = service::create_user(&conn, "newuser", "abc", UserRole::Staff).unwrap_err();
+        assert!(err.to_string().contains("at least 4 characters"));
     }
 
     // ------------------------------------------------------------------

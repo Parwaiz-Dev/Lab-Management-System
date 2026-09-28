@@ -195,11 +195,11 @@ mod tests {
     }
 
     #[test]
-    fn search_patients_empty_query_returns_empty() {
+    fn search_patients_empty_query_returns_all() {
         let conn = test_db();
-        // search_patients requires query.len() >= 2; empty returns empty vec
+        // search_patients with empty query returns all recent patients
         let results = search_patients(&conn, "".into()).unwrap();
-        assert_eq!(results.len(), 0);
+        assert_eq!(results.len(), 2);
     }
 
     // ── get_doctors ──
@@ -249,5 +249,36 @@ mod tests {
         let result = add_doctor(&conn, "Dr. Dup".into());
         // Should not panic — may succeed (upsert) or fail gracefully
         let _ = result;
+    }
+
+    // ── update_patient & delete_patient ──
+
+    #[test]
+    fn update_patient_success() {
+        let mut conn = test_db();
+        crate::modules::patient::service::update_patient(
+            &mut conn,
+            1,
+            "John Updated".into(),
+            Some(36),
+            Some("Years".into()),
+            Some("Male".into()),
+            Some("9999999999".into()),
+            Some("Dr. Smith".into()),
+        )
+        .unwrap();
+
+        let patients = search_patients(&conn, "John Updated".into()).unwrap();
+        assert_eq!(patients.len(), 1);
+        assert_eq!(patients[0].name, "John Updated");
+        assert_eq!(patients[0].phone, Some("9999999999".to_string()));
+    }
+
+    #[test]
+    fn delete_patient_success() {
+        let mut conn = test_db();
+        crate::modules::patient::service::delete_patient(&mut conn, 2).unwrap();
+        let patients = search_patients(&conn, "Jane Doe".into()).unwrap();
+        assert!(patients.is_empty());
     }
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
 import PatientForm from "../components/PatientForm";
 import TestSelector from "../../test/components/TestSelector";
@@ -12,6 +12,24 @@ export default function PatientPage({
   onOpenReceipt?: (id: number) => void;
 }) {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [presetToAdd, setPresetToAdd] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("demo_state")) {
+      setSelectedPatient({
+        id: 1,
+        name: "Rohit Sharma",
+        patient_code: "PID-2026-0001",
+        age_value: 34,
+        age_unit: "Years",
+        gender: "Male",
+        phone: "9876543210",
+        referred_by: "Dr. Chavan",
+      });
+    }
+  }, []);
 
   return (
     <div className="patient-intake-layout-v3">
@@ -29,6 +47,7 @@ export default function PatientPage({
         <PatientForm
           selectedPatient={selectedPatient}
           onSelectPatient={setSelectedPatient}
+          onSelectPreset={(testName) => setPresetToAdd(testName)}
         />
       </Card>
 
@@ -36,6 +55,12 @@ export default function PatientPage({
         patient={selectedPatient}
         layout="visitGrid"
         onOpenReceipt={onOpenReceipt}
+        presetToAdd={presetToAdd}
+        onClearPreset={() => setPresetToAdd(null)}
+        onResetPatient={() => {
+          setSelectedPatient(null);
+          setPresetToAdd(null);
+        }}
       />
     </div>
   );

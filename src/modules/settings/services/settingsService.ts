@@ -5,9 +5,20 @@ import type { LabSettings } from "../../../types";
 const defaultSettings: LabSettings = {
   lab_name: "Your Lab",
   lab_address: "",
-  doctor_share: "0.4",
+  doctor_share: "40",
   lab_logo: "",
 };
+
+function normalizeDoctorShare(val?: string): string {
+  if (!val || !val.trim()) return "40";
+  const cleaned = val.trim().replace(/%$/, "");
+  const num = parseFloat(cleaned);
+  if (Number.isNaN(num)) return "40";
+  if (num > 0 && num <= 1.0) {
+    return Math.round(num * 100).toString();
+  }
+  return cleaned;
+}
 
 export const settingsService = {
   async getSetting(key: keyof LabSettings | string): Promise<string> {
@@ -31,7 +42,7 @@ export const settingsService = {
       return {
         lab_name: settings.lab_name || defaultSettings.lab_name,
         lab_address: settings.lab_address || defaultSettings.lab_address,
-        doctor_share: settings.doctor_share || defaultSettings.doctor_share,
+        doctor_share: normalizeDoctorShare(settings.doctor_share),
         lab_logo: settings.lab_logo || defaultSettings.lab_logo,
       };
     } catch {
@@ -45,7 +56,7 @@ export const settingsService = {
       return {
         lab_name: labName || defaultSettings.lab_name,
         lab_address: labAddress || defaultSettings.lab_address,
-        doctor_share: doctorShare || defaultSettings.doctor_share,
+        doctor_share: normalizeDoctorShare(doctorShare),
         lab_logo: labLogo || defaultSettings.lab_logo,
       };
     }

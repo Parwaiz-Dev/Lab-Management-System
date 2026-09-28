@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Building2, Database, Download, Image, RefreshCw, Save, Upload, X } from "lucide-react";
+import { Building2, Database, Download, RefreshCw, Save, Upload } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Toast from "../../../components/ui/Toast";
-import Badge from "../../../components/ui/Badge";
 import TestCatalogManager from "./TestCatalogManager";
 import UserManagement from "../../auth/components/UserManagement";
 import type { LabSettings, ToastMessage, SessionInfo } from "../../../types";
@@ -14,7 +13,7 @@ import { settingsService } from "../services/settingsService";
 const emptySettings: LabSettings = {
   lab_name: "",
   lab_address: "",
-  doctor_share: "",
+  doctor_share: "40",
   lab_logo: "",
 };
 
@@ -27,7 +26,6 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
   const [backupBusy, setBackupBusy] = useState<"export" | "restore" | null>(
     null
   );
-  const [choosingLogo, setChoosingLogo] = useState(false);
 
   const showToast = useCallback((message: string, type: ToastMessage["type"]) => {
     setToast({ message, type });
@@ -60,22 +58,6 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
     []
   );
 
-  const doctorSharePreview = useMemo(() => {
-    const value = Number(settings.doctor_share);
-
-    if (Number.isNaN(value) || settings.doctor_share.trim() === "") {
-      return "Not configured";
-    }
-
-    if (value <= 1) return `${Math.round(value * 100)}%`;
-
-    return `${value}%`;
-  }, [settings.doctor_share]);
-
-  const logoSrc = useMemo(() => {
-    return settingsService.getLogoSrc(settings.lab_logo);
-  }, [settings.lab_logo]);
-
   const validateSettings = () => {
     if (!settings.lab_name.trim()) {
       showToast("Lab name is required", "warning");
@@ -83,10 +65,11 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
     }
 
     if (settings.doctor_share.trim()) {
-      const share = Number(settings.doctor_share);
+      const cleaned = settings.doctor_share.trim().replace(/%$/, "");
+      const share = Number(cleaned);
 
       if (Number.isNaN(share) || share < 0 || share > 100) {
-        showToast("Doctor share must be between 0 and 100", "warning");
+        showToast("Doctor share must be a percentage between 1 and 100% (e.g. 20 or 40%)", "warning");
         return false;
       }
     }
@@ -107,32 +90,6 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
     } finally {
       setSaving(false);
     }
-  };
-
-  const chooseLogo = async () => {
-    try {
-      setChoosingLogo(true);
-
-      const selectedPath = await settingsService.chooseLogo();
-
-      if (!selectedPath) {
-        showToast("Logo selection cancelled", "info");
-        return;
-      }
-
-      updateField("lab_logo", selectedPath);
-      showToast("Logo selected. Click Save to store it.", "success");
-    } catch (err) {
-      console.error("Failed to choose logo:", err);
-      showToast("Failed to choose logo", "error");
-    } finally {
-      setChoosingLogo(false);
-    }
-  };
-
-  const clearLogo = () => {
-    updateField("lab_logo", "");
-    showToast("Logo cleared. Click Save to confirm.", "info");
   };
 
   const exportBackup = async () => {
@@ -169,48 +126,25 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
 
   return (
     <div className="settings-page-v2">
-      <section className="settings-hero-v2">
-        <div>
-          <div className="settings-hero-v2__eyebrow">System Settings</div>
-          <h2>Lab identity, billing defaults, backup, and test catalog.</h2>
-          <p>
-            Configure the local lab profile used in receipts, reports, billing,
-            and day-to-day desktop operations.
-          </p>
-        </div>
-
-        <div className="settings-hero-v2__actions">
-          <Button onClick={loadSettings} variant="secondary" disabled={loading || saving} icon={<RefreshCw size={16} />}>
-            {loading ? "Loading..." : "Reload"}
-          </Button>
-
-          <Button onClick={save} disabled={saving || loading} icon={<Save size={16} />}>
-            {saving ? "Saving..." : "Save Settings"}
-          </Button>
-        </div>
-      </section>
-
-      <div className="settings-overview-v2">
-        <OverviewItem label="Lab Name" value={settings.lab_name || "Not configured"} />
-        <OverviewItem label="Doctor Share" value={doctorSharePreview} />
-        <OverviewItem label="Logo" value={settings.lab_logo ? "Configured" : "Not configured"} />
-        <OverviewItem label="Storage" value="Local SQLite" />
-      </div>
-
       <div className="settings-page-v2__layout">
         <Card
           icon={<Building2 size={18} />}
           title="Lab Identity"
           eyebrow="Branding and report details"
           right={
-            <Button onClick={save} disabled={saving || loading} icon={<Save size={16} />}>
-              {saving ? "Saving..." : "Save"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={loadSettings} variant="outline" size="sm" disabled={loading || saving} icon={<RefreshCw size={14} />}>
+                {loading ? "Loading..." : "Reload"}
+              </Button>
+              <Button onClick={save} disabled={saving || loading} variant="primary" size="sm" icon={<Save size={14} />}>
+                {saving ? "Saving..." : "Save"}
+              </Button>
+            </div>
           }
           className="settings-card-v2"
         >
           <div className="settings-form-v2">
-            <Field label="Lab Name" hint="Shown on receipts and reports.">
+            <Field label="Lab Name" hint="Shown on receipts and printed reports.">
               <Input
                 value={settings.lab_name}
                 onChange={(e) => updateField("lab_name", e.target.value)}
@@ -219,75 +153,24 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
               />
             </Field>
 
-            <Field label="Doctor Share" hint="Use 0.4 for 40%, or 40 for 40%.">
+            <Field label="Doctor Share (%)" hint="Default referral percentage (e.g. 10%, 20%, 40%).">
               <Input
                 value={settings.doctor_share}
                 onChange={(e) => updateField("doctor_share", e.target.value)}
-                placeholder="0.4"
+                placeholder="40"
                 disabled={loading || saving}
               />
             </Field>
 
-            <Field label="Lab Address" hint="Printed on laboratory reports.">
-              <Input
-                value={settings.lab_address}
-                onChange={(e) => updateField("lab_address", e.target.value)}
-                placeholder="Enter lab address"
-                disabled={loading || saving}
-              />
-            </Field>
-
-            <Field label="Logo Path" hint="Stored locally and used in report header.">
-              <Input
-                value={settings.lab_logo}
-                onChange={(e) => updateField("lab_logo", e.target.value)}
-                placeholder="Choose logo from this machine"
-                disabled={loading || saving}
-              />
-            </Field>
-          </div>
-
-          <div className="settings-logo-panel-v2">
-            <div className="settings-logo-panel-v2__preview">
-              {logoSrc ? (
-                <img src={logoSrc} alt="Lab logo" />
-              ) : (
-                <div className="settings-logo-panel-v2__empty">LM</div>
-              )}
-            </div>
-
-            <div className="settings-logo-panel-v2__content">
-              <div className="settings-logo-panel-v2__title-row">
-                <strong>Lab Logo</strong>
-                <Badge tone={settings.lab_logo ? "success" : "neutral"}>
-                  {settings.lab_logo ? "Selected" : "Empty"}
-                </Badge>
-              </div>
-
-              <p>
-                Select a logo image from this machine. Click Save after choosing
-                the image so it appears in reports, receipts, and branding areas.
-              </p>
-
-              <div className="settings-logo-panel-v2__actions">
-                <Button
-                  onClick={chooseLogo}
-                  variant="secondary"
-                  disabled={loading || saving || choosingLogo}
-                  icon={<Image size={16} />}
-                >
-                  {choosingLogo ? "Opening..." : "Choose Logo"}
-                </Button>
-
-                <Button
-                  onClick={clearLogo}
-                  variant="ghost"
-                  disabled={loading || saving || !settings.lab_logo}
-                  icon={<X size={16} />}
-                >
-                  Clear
-                </Button>
-              </div>
+            <div className="settings-form-v2__full">
+              <Field label="Lab Address & Contact" hint="Printed in header and footer of laboratory test reports.">
+                <Input
+                  value={settings.lab_address}
+                  onChange={(e) => updateField("lab_address", e.target.value)}
+                  placeholder="Enter lab address, phone, and registration details"
+                  disabled={loading || saving}
+                />
+              </Field>
             </div>
           </div>
         </Card>
@@ -300,7 +183,9 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
           className="settings-backup-card-v2"
         >
           <div className="settings-backup-v2">
-            <div className="settings-backup-v2__icon">DB</div>
+            <div className="settings-backup-v2__icon">
+              <Database size={20} className="text-indigo-600" />
+            </div>
 
             <p>
               Export a local database copy before app updates, migration, or
@@ -361,13 +246,4 @@ function Field({
       {hint && <small>{hint}</small>}
     </div>
   );
-}
-
-function OverviewItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="settings-overview-v2__item">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
+}

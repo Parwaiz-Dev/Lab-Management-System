@@ -54,6 +54,8 @@ pub fn run() -> Result<(), String> {
 
             // 👤 Patient Management
             modules::patient::commands::create_patient,
+            modules::patient::commands::update_patient,
+            modules::patient::commands::delete_patient,
             modules::patient::commands::search_patients,
             modules::patient::commands::get_doctors,
             modules::patient::commands::add_doctor,
@@ -108,6 +110,9 @@ pub fn run() -> Result<(), String> {
 
             // 🕐 Patient History
             modules::history::commands::get_patient_history,
+
+            // 📁 File Export
+            modules::report::commands::save_export_file,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| format!("error while running Tauri application: {}", e))

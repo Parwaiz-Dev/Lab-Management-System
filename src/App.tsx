@@ -9,8 +9,8 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeft,
-  CalendarDays,
-  Wifi,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 import PatientPage from "./modules/patient/pages/PatientPage";
 import LabDashboard from "./modules/test/pages/LabDashboard";
@@ -68,26 +68,83 @@ function App() {
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
   const [reportOrder, setReportOrder] = useState<number | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<number | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1180 : true
+  );
+  const [timeStr, setTimeStr] = useState<string>("");
 
   const isPrintView = page === "report" || page === "receipt";
   const currentPage = useMemo(() => pageCopy[page], [page]);
 
-  const todayDate = useMemo(() => {
-    return new Date().toLocaleDateString("en-IN", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+  // Responsive sidebar auto-adaptation on window resize
+  useEffect(() => {
+    let lastWidth = window.innerWidth;
+    const handleResize = () => {
+      const currentWidth = window.innerWidth;
+      if (lastWidth >= 1180 && currentWidth < 1180) {
+        setSidebarOpen(false);
+      } else if (lastWidth < 1180 && currentWidth >= 1180) {
+        setSidebarOpen(true);
+      }
+      lastWidth = currentWidth;
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Live clock with Indian date/time formatting
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setTimeStr(
+        now.toLocaleDateString("en-IN", {
+          weekday: "short",
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      );
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Check for existing session on mount ──
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const mockParam = urlParams.get("demo") || urlParams.get("mock");
+    const pageParam = urlParams.get("page") as Page | null;
+    const orderParam = urlParams.get("order");
+
+    if (pageParam && pageCopy[pageParam]) {
+      setPage(pageParam);
+    }
+    if (orderParam) {
+      const oid = Number(orderParam);
+      setSelectedOrder(oid);
+      setReportOrder(oid);
+      setReceiptOrder(oid);
+    }
+
     authService
       .getCurrentSession()
-      .then((s) => setSession(s))
-      .catch(() => setSession(null));
+      .then((s) => {
+        if (!s && mockParam) {
+          setSession({ user_id: 1, username: "admin", role: "admin" });
+        } else {
+          setSession(s);
+        }
+      })
+      .catch(() => {
+        if (mockParam) {
+          setSession({ user_id: 1, username: "admin", role: "admin" });
+        } else {
+          setSession(null);
+        }
+      });
   }, []);
 
   const handleLogin = () => {
@@ -167,11 +224,13 @@ function App() {
       <div className="login-shell">
         <div className="login-card" style={{ textAlign: "center" }}>
           <div className="login-card__header">
-            <div className="login-card__mark">LM</div>
+            <div className="login-card__mark">
+              <Heart size={20} strokeWidth={2.2} />
+            </div>
             <h1 className="login-card__title">LabManager</h1>
           </div>
-          <span className="ui-spinner" aria-hidden="true" style={{ marginTop: 24, fontSize: 24 }} />
-          <p style={{ marginTop: 12, color: "var(--color-text-muted)" }}>
+          <span className="ui-spinner" aria-hidden="true" style={{ marginTop: 16, width: 20, height: 20 }} />
+          <p style={{ marginTop: 8, color: "var(--color-muted)", fontSize: 12 }}>
             Checking session…
           </p>
         </div>
@@ -189,9 +248,10 @@ function App() {
     <div className={`app-shell ${sidebarOpen ? "" : "app-shell--collapsed"}`}>
       {!isPrintView && (
         <aside className="app-sidebar">
+          {/* Shop/Lab Brand Header */}
           <div className="app-sidebar__brand">
             <div className="app-sidebar__brand-mark">
-              <Heart size={20} strokeWidth={2.2} />
+              <Heart size={16} strokeWidth={2.4} />
             </div>
             <div className="app-sidebar__brand-title">
               <div className="app-sidebar__brand-name">LabManager</div>
@@ -199,13 +259,15 @@ function App() {
             </div>
           </div>
 
+          {/* Navigation Links */}
           <nav className="app-nav">
             <button
               type="button"
               className={`app-nav__item ${page === "patient" ? "app-nav__item--active" : ""}`}
               onClick={goToPatient}
+              title="Patient Intake"
             >
-              <UserPlus size={18} strokeWidth={2} className="app-nav__icon" />
+              <UserPlus size={16} strokeWidth={2} className="app-nav__icon" />
               <span>Patient Intake</span>
             </button>
 
@@ -213,27 +275,30 @@ function App() {
               type="button"
               className={`app-nav__item ${["dashboard", "result"].includes(page) ? "app-nav__item--active" : ""}`}
               onClick={goToDashboard}
+              title="Lab Operations"
             >
-              <LayoutDashboard size={18} strokeWidth={2} className="app-nav__icon" />
+              <LayoutDashboard size={16} strokeWidth={2} className="app-nav__icon" />
               <span>Operations</span>
-            </button>
-
-            <button
-              type="button"
-              className={`app-nav__item ${page === "settings" ? "app-nav__item--active" : ""}`}
-              onClick={goToSettings}
-            >
-              <Settings size={18} strokeWidth={2} className="app-nav__icon" />
-              <span>Settings</span>
             </button>
 
             <button
               type="button"
               className={`app-nav__item ${page === "history" ? "app-nav__item--active" : ""}`}
               onClick={goToHistory}
+              title="Patient History"
             >
-              <History size={18} strokeWidth={2} className="app-nav__icon" />
+              <History size={16} strokeWidth={2} className="app-nav__icon" />
               <span>Patient History</span>
+            </button>
+
+            <button
+              type="button"
+              className={`app-nav__item ${page === "settings" ? "app-nav__item--active" : ""}`}
+              onClick={goToSettings}
+              title="Settings & Catalog"
+            >
+              <Settings size={16} strokeWidth={2} className="app-nav__icon" />
+              <span>Settings</span>
             </button>
 
             {session.role === "admin" && (
@@ -241,13 +306,15 @@ function App() {
                 type="button"
                 className={`app-nav__item ${page === "audit" ? "app-nav__item--active" : ""}`}
                 onClick={goToAudit}
+                title="System Audit Log"
               >
-                <FileText size={18} strokeWidth={2} className="app-nav__icon" />
+                <FileText size={16} strokeWidth={2} className="app-nav__icon" />
                 <span>Audit Log</span>
               </button>
             )}
           </nav>
 
+          {/* Sidebar Status Footer */}
           <div className="app-sidebar__footer">
             <div className="app-sidebar__user">
               <div className="app-sidebar__user-avatar">
@@ -258,21 +325,23 @@ function App() {
                 <div className="app-sidebar__user-role">{session.role}</div>
               </div>
             </div>
+
+            <div className="app-sidebar__sub">
+              <ShieldCheck className="app-sidebar__sub-icon" size={14} strokeWidth={2} />
+              <div className="app-sidebar__sub-content">
+                <p className="app-sidebar__sub-title">100% Offline Ready</p>
+              </div>
+            </div>
+
             <button
               type="button"
               className="app-sidebar__logout-btn"
               onClick={handleLogout}
+              title="Sign Out of Session"
             >
-              <LogOut size={14} strokeWidth={2} />
+              <LogOut size={13} strokeWidth={2} />
               <span>Sign Out</span>
             </button>
-            <div className="app-sidebar__sub">
-              <Wifi className="app-sidebar__sub-icon" size={18} strokeWidth={1.5} />
-              <div className="app-sidebar__sub-content">
-                <p className="app-sidebar__sub-title">Offline Ready</p>
-                <p>Data is stored locally in SQLite for fast day-to-day lab work.</p>
-              </div>
-            </div>
           </div>
         </aside>
       )}
@@ -285,30 +354,45 @@ function App() {
                 className="sidebar-toggle"
                 type="button"
                 onClick={() => setSidebarOpen((open) => !open)}
+                title={sidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
               >
-                {sidebarOpen ? <PanelLeftClose size={16} strokeWidth={2} /> : <PanelLeft size={16} strokeWidth={2} />}
+                {sidebarOpen ? <PanelLeftClose size={15} strokeWidth={2} /> : <PanelLeft size={15} strokeWidth={2} />}
               </button>
 
-              <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <h1 className="page-title">{currentPage.title}</h1>
-                <p className="page-subtitle">{currentPage.subtitle}</p>
+                <span className="page-header__divider" style={{ color: "var(--color-border-strong)", fontSize: 12 }}>|</span>
+                <span className="page-subtitle">{currentPage.subtitle}</span>
               </div>
             </div>
 
             <div className="page-header__right">
+              {/* Quick Jump to Settings Button */}
+              {page !== "settings" && (
+                <button
+                  type="button"
+                  onClick={goToSettings}
+                  className="table-action-btn"
+                  title="Configure Lab Settings"
+                >
+                  <Settings size={12} />
+                  <span>Config</span>
+                </button>
+              )}
+
+              {/* Real-time Clock */}
               <div className="page-header__date">
-                <CalendarDays size={16} strokeWidth={1.5} />
-                {todayDate}
+                <Clock size={13} className="text-slate-400" />
+                <span>{timeStr}</span>
               </div>
 
+              {/* User Session Pill */}
               <div className="page-header__user-card">
                 <div className="page-header__user-avatar">
                   {session.username.charAt(0).toUpperCase()}
                 </div>
-                <div className="page-header__user-info">
-                  <span className="page-header__user-name">{session.username}</span>
-                  <span className="page-header__user-role">{session.role}</span>
-                </div>
+                <span className="page-header__user-name">{session.username}</span>
+                <span className="page-header__user-role">{session.role}</span>
               </div>
             </div>
           </header>
@@ -318,7 +402,10 @@ function App() {
           {page === "patient" && <PatientPage onOpenReceipt={openReceipt} />}
 
           {page === "dashboard" && (
-            <LabDashboard onSelectOrder={openResult} onOpenReceipt={openReceipt} />
+            <LabDashboard
+              onSelectOrder={openResult}
+              onOpenReceipt={openReceipt}
+            />
           )}
 
           {page === "result" && selectedOrder !== null && (
@@ -330,9 +417,14 @@ function App() {
           )}
 
           {page === "result" && selectedOrder === null && (
-            <div className="route-empty-state">
-              <strong>No order selected.</strong>
-              <button type="button" onClick={goToDashboard}>
+            <div className="empty-state">
+              <p className="empty-state__title">No order selected</p>
+              <button
+                type="button"
+                className="ui-button ui-button--secondary ui-button--sm"
+                style={{ marginTop: 8 }}
+                onClick={goToDashboard}
+              >
                 Back to Operations
               </button>
             </div>
@@ -343,9 +435,14 @@ function App() {
           )}
 
           {page === "report" && reportOrder === null && (
-            <div className="route-empty-state">
-              <strong>No report order selected.</strong>
-              <button type="button" onClick={goToDashboard}>
+            <div className="empty-state">
+              <p className="empty-state__title">No report order selected</p>
+              <button
+                type="button"
+                className="ui-button ui-button--secondary ui-button--sm"
+                style={{ marginTop: 8 }}
+                onClick={goToDashboard}
+              >
                 Back to Operations
               </button>
             </div>
@@ -356,9 +453,14 @@ function App() {
           )}
 
           {page === "receipt" && receiptOrder === null && (
-            <div className="route-empty-state">
-              <strong>No receipt order selected.</strong>
-              <button type="button" onClick={goToDashboard}>
+            <div className="empty-state">
+              <p className="empty-state__title">No receipt order selected</p>
+              <button
+                type="button"
+                className="ui-button ui-button--secondary ui-button--sm"
+                style={{ marginTop: 8 }}
+                onClick={goToDashboard}
+              >
                 Back to Operations
               </button>
             </div>

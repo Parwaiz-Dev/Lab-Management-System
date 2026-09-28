@@ -90,9 +90,19 @@ mod tests {
                 FOREIGN KEY (order_id) REFERENCES orders(id),
                 FOREIGN KEY (parameter_id) REFERENCES test_parameters(id)
             );
+            CREATE TABLE IF NOT EXISTS doctors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
             ",
         )
         .unwrap();
+
+        crate::db::migrations::run_migrations(&conn).unwrap();
 
         // Seed data
         conn.execute("INSERT INTO patients (id, patient_code, name, referred_by) VALUES (1, 'P001', 'John Doe', 'Dr. Smith')", []).unwrap();
@@ -355,6 +365,67 @@ mod tests {
         assert!(dr_smith.total_amount > 0.0);
     }
 
+    #[test]
+    fn get_doctor_revenue_includes_registered_doctors_and_calculates_share() {
+        let conn = test_db();
+        // Insert a new registered doctor with 0 orders
+        conn.execute("INSERT INTO doctors (name) VALUES ('Dr. NewRegistered')", []).unwrap();
+        // Set doctor share to 25% (0.25)
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('doctor_share', '0.25')", []).unwrap();
+
+        let revenue = service::get_doctor_revenue(&conn, "2000-01-01", "2099-12-31").unwrap();
+        
+        // 1. Verify newly registered doctor appears even with 0 orders
+        let new_doc = revenue.iter().find(|r| r.doctor_name == "Dr. NewRegistered");
+        assert!(new_doc.is_some(), "Registered doctor must appear even with 0 orders");
+        let new_doc = new_doc.unwrap();
+        assert_eq!(new_doc.order_count, 0);
+        assert_eq!(new_doc.total_amount, 0.0);
+        assert_eq!(new_doc.share_amount, 0.0);
+        assert_eq!(new_doc.share_percentage, 25.0);
+
+        // Legacy orders have no saved rate and are not retroactively assigned one.
+        let dr_smith = revenue.iter().find(|r| r.doctor_name == "Dr. Smith").unwrap();
+        assert_eq!(dr_smith.share_percentage, 25.0);
+        assert_eq!(dr_smith.share_amount, 0.0);
+        assert!(dr_smith.legacy_order_count > 0);
+    }
+
+    #[test]
+    fn create_order_snapshots_discounted_commission_basis_and_rate() {
+        let mut conn = test_db();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('doctor_share', '0.25')",
+            [],
+        ).unwrap();
+
+        let order_id = service::create_order(&mut conn, 1, vec![1], vec![], 400.0, 100.0).unwrap();
+        let snapshot: (String, i64, i64, i64) = conn.query_row(
+            "SELECT doctor_name_snapshot, eligible_amount_paise, commission_paise, share_rate_basis_points
+             FROM doctor_commissions WHERE order_id = ?1",
+            [order_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(snapshot, ("Dr. Smith".to_string(), 40_000, 10_000, 2_500));
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('doctor_share', '0.4')",
+            [],
+        ).unwrap();
+
+        let patient_total: i64 = conn.query_row(
+            "SELECT total_amount_paise FROM orders WHERE id = ?1",
+            [order_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(patient_total, 40_000);
+
+        let revenue = service::get_doctor_revenue(&conn, "", "").unwrap();
+        let dr_smith = revenue.iter().find(|row| row.doctor_name == "Dr. Smith").unwrap();
+        assert_eq!(dr_smith.commission_earned, 100.0, "revenue row: {:?}", dr_smith);
+        assert_eq!(dr_smith.commission_outstanding, 100.0);
+        assert_eq!(dr_smith.eligible_amount, 900.0);
+    }
+
     // ------------------------------------------------------------------
     // 14. cancel_order — happy path
     // ------------------------------------------------------------------
@@ -396,11 +467,12 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn cancel_order_completed_rejected() {
+    fn cancel_order_completed_succeeds() {
         let mut conn = test_db();
         // Order 100 is seeded with status='Completed'
-        let err = service::cancel_order(&mut conn, 100).unwrap_err();
-        assert!(err.to_string().contains("Cannot cancel a completed"));
+        service::cancel_order(&mut conn, 100).unwrap();
+        let status = service::get_order_status(&conn, 100).unwrap();
+        assert_eq!(status, "Cancelled");
     }
 
     // ------------------------------------------------------------------

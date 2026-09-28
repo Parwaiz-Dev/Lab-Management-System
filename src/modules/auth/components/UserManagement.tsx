@@ -105,42 +105,44 @@ export default function UserManagement({ showToast }: UserManagementProps) {
     <Card
       icon={<Users size={18} />}
       title="User Management"
-      eyebrow="Admin controls"
+      eyebrow="Admin access controls & staff accounts"
       className="user-management-card"
       right={
-        <Button onClick={loadUsers} variant="secondary" disabled={loading} icon={<RefreshCw size={16} />}>
+        <Button onClick={loadUsers} variant="outline" size="sm" disabled={loading} icon={<RefreshCw size={14} />}>
           {loading ? "Loading..." : "Refresh"}
         </Button>
       }
     >
-      {/* ── Create User Form ── */}
+      {/* ── Compact Create User Form ── */}
       <form className="user-management-create" onSubmit={handleCreateUser}>
-        <div className="user-management-create__fields">
+        <div className="user-management-create__title">
+          <UserPlus size={16} className="text-indigo-600" />
+          <span>Add New System User</span>
+        </div>
+
+        <div className="user-management-create__row">
           <div className="user-management-create__field">
-            <label className="user-management-create__label">Username</label>
             <Input
               value={newUsername}
               onChange={(e) => setNewUsername(e.target.value)}
-              placeholder="Enter username"
+              placeholder="Username"
               disabled={creating}
               autoComplete="off"
             />
           </div>
 
           <div className="user-management-create__field">
-            <label className="user-management-create__label">Password</label>
             <Input
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Enter password"
+              placeholder="Password"
               disabled={creating}
               autoComplete="new-password"
             />
           </div>
 
-          <div className="user-management-create__field">
-            <label className="user-management-create__label">Role</label>
+          <div className="user-management-create__role-field">
             <select
               className="user-management-create__select"
               value={newRole}
@@ -151,10 +153,13 @@ export default function UserManagement({ showToast }: UserManagementProps) {
               <option value="admin">Admin</option>
             </select>
           </div>
-        </div>
 
-        <div className="user-management-create__action">
-          <Button type="submit" disabled={creating || !newUsername.trim() || !newPassword.trim()} icon={<UserPlus size={16} />}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={creating || !newUsername.trim() || !newPassword.trim()}
+            icon={<UserPlus size={14} />}
+          >
             {creating ? "Creating..." : "Create User"}
           </Button>
         </div>
@@ -168,8 +173,8 @@ export default function UserManagement({ showToast }: UserManagementProps) {
               <th>Username</th>
               <th>Role</th>
               <th>Status</th>
-              <th>Created</th>
-              <th className="user-management-table__actions-col">Actions</th>
+              <th>Created On</th>
+              <th className="user-management-table__actions-col">Action</th>
             </tr>
           </thead>
 
@@ -215,7 +220,8 @@ export default function UserManagement({ showToast }: UserManagementProps) {
 
                 <td className="user-management-table__actions-col">
                   <Button
-                    variant={user.is_active ? "danger" : "success"}
+                    size="sm"
+                    variant={user.is_active ? "outline" : "secondary"}
                     onClick={() => handleToggleActive(user)}
                     disabled={togglingUserId === user.id}
                   >

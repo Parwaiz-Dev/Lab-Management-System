@@ -92,3 +92,68 @@ pub fn add_doctor(
 
     Ok("Doctor added".into())
 }
+
+#[tauri::command]
+pub fn update_patient(
+    state: State<'_, Mutex<Connection>>,
+    auth: State<'_, AuthState>,
+    id: i32,
+    name: String,
+    age_value: Option<i32>,
+    age_unit: Option<String>,
+    gender: Option<String>,
+    phone: Option<String>,
+    referred_by: Option<String>,
+) -> Result<(), AppError> {
+    let session = require_auth(&auth)?;
+    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    service::update_patient(
+        &mut *conn,
+        id,
+        name.clone(),
+        age_value,
+        age_unit,
+        gender,
+        phone,
+        referred_by,
+    )?;
+
+    // Audit: patient updated
+    let new_data = serde_json::json!({ "name": &name, "id": id });
+    create_audit_log(
+        &conn,
+        session.user_id as i64,
+        "update",
+        "patients",
+        Some(id as i64),
+        None,
+        Some(&new_data.to_string()),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_patient(
+    state: State<'_, Mutex<Connection>>,
+    auth: State<'_, AuthState>,
+    id: i32,
+) -> Result<(), AppError> {
+    let session = require_auth(&auth)?;
+    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    service::delete_patient(&mut *conn, id)?;
+
+    // Audit: patient deleted
+    let new_data = serde_json::json!({ "deleted_id": id });
+    create_audit_log(
+        &conn,
+        session.user_id as i64,
+        "delete",
+        "patients",
+        Some(id as i64),
+        None,
+        Some(&new_data.to_string()),
+    );
+
+    Ok(())
+}

@@ -157,11 +157,21 @@ export interface FieldError {
 }
 
 export interface DoctorRevenueRow {
+  doctor_id?: number | null;
   doctor_name: string;
   order_count: number;
   total_amount: number;
   paid_amount: number;
   pending_amount: number;
+  referral_count?: number;
+  eligible_amount?: number;
+  share_percentage?: number;
+  share_amount?: number;
+  commission_earned?: number;
+  commission_paid?: number;
+  commission_outstanding?: number;
+  last_referral?: string;
+  legacy_order_count?: number;
 }
 
 export interface UpdateOrderPayload {

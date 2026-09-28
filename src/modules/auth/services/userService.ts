@@ -4,6 +4,15 @@ import type { User } from "../../../types";
 function toErrorMessage(error: unknown, fallback: string): string {
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null) {
+    if ("message" in error && typeof (error as { message: unknown }).message === "string") {
+      return (error as { message: string }).message;
+    }
+    const values = Object.values(error);
+    if (values.length > 0 && typeof values[0] === "string") {
+      return values[0];
+    }
+  }
   return fallback;
 }
 

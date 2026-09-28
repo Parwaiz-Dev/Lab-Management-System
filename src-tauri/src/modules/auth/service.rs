@@ -42,9 +42,9 @@ pub fn create_user(
         return Err(AppError::ValidationError("Username cannot be empty".to_string()));
     }
 
-    if password.len() < 8 {
+    if password.trim().len() < 4 {
         return Err(AppError::ValidationError(
-            "Password must be at least 8 characters".to_string(),
+            "Password must be at least 4 characters".to_string(),
         ));
     }
 
