@@ -335,7 +335,104 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         )?;
 
         conn.pragma_update(None, "user_version", 11)?;
+        version = 11;
     }
+
+    if version < 12 {
+        // Migration 12: Upgrade local clinical reference ranges to standard Indian laboratory norms
+        let updates = [
+            (1, "Hemoglobin", "g/dL", "11.0-16.5"),
+            (1, "Haemoglobin", "g/dL", "11.0-16.5"),
+            (1, "Total WBC Count", "/uL", "4000-11000"),
+            (1, "Total W.B.C Count", "/uL", "4000-11000"),
+            (1, "RBC Count", "million/uL", "3.80-5.80"),
+            (1, "Total R.B.C Count", "million/uL", "3.80-5.80"),
+            (1, "Platelet Count", "/uL", "150000-450000"),
+            (1, "Total Platelet Count", "/uL", "150000-450000"),
+            (2, "Hemoglobin", "g/dL", "11.0-16.5"),
+            (12, "TSH", "uIU/mL", "0.4-4.5"),
+            (13, "TSH", "uIU/mL", "0.4-4.5"),
+            (24, "Calcium", "mg/dL", "8.5-10.5"),
+            (5, "Glucose Fasting", "mg/dL", "70-100"),
+            (6, "Glucose PP", "mg/dL", "70-140"),
+            (7, "Glucose Random", "mg/dL", "70-140"),
+            (9, "Total Cholesterol", "mg/dL", "<200"),
+            (9, "Triglycerides", "mg/dL", "<150"),
+            (9, "HDL Cholesterol", "mg/dL", ">40"),
+            (9, "LDL Cholesterol", "mg/dL", "<100"),
+            (9, "VLDL Cholesterol", "mg/dL", "10-30"),
+            (10, "Bilirubin Total", "mg/dL", "0.3-1.2"),
+            (10, "Bilirubin Direct", "mg/dL", "0.0-0.3"),
+            (10, "SGOT/AST", "U/L", "0-40"),
+            (10, "SGPT/ALT", "U/L", "0-45"),
+            (10, "Alkaline Phosphatase", "U/L", "44-147"),
+            (10, "Total Protein", "g/dL", "6.0-8.3"),
+            (10, "Albumin", "g/dL", "3.5-5.2"),
+            (11, "Urea", "mg/dL", "15-45"),
+            (11, "Creatinine", "mg/dL", "0.6-1.3"),
+            (11, "Uric Acid", "mg/dL", "3.5-7.2"),
+            (11, "BUN", "mg/dL", "7-20"),
+            (67, "Magnesium", "mg/dL", "1.7-2.4"),
+        ];
+
+        for (test_id, name, unit, range) in updates {
+            conn.execute(
+                "UPDATE test_parameters
+                 SET unit = ?1, normal_range = ?2
+                 WHERE test_id = ?3 AND (name = ?4 OR name LIKE ?4 || '%')",
+                rusqlite::params![unit, range, test_id, name],
+            )?;
+
+            conn.execute(
+                "UPDATE order_parameters
+                 SET unit_snapshot = ?1, normal_range_snapshot = ?2
+                 WHERE parameter_name_snapshot = ?3 OR parameter_name_snapshot LIKE ?3 || '%'",
+                rusqlite::params![unit, range, name],
+            )?;
+        }
+
+        let cbc_params = [
+            (1, "Neutrophils", "%", "40-75"),
+            (1, "Lymphocytes", "%", "20-45"),
+            (1, "Eosinophils", "%", "1-6"),
+            (1, "Monocytes", "%", "2-8"),
+            (1, "Basophils", "%", "0-1"),
+            (1, "P.C.V (Haematocrit)", "%", "35-50"),
+            (1, "M.C.V", "fL", "80-97"),
+            (1, "M.C.H", "pg", "26.5-33.5"),
+            (1, "M.C.H.C", "g/dL", "31.5-35.0"),
+            (1, "R.D.W.", "%", "10-15"),
+            (1, "AEC Count", "/cumm", "0-420"),
+            (10, "Bilirubin Indirect", "mg/dL", "0.2-0.8"),
+            (10, "Globulin", "g/dL", "2.0-3.5"),
+            (10, "A:G Ratio", "", "1.2-2.2"),
+            (11, "Sodium", "mmol/L", "135-145"),
+            (11, "Potassium", "mmol/L", "3.5-5.1"),
+            (11, "Chloride", "mmol/L", "98-107"),
+            (14, "Reaction (pH)", "", "5.0-7.5"),
+            (14, "Specific Gravity", "", "1.005-1.030"),
+            (14, "Ketone Bodies", "", "Negative"),
+            (14, "Bile Salts", "", "Negative"),
+            (14, "Bile Pigments", "", "Negative"),
+            (14, "Epithelial Cells", "/HPF", "0-5"),
+            (14, "Casts", "", "Nil"),
+            (14, "Crystals", "", "Nil"),
+        ];
+
+        for (test_id, name, unit, range) in cbc_params {
+            conn.execute(
+                "INSERT INTO test_parameters (test_id, name, unit, normal_range, is_active)
+                 SELECT ?1, ?2, ?3, ?4, 1
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM test_parameters WHERE test_id = ?1 AND name = ?2
+                 )",
+                rusqlite::params![test_id, name, unit, range],
+            )?;
+        }
+
+        conn.pragma_update(None, "user_version", 12)?;
+    }
+
 
     Ok(())
 }

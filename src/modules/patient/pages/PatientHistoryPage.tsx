@@ -79,45 +79,7 @@ function getAgeDisplay(
   return `${ageValue} ${unit}`;
 }
 
-function getFlagStatus(
-  value: string,
-  range: string
-): "High" | "Low" | "Normal" | "" {
-  const num = Number.parseFloat(String(value || "").replace(/,/g, ""));
-  if (Number.isNaN(num) || !range) return "";
-  const cleanRange = String(range || "").trim().toLowerCase();
-  if (!cleanRange) return "";
-  if (cleanRange.startsWith("<=")) {
-    const max = Number.parseFloat(cleanRange.replace("<=", ""));
-    if (Number.isNaN(max)) return "";
-    return num > max ? "High" : "Normal";
-  }
-  if (cleanRange.startsWith("<")) {
-    const max = Number.parseFloat(cleanRange.replace("<", ""));
-    if (Number.isNaN(max)) return "";
-    return num >= max ? "High" : "Normal";
-  }
-  if (cleanRange.startsWith(">=")) {
-    const min = Number.parseFloat(cleanRange.replace(">=", ""));
-    if (Number.isNaN(min)) return "";
-    return num < min ? "Low" : "Normal";
-  }
-  if (cleanRange.startsWith(">")) {
-    const min = Number.parseFloat(cleanRange.replace(">", ""));
-    if (Number.isNaN(min)) return "";
-    return num <= min ? "Low" : "Normal";
-  }
-  const match = cleanRange.match(
-    /(-?\d+(\.\d+)?)\s*(?:-|to)\s*(-?\d+(\.\d+)?)/
-  );
-  if (!match) return "";
-  const min = Number.parseFloat(match[1]);
-  const max = Number.parseFloat(match[3]);
-  if (Number.isNaN(min) || Number.isNaN(max)) return "";
-  if (num < min) return "Low";
-  if (num > max) return "High";
-  return "Normal";
-}
+import { getFlagStatus } from "../../../utils/clinicalRange";
 
 type TabType = "orders" | "payments" | "results" | "timeline";
 
@@ -134,6 +96,10 @@ export default function PatientHistoryPage({
   const [patients, setPatients] = useState<Patient[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loadingPatients, setLoadingPatients] = useState(true);
+
+  // Pagination
+  const PAGE_SIZE = 10;
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Selected Patient & History Modal
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -195,6 +161,11 @@ export default function PatientHistoryPage({
     }, 250);
     return () => clearTimeout(timer);
   }, [searchQuery, loadPatients]);
+
+  // Reset to page 1 whenever search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   // Select patient & open history modal
   const handleOpenHistory = useCallback(async (patient: Patient) => {
@@ -328,6 +299,14 @@ export default function PatientHistoryPage({
     );
   }, [patients, searchQuery]);
 
+  // Pagination derived values
+  const totalPages = Math.max(1, Math.ceil(filteredPatients.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedPatients = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredPatients.slice(start, start + PAGE_SIZE);
+  }, [filteredPatients, safePage, PAGE_SIZE]);
+
   // History KPIs
   const historyKpis = useMemo(() => {
     if (!history) {
@@ -448,7 +427,7 @@ export default function PatientHistoryPage({
                   </td>
                 </tr>
               ) : (
-                filteredPatients.map((patient) => (
+                paginatedPatients.map((patient) => (
                   <tr key={patient.id}>
                     <td>
                       <span
@@ -539,6 +518,109 @@ export default function PatientHistoryPage({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {!loadingPatients && filteredPatients.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px 4px 2px",
+              borderTop: "1px solid var(--color-border)",
+              marginTop: 4,
+            }}
+          >
+            {/* Page info */}
+            <span style={{ fontSize: 11.5, color: "var(--color-muted)" }}>
+              Showing{" "}
+              <strong style={{ color: "var(--color-text)" }}>
+                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredPatients.length)}
+              </strong>
+              {" "}of{" "}
+              <strong style={{ color: "var(--color-text)" }}>{filteredPatients.length}</strong>
+              {" "}patients
+            </span>
+
+            {/* Page navigation */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                style={{
+                  padding: "3px 10px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--color-border)",
+                  background: safePage <= 1 ? "var(--color-surface-soft)" : "var(--color-surface)",
+                  color: safePage <= 1 ? "var(--color-muted)" : "var(--color-text)",
+                  cursor: safePage <= 1 ? "not-allowed" : "pointer",
+                  transition: "background 0.15s",
+                }}
+              >
+                ← Prev
+              </button>
+
+              {/* Page number pills */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                  if (idx > 0 && typeof arr[idx - 1] === "number" && (p as number) - (arr[idx - 1] as number) > 1) {
+                    acc.push("...");
+                  }
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((item, idx) =>
+                  item === "..." ? (
+                    <span key={`ellipsis-${idx}`} style={{ fontSize: 11, color: "var(--color-muted)", padding: "0 2px" }}>…</span>
+                  ) : (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setCurrentPage(item as number)}
+                      style={{
+                        minWidth: 28,
+                        height: 26,
+                        padding: "0 6px",
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        borderRadius: "var(--radius-sm)",
+                        border: safePage === item ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                        background: safePage === item ? "rgba(79, 70, 229, 0.12)" : "var(--color-surface)",
+                        color: safePage === item ? "var(--color-primary)" : "var(--color-text)",
+                        cursor: "pointer",
+                        transition: "background 0.15s, border-color 0.15s",
+                      }}
+                    >
+                      {item}
+                    </button>
+                  )
+                )}
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                style={{
+                  padding: "3px 10px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--color-border)",
+                  background: safePage >= totalPages ? "var(--color-surface-soft)" : "var(--color-surface)",
+                  color: safePage >= totalPages ? "var(--color-muted)" : "var(--color-text)",
+                  cursor: safePage >= totalPages ? "not-allowed" : "pointer",
+                  transition: "background 0.15s",
+                }}
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* Patient Detailed History Modal */}

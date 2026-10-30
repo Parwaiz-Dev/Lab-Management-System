@@ -215,10 +215,13 @@ function normalizePatientInfo(row: unknown): ReportPatientInfo {
     age_value: toNumber(item.age_value ?? item.ageValue),
     age_unit: toText(item.age_unit ?? item.ageUnit),
     gender: toText(item.gender),
+    age_sex: toText(item.age_sex ?? item.ageSex),
     phone: toText(item.phone),
     referred_by: toText(item.referred_by ?? item.referredBy),
     invoice_no: toText(item.invoice_no ?? item.invoiceNo),
     order_date: toText(item.order_date ?? item.orderDate),
+    collection_time: toText(item.collection_time ?? item.collectionTime),
+    reporting_time: toText(item.reporting_time ?? item.reportingTime),
   };
 }
 

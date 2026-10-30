@@ -33,12 +33,14 @@ import { getErrorMessage, money, testService } from "../services/testService";
 type LabDashboardProps = {
   onSelectOrder: (orderId: number) => void;
   onOpenReceipt: (orderId: number) => void;
+  onOpenReport?: (orderId: number) => void;
   onEditOrder?: (orderId: number) => void;
 };
 
 export default function LabDashboard({
   onSelectOrder,
   onOpenReceipt,
+  onOpenReport,
   onEditOrder,
 }: LabDashboardProps) {
   const [orders, setOrders] = useState<DashboardOrderRow[]>([]);
@@ -61,6 +63,10 @@ export default function LabDashboard({
   } | null>(null);
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Pagination
+  const PAGE_SIZE = 20;
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     if (menuOpen === null) return;
@@ -189,6 +195,19 @@ export default function LabDashboard({
         .includes(text)
     );
   }, [orders, query]);
+
+  // Reset to page 1 whenever search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query]);
+
+  // Pagination derived values
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedOrders = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredOrders.slice(start, start + PAGE_SIZE);
+  }, [filteredOrders, safePage, PAGE_SIZE]);
 
   const dateRangeLabel = useMemo(() => {
     if (dateFrom && dateTo) return `${dateFrom} to ${dateTo}`;
@@ -439,7 +458,7 @@ export default function LabDashboard({
                   </td>
                 </tr>
               ) : (
-                filteredOrders.map((order) => {
+                paginatedOrders.map((order) => {
                   const orderId = Number(order.id);
                   const reportStatus = order.reportStatus || "Pending";
                   const paymentStatus = order.paymentStatus || "Pending";
@@ -534,6 +553,18 @@ export default function LabDashboard({
                             <Eye size={12} />
                             <span>Results</span>
                           </button>
+
+                          {onOpenReport && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenReport(orderId)}
+                              className="table-action-btn"
+                              title="Preview or Print Clinical Report"
+                            >
+                              <FileText size={12} />
+                              <span>Report</span>
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -664,6 +695,109 @@ export default function LabDashboard({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {!loading && filteredOrders.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px 4px 2px",
+              borderTop: "1px solid var(--color-border)",
+              marginTop: 4,
+            }}
+          >
+            {/* Page info */}
+            <span style={{ fontSize: 11.5, color: "var(--color-muted)" }}>
+              Showing{" "}
+              <strong style={{ color: "var(--color-text)" }}>
+                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredOrders.length)}
+              </strong>
+              {" "}of{" "}
+              <strong style={{ color: "var(--color-text)" }}>{filteredOrders.length}</strong>
+              {" "}orders
+            </span>
+
+            {/* Page navigation */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                style={{
+                  padding: "3px 10px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--color-border)",
+                  background: safePage <= 1 ? "var(--color-surface-soft)" : "var(--color-surface)",
+                  color: safePage <= 1 ? "var(--color-muted)" : "var(--color-text)",
+                  cursor: safePage <= 1 ? "not-allowed" : "pointer",
+                  transition: "background 0.15s",
+                }}
+              >
+                ← Prev
+              </button>
+
+              {/* Page number pills */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                  if (idx > 0 && typeof arr[idx - 1] === "number" && (p as number) - (arr[idx - 1] as number) > 1) {
+                    acc.push("...");
+                  }
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((item, idx) =>
+                  item === "..." ? (
+                    <span key={`ellipsis-${idx}`} style={{ fontSize: 11, color: "var(--color-muted)", padding: "0 2px" }}>…</span>
+                  ) : (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setCurrentPage(item as number)}
+                      style={{
+                        minWidth: 28,
+                        height: 26,
+                        padding: "0 6px",
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        borderRadius: "var(--radius-sm)",
+                        border: safePage === item ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                        background: safePage === item ? "rgba(79, 70, 229, 0.12)" : "var(--color-surface)",
+                        color: safePage === item ? "var(--color-primary)" : "var(--color-text)",
+                        cursor: "pointer",
+                        transition: "background 0.15s, border-color 0.15s",
+                      }}
+                    >
+                      {item}
+                    </button>
+                  )
+                )}
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                style={{
+                  padding: "3px 10px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--color-border)",
+                  background: safePage >= totalPages ? "var(--color-surface-soft)" : "var(--color-surface)",
+                  color: safePage >= totalPages ? "var(--color-muted)" : "var(--color-text)",
+                  cursor: safePage >= totalPages ? "not-allowed" : "pointer",
+                  transition: "background 0.15s",
+                }}
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* Doctor Revenue Modal Dialog (Matching Chavan Saree Center Modal) */}

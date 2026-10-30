@@ -4,6 +4,7 @@
 mod config;
 mod db;
 mod errors;
+
 mod modules;
 mod utils;
 
@@ -12,6 +13,7 @@ use std::sync::Mutex;
 use db::connection::{export_backup, restore_backup, get_connection};
 use db::schema::init_db;
 use modules::auth::commands::AuthState;
+
 
 pub fn run() -> Result<(), String> {
     dotenvy::dotenv().ok();

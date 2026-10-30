@@ -8,6 +8,7 @@ import ConfirmationDialog from "../../../components/ui/ConfirmationDialog";
 import EmptyState from "../../../components/ui/EmptyState";
 import type { OrderParameter, ToastMessage } from "../../../types";
 import { getErrorMessage, testService } from "../services/testService";
+import { getFlagStatus } from "../../../utils/clinicalRange";
 
 type ResultPageProps = {
   orderId: number;
@@ -18,45 +19,6 @@ type ResultPageProps = {
 interface ExistingResultRow {
   parameterId: number;
   value: string;
-}
-
-type FlagStatus = "" | "Low" | "High" | "Normal";
-
-function getFlagStatus(value: string, range: string): FlagStatus {
-  const num = Number.parseFloat(String(value || "").replace(/,/g, ""));
-  if (Number.isNaN(num) || !range) return "";
-  const cleanRange = String(range || "").trim().toLowerCase();
-  if (!cleanRange) return "";
-  if (cleanRange.startsWith("<=")) {
-    const max = Number.parseFloat(cleanRange.replace("<=", ""));
-    if (Number.isNaN(max)) return "";
-    return num > max ? "High" : "Normal";
-  }
-  if (cleanRange.startsWith("<")) {
-    const max = Number.parseFloat(cleanRange.replace("<", ""));
-    if (Number.isNaN(max)) return "";
-    return num >= max ? "High" : "Normal";
-  }
-  if (cleanRange.startsWith(">=")) {
-    const min = Number.parseFloat(cleanRange.replace(">=", ""));
-    if (Number.isNaN(min)) return "";
-    return num < min ? "Low" : "Normal";
-  }
-  if (cleanRange.startsWith(">")) {
-    const min = Number.parseFloat(cleanRange.replace(">", ""));
-    if (Number.isNaN(min)) return "";
-    return num <= min ? "Low" : "Normal";
-  }
-  const match = cleanRange.match(
-    /(-?\d+(\.\d+)?)\s*(?:-|to)\s*(-?\d+(\.\d+)?)/
-  );
-  if (!match) return "";
-  const min = Number.parseFloat(match[1]);
-  const max = Number.parseFloat(match[3]);
-  if (Number.isNaN(min) || Number.isNaN(max)) return "";
-  if (num < min) return "Low";
-  if (num > max) return "High";
-  return "Normal";
 }
 
 export default function ResultPage({

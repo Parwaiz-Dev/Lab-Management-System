@@ -17,8 +17,11 @@ pub struct ReportPatientInfo {
     pub age_value: i32,
     pub age_unit: String,
     pub gender: String,
+    pub age_sex: String,
     pub phone: String,
     pub referred_by: String,
     pub invoice_no: String,
     pub order_date: String,
+    pub collection_time: String,
+    pub reporting_time: String,
 }

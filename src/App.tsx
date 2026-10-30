@@ -405,6 +405,7 @@ function App() {
             <LabDashboard
               onSelectOrder={openResult}
               onOpenReceipt={openReceipt}
+              onOpenReport={openReport}
             />
           )}
 

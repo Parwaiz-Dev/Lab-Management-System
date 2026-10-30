@@ -20,6 +20,45 @@ fn ensure_order_exists(conn: &Connection, order_id: i32) -> AppResult<()> {
     Ok(())
 }
 
+fn format_age_sex(age_value: i32, age_unit: &str, gender: &str) -> String {
+    let unit = match age_unit.trim().to_lowercase().as_str() {
+        u if u.starts_with("year") => "Year",
+        u if u.starts_with("month") => "Month",
+        u if u.starts_with("day") => "Days",
+        _ => "Year",
+    };
+    let gender_cap = match gender.trim().to_lowercase().as_str() {
+        g if g.starts_with("male") => "Male",
+        g if g.starts_with("female") => "Female",
+        g if g.starts_with("other") => "Other",
+        _ => "-",
+    };
+
+    if age_value > 0 {
+        format!("{} {} | {}", age_value, unit, gender_cap)
+    } else {
+        format!("- | {}", gender_cap)
+    }
+}
+
+fn format_indian_datetime(dt_str: &str) -> String {
+    let clean = dt_str.trim();
+    if clean.is_empty() {
+        return "-".to_string();
+    }
+
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(clean) {
+        let local = parsed.with_timezone(&chrono::Local);
+        return local.format("%d-%m-%Y %I:%M:%S %p").to_string();
+    }
+
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(clean, "%Y-%m-%d %H:%M:%S") {
+        return naive.format("%d-%m-%Y %I:%M:%S %p").to_string();
+    }
+
+    clean.to_string()
+}
+
 pub fn get_report(conn: &Connection, order_id: i32) -> AppResult<Vec<ReportRow>> {
     validate_positive_id(order_id, "order_id")?;
 
@@ -91,16 +130,28 @@ pub fn get_patient_by_order(conn: &Connection, order_id: i32) -> AppResult<Repor
              WHERE o.id = ?1",
             params![order_id],
             |row| {
+                let age_value: i32 = row.get(2)?;
+                let age_unit: String = row.get(3)?;
+                let gender: String = row.get(4)?;
+                let age_sex = format_age_sex(age_value, &age_unit, &gender);
+
+                let raw_order_date: String = row.get(8)?;
+                let collection_time = format_indian_datetime(&raw_order_date);
+                let reporting_time = chrono::Local::now().format("%d-%m-%Y %I:%M:%S %p").to_string();
+
                 Ok(ReportPatientInfo {
                     patient_name: row.get(0)?,
                     patient_code: row.get(1)?,
-                    age_value: row.get(2)?,
-                    age_unit: row.get(3)?,
-                    gender: row.get(4)?,
+                    age_value,
+                    age_unit,
+                    gender,
+                    age_sex,
                     phone: row.get(5)?,
                     referred_by: row.get(6)?,
                     invoice_no: row.get(7)?,
-                    order_date: row.get(8)?,
+                    order_date: raw_order_date,
+                    collection_time,
+                    reporting_time,
                 })
             },
         )

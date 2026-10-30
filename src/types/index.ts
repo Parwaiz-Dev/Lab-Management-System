@@ -103,10 +103,13 @@ export interface ReportPatientInfo {
   age_value: number;
   age_unit: string;
   gender: string;
+  age_sex?: string;
   phone: string;
   referred_by: string;
   invoice_no: string;
   order_date: string;
+  collection_time?: string;
+  reporting_time?: string;
 }
 
 export interface ReceiptLine {

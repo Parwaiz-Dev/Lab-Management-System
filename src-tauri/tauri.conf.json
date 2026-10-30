@@ -14,10 +14,13 @@
       {
         "label": "main",
         "title": "lms",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 650,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "maximized": true
       }
     ],
     "security": {
