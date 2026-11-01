@@ -1,6 +1,6 @@
 [package]
 name = "lab-management-system"
-version = "1.0.0"
+version = "0.1.1"
 description = "A production-grade laboratory management system for local diagnostic labs"
 authors = ["LabMS Team"]
 license = "MIT"
