@@ -39,6 +39,7 @@ pub fn run() -> Result<(), String> {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(db_conn))
         .manage(AuthState::new(None))
         .invoke_handler(tauri::generate_handler![

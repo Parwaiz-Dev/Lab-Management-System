@@ -3,5 +3,12 @@
   "identifier": "default",
   "description": "Default desktop permissions for LMS",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default", "dialog:allow-open", "dialog:allow-save", "dialog:allow-ask"]
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-ask",
+    "updater:default"
+  ]
 }
