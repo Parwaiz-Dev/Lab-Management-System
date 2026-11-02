@@ -8,7 +8,6 @@ pub fn init_db() -> Result<()> {
 
     create_tables(&conn)?;
     run_migrations(&mut conn)?;
-    clean_duplicates(&conn)?;
     seed_data(&conn)?;
 
     Ok(())
@@ -184,45 +183,6 @@ fn create_tables(conn: &rusqlite::Connection) -> Result<()> {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_invoice_no
         ON orders(invoice_no);
         ",
-    )?;
-
-    Ok(())
-}
-fn clean_duplicates(conn: &rusqlite::Connection) -> Result<()> {
-    conn.execute(
-        "
-        DELETE FROM order_tests
-        WHERE id NOT IN (
-            SELECT MIN(id)
-            FROM order_tests
-            GROUP BY order_id, test_id
-        )
-        ",
-        [],
-    )?;
-
-    conn.execute(
-        "
-        DELETE FROM order_parameters
-        WHERE id NOT IN (
-            SELECT MIN(id)
-            FROM order_parameters
-            GROUP BY order_id, parameter_id
-        )
-        ",
-        [],
-    )?;
-
-    conn.execute(
-        "
-        DELETE FROM results
-        WHERE id NOT IN (
-            SELECT MIN(id)
-            FROM results
-            GROUP BY order_id, parameter_id
-        )
-        ",
-        [],
     )?;
 
     Ok(())

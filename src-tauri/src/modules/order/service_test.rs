@@ -877,4 +877,378 @@ mod tests {
             .unwrap();
         assert_eq!(val, "14.2");
     }
+
+    // ------------------------------------------------------------------
+    // 32. Migration 16 duplicate detection & rollback verification
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_migration_16_transaction_rollback_on_duplicate_keys() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        // Construct anomalous database at user_version 15
+        conn.execute_batch(
+            "
+            CREATE TABLE patients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_code TEXT UNIQUE,
+                name TEXT NOT NULL,
+                age_value INTEGER,
+                age_unit TEXT,
+                gender TEXT,
+                phone TEXT,
+                referred_by TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                order_number TEXT UNIQUE,
+                invoice_no TEXT UNIQUE,
+                total_amount_paise INTEGER DEFAULT 0,
+                discount_amount_paise INTEGER DEFAULT 0,
+                paid_amount_paise INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'Pending',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE order_tests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                test_id INTEGER NOT NULL,
+                test_name_snapshot TEXT,
+                price_paise INTEGER DEFAULT 0
+            );
+            CREATE TABLE order_parameters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                parameter_id INTEGER NOT NULL,
+                parameter_name_snapshot TEXT,
+                unit_snapshot TEXT,
+                normal_range_snapshot TEXT
+            );
+            CREATE TABLE results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                parameter_id INTEGER NOT NULL,
+                value TEXT NOT NULL
+            );
+            PRAGMA user_version = 15;
+            "
+        ).unwrap();
+
+        // Insert anomalous duplicate intra-order records with conflicting clinical values
+        conn.execute("INSERT INTO orders (id, patient_id) VALUES (1, 1)", []).unwrap();
+        conn.execute("INSERT INTO order_tests (id, order_id, test_id, test_name_snapshot, price_paise) VALUES (10, 1, 5, 'CBC', 30000)", []).unwrap();
+        conn.execute("INSERT INTO order_tests (id, order_id, test_id, test_name_snapshot, price_paise) VALUES (11, 1, 5, 'CBC Updated', 35000)", []).unwrap();
+
+        conn.execute("INSERT INTO results (id, order_id, parameter_id, value) VALUES (20, 1, 8, '12.0')", []).unwrap();
+        conn.execute("INSERT INTO results (id, order_id, parameter_id, value) VALUES (21, 1, 8, '14.5')", []).unwrap();
+
+        // Run migrations
+        let res = crate::db::migrations::run_migrations(&mut conn);
+        assert!(res.is_err(), "Migration 16 MUST fail when duplicate intra-order keys exist");
+
+        let err_msg = res.unwrap_err().to_string();
+        assert!(err_msg.contains("order_tests"), "Error must name affected table order_tests");
+        assert!(err_msg.contains("order_id: 1, test_id: 5"), "Error must name exact duplicate keys for order_tests");
+        assert!(err_msg.contains("results"), "Error must name affected table results");
+        assert!(err_msg.contains("order_id: 1, parameter_id: 8"), "Error must name exact duplicate keys for results");
+
+        // Verify transaction rollback: user_version is STILL 15
+        let v: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(v, 15, "user_version must remain 15 after rollback");
+
+        // Verify index was not created
+        let idx_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_patients_referred_by'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(idx_count, 0, "idx_patients_referred_by must not exist after rollback");
+
+        // Verify zero deletions or overwrites: all original records and values remain unchanged
+        let ot_rows: Vec<(i32, String, i64)> = conn.prepare("SELECT id, test_name_snapshot, price_paise FROM order_tests ORDER BY id ASC")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(ot_rows.len(), 2, "Both order_tests rows must be preserved");
+        assert_eq!(ot_rows[0], (10, "CBC".to_string(), 30000));
+        assert_eq!(ot_rows[1], (11, "CBC Updated".to_string(), 35000));
+
+        let res_rows: Vec<(i32, String)> = conn.prepare("SELECT id, value FROM results ORDER BY id ASC")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(res_rows.len(), 2, "Both clinical results rows must be preserved");
+        assert_eq!(res_rows[0], (20, "12.0".to_string()));
+        assert_eq!(res_rows[1], (21, "14.5".to_string()));
+    }
+
+    // ------------------------------------------------------------------
+    // 33. Date filtering fractional seconds and boundary exclusion
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_date_filtering_fractional_seconds_and_next_day_exclusion() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        conn.execute_batch(
+            "
+            CREATE TABLE patients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_code TEXT,
+                name TEXT NOT NULL
+            );
+            CREATE TABLE tests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                price REAL DEFAULT 0
+            );
+            CREATE TABLE order_tests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                test_id INTEGER NOT NULL,
+                test_name_snapshot TEXT,
+                price_paise INTEGER DEFAULT 0
+            );
+            CREATE TABLE order_parameters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                parameter_id INTEGER NOT NULL
+            );
+            CREATE TABLE results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                parameter_id INTEGER NOT NULL,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                order_number TEXT,
+                invoice_no TEXT,
+                total_amount_paise INTEGER DEFAULT 0,
+                paid_amount_paise INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'Completed',
+                created_at TEXT
+            );
+            CREATE INDEX idx_orders_created_at ON orders(created_at);
+            "
+        ).unwrap();
+
+        conn.execute("INSERT INTO patients (id, name) VALUES (1, 'Test Patient')", []).unwrap();
+        conn.execute("INSERT INTO tests (id, name, price) VALUES (1, 'CBC', 300.0)", []).unwrap();
+
+        // Insert timestamps around 2026-11-02
+        let timestamps = [
+            (1, "2026-11-01 23:59:59.999"), // previous day fractional
+            (2, "2026-11-02 00:00:00.000"), // target day midnight
+            (3, "2026-11-02 14:15:30.456"), // target day fractional mid-day
+            (4, "2026-11-02 23:59:59.999"), // target day final millisecond
+            (5, "2026-11-03 00:00:00.000"), // next day midnight
+            (6, "2026-11-03 00:00:00.001"), // next day early millisecond
+        ];
+
+        for (id, ts) in timestamps {
+            conn.execute("INSERT INTO orders (id, patient_id, created_at) VALUES (?1, 1, ?2)", rusqlite::params![id, ts]).unwrap();
+            conn.execute("INSERT INTO order_tests (order_id, test_id, test_name_snapshot, price_paise) VALUES (?1, 1, 'CBC', 30000)", rusqlite::params![id]).unwrap();
+        }
+
+        // 1. Both dates: single day 2026-11-02 to 2026-11-02
+        let orders_single_day = service::get_orders_by_date_range(&conn, "2026-11-02", "2026-11-02").unwrap();
+        let ids: Vec<i32> = orders_single_day.into_iter().map(|o| o.id).collect();
+        assert_eq!(ids, vec![4, 3, 2], "Must include 2, 3, 4 and strictly exclude 1, 5, 6");
+
+        // 2. Only date_from: >= 2026-11-02
+        let orders_from = service::get_orders_by_date_range(&conn, "2026-11-02", "").unwrap();
+        let ids_from: Vec<i32> = orders_from.into_iter().map(|o| o.id).collect();
+        assert_eq!(ids_from, vec![6, 5, 4, 3, 2], "Must include all >= 2026-11-02");
+
+        // 3. Only date_to: < 2026-11-03
+        let orders_to = service::get_orders_by_date_range(&conn, "", "2026-11-02").unwrap();
+        let ids_to: Vec<i32> = orders_to.into_iter().map(|o| o.id).collect();
+        assert_eq!(ids_to, vec![4, 3, 2, 1], "Must include all up to end of 2026-11-02");
+
+        // 4. Neither date: all orders
+        let orders_all = service::get_orders_by_date_range(&conn, "", "").unwrap();
+        assert_eq!(orders_all.len(), 6, "Must return all 6 orders when no date filter is supplied");
+    }
+
+    // ------------------------------------------------------------------
+    // 34. Multi-visit patient records preserved independently
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_multi_visit_patient_records_preserved() {
+        let mut conn = test_db();
+
+        conn.execute("INSERT INTO patients (id, patient_code, name, referred_by) VALUES (10, 'PID-2026-0099', 'Rohit Sharma', 'Dr. Smith')", []).unwrap();
+
+        // Single patient visits lab on multiple occasions
+        let visit_1 = service::create_order(&mut conn, 10, vec![1], vec![], 500.00, 0.00).unwrap();
+        let visit_2 = service::create_order(&mut conn, 10, vec![2], vec![], 800.00, 0.00).unwrap();
+        let visit_3 = service::create_order(&mut conn, 10, vec![1, 2], vec![], 1300.00, 0.00).unwrap();
+
+        assert_ne!(visit_1, visit_2);
+        assert_ne!(visit_2, visit_3);
+
+        // Fetch patient orders
+        let orders = service::get_orders(&conn).unwrap();
+        let patient_orders: Vec<_> = orders.into_iter().filter(|o| o.patient_name == "Rohit Sharma").collect();
+        assert_eq!(patient_orders.len(), 3, "All three visits must exist as separate orders");
+
+        // Ensure patient code is identical across all three visits
+        let patient_codes: Vec<String> = patient_orders.iter().map(|o| o.patient_code.clone()).collect();
+        assert_eq!(patient_codes[0], "PID-2026-0099");
+        assert_eq!(patient_codes[1], "PID-2026-0099");
+        assert_eq!(patient_codes[2], "PID-2026-0099");
+
+        // Ensure each visit has distinct order number and invoice number
+        let order_numbers: Vec<String> = patient_orders.iter().map(|o| o.order_number.clone()).collect();
+        assert_ne!(order_numbers[0], order_numbers[1]);
+        assert_ne!(order_numbers[1], order_numbers[2]);
+        assert_ne!(order_numbers[0], order_numbers[2]);
+    }
+
+    // ------------------------------------------------------------------
+    // 35. Existing admin password preserved on startup
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_existing_admin_password_preserved() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS doctors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL);
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'staff',
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS tests (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, price REAL NOT NULL DEFAULT 0, is_active INTEGER DEFAULT 1, updated_at TEXT);
+            CREATE TABLE IF NOT EXISTS test_parameters (id INTEGER PRIMARY KEY AUTOINCREMENT, test_id INTEGER NOT NULL, name TEXT NOT NULL, unit TEXT, normal_range TEXT, is_active INTEGER DEFAULT 1, updated_at TEXT, UNIQUE(test_id, name));
+            "
+        ).unwrap();
+
+        // Custom password hash previously set by admin
+        let custom_hash = "$2b$10$custom_admin_hash_that_should_never_be_overwritten";
+        conn.execute("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?1, 'admin')", [custom_hash]).unwrap();
+
+        // Run seed_data
+        crate::db::seeds::seed_data(&conn).unwrap();
+
+        // Verify password hash was NOT overwritten or reset
+        let current_hash: String = conn.query_row("SELECT password_hash FROM users WHERE username = 'admin'", [], |r| r.get(0)).unwrap();
+        assert_eq!(current_hash, custom_hash, "Admin's custom password hash must NEVER be overwritten");
+    }
+
+    // ------------------------------------------------------------------
+    // 36. Migration 16 clean upgrade and idempotency verification
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_migration_16_clean_upgrade_and_idempotence() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        // Construct clean database at user_version 15
+        conn.execute_batch(
+            "
+            CREATE TABLE patients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_code TEXT UNIQUE,
+                name TEXT NOT NULL,
+                age_value INTEGER,
+                age_unit TEXT,
+                gender TEXT,
+                phone TEXT,
+                referred_by TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                order_number TEXT UNIQUE,
+                invoice_no TEXT UNIQUE,
+                total_amount_paise INTEGER DEFAULT 0,
+                discount_amount_paise INTEGER DEFAULT 0,
+                paid_amount_paise INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'Pending',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE order_tests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                test_id INTEGER NOT NULL,
+                test_name_snapshot TEXT,
+                price_paise INTEGER DEFAULT 0
+            );
+            CREATE TABLE order_parameters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                parameter_id INTEGER NOT NULL,
+                parameter_name_snapshot TEXT,
+                unit_snapshot TEXT,
+                normal_range_snapshot TEXT
+            );
+            CREATE TABLE results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                parameter_id INTEGER NOT NULL,
+                value TEXT NOT NULL
+            );
+            PRAGMA user_version = 15;
+            "
+        ).unwrap();
+
+        conn.execute("INSERT INTO patients (id, name, referred_by) VALUES (1, 'Dr Patient', 'Dr. Smith')", []).unwrap();
+        conn.execute("INSERT INTO orders (id, patient_id) VALUES (10, 1)", []).unwrap();
+        conn.execute("INSERT INTO order_tests (id, order_id, test_id, test_name_snapshot, price_paise) VALUES (1, 10, 1, 'CBC', 50000)", []).unwrap();
+        conn.execute("INSERT INTO order_parameters (id, order_id, parameter_id, parameter_name_snapshot) VALUES (1, 10, 1, 'Hb')", []).unwrap();
+        conn.execute("INSERT INTO results (id, order_id, parameter_id, value) VALUES (1, 10, 1, '14.5')", []).unwrap();
+
+        // 1. Run migrations: should succeed cleanly
+        let res = crate::db::migrations::run_migrations(&mut conn);
+        assert!(res.is_ok(), "Clean migration 16 must succeed");
+
+        // Verify version advanced to 16
+        let v: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(v, 16);
+
+        // Verify index exists
+        let idx_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_patients_referred_by'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(idx_count, 1);
+
+        // Verify all rows preserved
+        let p_count: i64 = conn.query_row("SELECT COUNT(*) FROM patients", [], |row| row.get(0)).unwrap();
+        let o_count: i64 = conn.query_row("SELECT COUNT(*) FROM orders", [], |row| row.get(0)).unwrap();
+        let ot_count: i64 = conn.query_row("SELECT COUNT(*) FROM order_tests", [], |row| row.get(0)).unwrap();
+        let op_count: i64 = conn.query_row("SELECT COUNT(*) FROM order_parameters", [], |row| row.get(0)).unwrap();
+        let r_count: i64 = conn.query_row("SELECT COUNT(*) FROM results", [], |row| row.get(0)).unwrap();
+        assert_eq!(p_count, 1);
+        assert_eq!(o_count, 1);
+        assert_eq!(ot_count, 1);
+        assert_eq!(op_count, 1);
+        assert_eq!(r_count, 1);
+
+        // 2. Second migration run is idempotent
+        let res2 = crate::db::migrations::run_migrations(&mut conn);
+        assert!(res2.is_ok(), "Second migration run must be a no-op");
+        let v2: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(v2, 16);
+    }
 }

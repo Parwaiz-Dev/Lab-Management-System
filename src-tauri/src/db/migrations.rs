@@ -568,6 +568,81 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         version = 15;
     }
 
+    if version < 16 {
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        let (dup_ot_keys, dup_op_keys, dup_res_keys) = {
+            let mut stmt_ot = tx.prepare(
+                "SELECT order_id, test_id, COUNT(*) 
+                 FROM order_tests 
+                 GROUP BY order_id, test_id 
+                 HAVING COUNT(*) > 1 
+                 LIMIT 5",
+            )?;
+            let ot_rows: Vec<String> = stmt_ot
+                .query_map([], |row| {
+                    Ok(format!("(order_id: {}, test_id: {} [count: {}])", 
+                        row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let mut stmt_op = tx.prepare(
+                "SELECT order_id, parameter_id, COUNT(*) 
+                 FROM order_parameters 
+                 GROUP BY order_id, parameter_id 
+                 HAVING COUNT(*) > 1 
+                 LIMIT 5",
+            )?;
+            let op_rows: Vec<String> = stmt_op
+                .query_map([], |row| {
+                    Ok(format!("(order_id: {}, parameter_id: {} [count: {}])", 
+                        row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let mut stmt_res = tx.prepare(
+                "SELECT order_id, parameter_id, COUNT(*) 
+                 FROM results 
+                 GROUP BY order_id, parameter_id 
+                 HAVING COUNT(*) > 1 
+                 LIMIT 5",
+            )?;
+            let res_rows: Vec<String> = stmt_res
+                .query_map([], |row| {
+                    Ok(format!("(order_id: {}, parameter_id: {} [count: {}])", 
+                        row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            (ot_rows, op_rows, res_rows)
+        };
+
+        if !dup_ot_keys.is_empty() || !dup_op_keys.is_empty() || !dup_res_keys.is_empty() {
+            let mut details = Vec::new();
+            if !dup_ot_keys.is_empty() {
+                details.push(format!("order_tests: {}", dup_ot_keys.join(", ")));
+            }
+            if !dup_op_keys.is_empty() {
+                details.push(format!("order_parameters: {}", dup_op_keys.join(", ")));
+            }
+            if !dup_res_keys.is_empty() {
+                details.push(format!("results: {}", dup_res_keys.join(", ")));
+            }
+
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "Migration 16 aborted: duplicate intra-order natural keys detected. No records were modified or deleted. Affected records: {}. Please contact support for manual inspection.",
+                details.join(" | ")
+            )));
+        }
+
+        tx.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_patients_referred_by ON patients(referred_by COLLATE NOCASE);",
+        )?;
+
+        tx.pragma_update(None, "user_version", 16)?;
+        tx.commit()?;
+        let _ = version;
+    }
 
     // Safety check: ensure doctor commissions tables exist unconditionally
     conn.execute_batch(

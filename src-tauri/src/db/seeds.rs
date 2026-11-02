@@ -250,16 +250,24 @@ pub fn seed_data(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
 
-    // Seed default admin user: username="admin", password="admin123"
-    let password_hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)
-        .map_err(|e| rusqlite::Error::InvalidParameterName(
-            format!("Failed to hash default admin password: {}", e)
-        ))?;
-
-    conn.execute(
-        "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?1, ?2, ?3)",
-        rusqlite::params!["admin", password_hash, "admin"],
+    // Seed default admin user only if no admin user exists
+    let admin_exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE username = 'admin')",
+        [],
+        |row| row.get(0),
     )?;
+
+    if !admin_exists {
+        let password_hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)
+            .map_err(|e| rusqlite::Error::InvalidParameterName(
+                format!("Failed to hash default admin password: {}", e)
+            ))?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?1, ?2, ?3)",
+            rusqlite::params!["admin", password_hash, "admin"],
+        )?;
+    }
 
     Ok(())
 }
