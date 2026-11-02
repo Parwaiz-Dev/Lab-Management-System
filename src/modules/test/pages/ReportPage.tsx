@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Printer, EyeOff, CheckSquare, Square } from "lucide-react";
 import Button from "../../../components/ui/Button";
 import type { ReportPatientInfo, ReportRow } from "../../../types";
@@ -24,7 +24,7 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
   const [logo, setLogo] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [hideHeaderFooter, setHideHeaderFooter] = useState(false);
+  const [hideHeaderFooter, setHideHeaderFooter] = useState(true);
 
   useEffect(() => {
     const loadReport = async () => {
@@ -98,7 +98,37 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
     await Promise.all(
       Array.from(document.images, (image) => image.decode().catch(() => undefined)),
     );
-    window.print();
+
+    // Capture current scroll positions
+    const scrollContainer = document.querySelector(".page-content");
+    const previousScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+    const previousWindowTop = window.scrollY || window.pageYOffset || 0;
+
+    let restored = false;
+    const restoreScroll = () => {
+      if (restored) return;
+      restored = true;
+      if (scrollContainer) {
+        scrollContainer.scrollTop = previousScrollTop;
+      }
+      window.scrollTo(0, previousWindowTop);
+    };
+
+    // Standard after-print lifecycle listener
+    window.addEventListener("afterprint", restoreScroll, { once: true });
+
+    // Reset scroll positions to top so print rendering captures Page 1 without clipping
+    if (scrollContainer) {
+      scrollContainer.scrollTop = 0;
+    }
+    window.scrollTo(0, 0);
+
+    try {
+      window.print();
+    } finally {
+      // Fallback timeout in case afterprint does not fire or is delayed
+      setTimeout(restoreScroll, 200);
+    }
   };
 
   return (
@@ -202,6 +232,12 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
             </div>
 
             <div className="sanjeevini-info-row">
+              <span className="sanjeevini-info-label">Patient ID</span>
+              <span className="sanjeevini-info-colon">:</span>
+              <span className="sanjeevini-info-val">{patient?.patient_code || "—"}</span>
+            </div>
+
+            <div className="sanjeevini-info-row">
               <span className="sanjeevini-info-label">Age &amp; Sex</span>
               <span className="sanjeevini-info-colon">:</span>
               <span className="sanjeevini-info-val">{ageSex}</span>
@@ -210,15 +246,7 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
             <div className="sanjeevini-info-row">
               <span className="sanjeevini-info-label">Lab Ref No</span>
               <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val">{orderId}</span>
-            </div>
-
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Referred by</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val sanjeevini-referred-val">
-                {patient?.referred_by || "Direct / Self"}
-              </span>
+              <span className="sanjeevini-info-val">{patient?.order_number || `LAB-${orderId}`}</span>
             </div>
           </div>
 
@@ -239,6 +267,14 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
               <span className="sanjeevini-info-label">Reporting Time</span>
               <span className="sanjeevini-info-colon">:</span>
               <span className="sanjeevini-info-val">{reportingDateTime}</span>
+            </div>
+
+            <div className="sanjeevini-info-row">
+              <span className="sanjeevini-info-label">Referred By</span>
+              <span className="sanjeevini-info-colon">:</span>
+              <span className="sanjeevini-info-val sanjeevini-referred-val">
+                {patient?.referred_by || "Direct / Self"}
+              </span>
             </div>
           </div>
         </section>
@@ -338,6 +374,12 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
               </div>
 
               <div className="sanjeevini-info-row">
+                <span className="sanjeevini-info-label">Patient ID</span>
+                <span className="sanjeevini-info-colon">:</span>
+                <span className="sanjeevini-info-val">{patient?.patient_code || "—"}</span>
+              </div>
+
+              <div className="sanjeevini-info-row">
                 <span className="sanjeevini-info-label">Age &amp; Sex</span>
                 <span className="sanjeevini-info-colon">:</span>
                 <span className="sanjeevini-info-val">{ageSex}</span>
@@ -346,15 +388,7 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
               <div className="sanjeevini-info-row">
                 <span className="sanjeevini-info-label">Lab Ref No</span>
                 <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val">{orderId}</span>
-              </div>
-
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Referred by</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val sanjeevini-referred-val">
-                  {patient?.referred_by || "Direct / Self"}
-                </span>
+                <span className="sanjeevini-info-val">{patient?.order_number || `LAB-${orderId}`}</span>
               </div>
             </div>
 
@@ -376,6 +410,14 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
                 <span className="sanjeevini-info-colon">:</span>
                 <span className="sanjeevini-info-val">{reportingDateTime}</span>
               </div>
+
+              <div className="sanjeevini-info-row">
+                <span className="sanjeevini-info-label">Referred By</span>
+                <span className="sanjeevini-info-colon">:</span>
+                <span className="sanjeevini-info-val sanjeevini-referred-val">
+                  {patient?.referred_by || "Direct / Self"}
+                </span>
+              </div>
             </div>
           </section>
         </div>
@@ -383,6 +425,12 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
         {/* ── TABLE WITH TEST RESULTS ── */}
         <main className="sanjeevini-report-body">
           <table className="sanjeevini-table">
+            <colgroup>
+              <col style={{ width: "38%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "25%" }} />
+            </colgroup>
             <thead>
               {/* Invisible spacer in print to push content below the fixed header */}
               <tr className="sanjeevini-print-spacer-row">
@@ -409,8 +457,8 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
               </tr>
             </tfoot>
 
-            <tbody>
-              {loading ? (
+            {loading ? (
+              <tbody>
                 <tr>
                   <td colSpan={4}>
                     <div className="sanjeevini-state-box">
@@ -419,7 +467,9 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
                     </div>
                   </td>
                 </tr>
-              ) : error ? (
+              </tbody>
+            ) : error ? (
+              <tbody>
                 <tr>
                   <td colSpan={4}>
                     <div className="sanjeevini-state-box sanjeevini-state-box--error">
@@ -427,7 +477,9 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
                     </div>
                   </td>
                 </tr>
-              ) : groupedResults.length === 0 ? (
+              </tbody>
+            ) : groupedResults.length === 0 ? (
+              <tbody>
                 <tr>
                   <td colSpan={4}>
                     <div className="sanjeevini-state-box">
@@ -435,73 +487,73 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
                     </div>
                   </td>
                 </tr>
-              ) : (
-                groupedResults.map((group) => (
-                  <React.Fragment key={group.testName}>
-                    {/* Panel / Investigation Header */}
-                    <tr className="sanjeevini-panel-row">
-                      <td colSpan={4}>
-                        <div className="sanjeevini-panel-title">
-                          {group.testName.toUpperCase()}
-                        </div>
-                      </td>
-                    </tr>
+              </tbody>
+            ) : (
+              groupedResults.map((group) => (
+                <tbody key={group.testName} className="sanjeevini-panel-group">
+                  {/* Panel / Investigation Header */}
+                  <tr className="sanjeevini-panel-row">
+                    <td colSpan={4}>
+                      <div className="sanjeevini-panel-title">
+                        {group.testName.toUpperCase()}
+                      </div>
+                    </td>
+                  </tr>
 
-                    {/* Parameter Rows */}
-                    {group.rows.map((row, idx) => {
-                      const flag = getFlagStatus(row.value, row.normal_range);
-                      const isAbnormal = flag === "High" || flag === "Low";
+                  {/* Parameter Rows */}
+                  {group.rows.map((row, idx) => {
+                    const flag = getFlagStatus(row.value, row.normal_range);
+                    const isAbnormal = flag === "High" || flag === "Low";
 
-                      return (
-                        <tr
-                          key={idx}
-                          className={`sanjeevini-data-row ${
-                            isAbnormal ? "sanjeevini-data-row--flagged" : ""
-                          }`}
-                        >
-                          {/* Test / Parameter Name */}
-                          <td className="sanjeevini-cell-test" style={{ width: "38%" }}>
-                            <span className="sanjeevini-test-name">
-                              {row.parameter_name || "—"}
+                    return (
+                      <tr
+                        key={idx}
+                        className={`sanjeevini-data-row ${
+                          isAbnormal ? "sanjeevini-data-row--flagged" : ""
+                        }`}
+                      >
+                        {/* Test / Parameter Name */}
+                        <td className="sanjeevini-cell-test" style={{ width: "38%" }}>
+                          <span className="sanjeevini-test-name">
+                            {row.parameter_name || "—"}
+                          </span>
+                        </td>
+
+                        {/* Result Value */}
+                        <td className="sanjeevini-cell-result" style={{ width: "22%" }}>
+                          <div className="sanjeevini-result-flex">
+                            <span
+                              className={`sanjeevini-result-value ${
+                                isAbnormal ? "sanjeevini-result-value--flagged" : ""
+                              }`}
+                            >
+                              {formatValue(row.value)}
                             </span>
-                          </td>
-
-                          {/* Result Value */}
-                          <td className="sanjeevini-cell-result" style={{ width: "22%" }}>
-                            <div className="sanjeevini-result-flex">
+                            {isAbnormal && flag && (
                               <span
-                                className={`sanjeevini-result-value ${
-                                  isAbnormal ? "sanjeevini-result-value--flagged" : ""
-                                }`}
+                                className={`sanjeevini-flag-pill sanjeevini-flag-pill--${flag.toLowerCase()}`}
                               >
-                                {formatValue(row.value)}
+                                {flag}
                               </span>
-                              {isAbnormal && flag && (
-                                <span
-                                  className={`sanjeevini-flag-pill sanjeevini-flag-pill--${flag.toLowerCase()}`}
-                                >
-                                  {flag}
-                                </span>
-                              )}
-                            </div>
-                          </td>
+                            )}
+                          </div>
+                        </td>
 
-                          {/* Units */}
-                          <td className="sanjeevini-cell-unit" style={{ width: "15%" }}>
-                            {row.unit || "—"}
-                          </td>
+                        {/* Units */}
+                        <td className="sanjeevini-cell-unit" style={{ width: "15%" }}>
+                          {row.unit || "—"}
+                        </td>
 
-                          {/* Biological Ref. Interval */}
-                          <td className="sanjeevini-cell-ref" style={{ width: "25%" }}>
-                            {formatReferenceRange(row.normal_range, row.unit)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                ))
-              )}
-            </tbody>
+                        {/* Biological Ref. Interval */}
+                        <td className="sanjeevini-cell-ref" style={{ width: "25%" }}>
+                          {formatReferenceRange(row.normal_range, row.unit)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              ))
+            )}
           </table>
         </main>
 
@@ -951,7 +1003,7 @@ const reportStyles = `
   }
 
   .sanjeevini-preprinted-header-spacer {
-    height: 30mm;
+    height: 38mm;
     width: 100%;
   }
 
@@ -962,14 +1014,14 @@ const reportStyles = `
 
   /* Patient Demographics Card */
   .sanjeevini-patient-card {
-    margin: 2.5mm 8mm 2.5mm;
-    border: 1.5px solid #1e293b;
+    margin: 1.5mm 8mm 1.5mm;
+    border: 1px solid #475569;
     border-radius: 2px;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    padding: 2.5mm 4mm;
-    font-size: 11px;
-    line-height: 1.45;
+    padding: 1.5mm 4mm;
+    font-size: 9pt;
+    line-height: 1.32;
     background: #ffffff;
     column-gap: 8mm;
   }
@@ -978,7 +1030,7 @@ const reportStyles = `
   .sanjeevini-patient-right {
     display: flex;
     flex-direction: column;
-    gap: 1.5mm;
+    gap: 0.8mm;
   }
 
   .sanjeevini-info-row {
@@ -987,16 +1039,18 @@ const reportStyles = `
   }
 
   .sanjeevini-info-label {
-    width: 30mm;
+    width: 28mm;
     font-weight: 600;
-    color: #1e293b;
+    color: #334155;
+    font-size: 9pt;
     flex-shrink: 0;
   }
 
   .sanjeevini-info-colon {
-    width: 4mm;
-    font-weight: 700;
-    color: #1e293b;
+    width: 3.5mm;
+    font-weight: 600;
+    color: #334155;
+    font-size: 9pt;
     flex-shrink: 0;
   }
 
@@ -1004,11 +1058,12 @@ const reportStyles = `
     flex: 1;
     color: #0f172a;
     font-weight: 600;
+    font-size: 9pt;
     word-break: break-word;
   }
 
   .sanjeevini-patient-name {
-    font-size: 11.5px;
+    font-size: 9.5pt;
     font-weight: 700;
     color: #0f172a;
   }
@@ -1016,9 +1071,10 @@ const reportStyles = `
   .sanjeevini-referred-val {
     font-weight: 600;
     color: #0f172a;
+    font-size: 9.5pt;
   }
 
-  /* Table Header Bar for Screen */
+  /* Table Header Bar for Screen & Print */
   .sanjeevini-report-body {
     flex: 1;
     padding: 0 8mm;
@@ -1030,7 +1086,7 @@ const reportStyles = `
     width: 100%;
     table-layout: fixed;
     border-collapse: collapse;
-    font-size: 11px;
+    font-size: 9.5pt;
     line-height: 1.35;
   }
 
@@ -1039,8 +1095,8 @@ const reportStyles = `
     border-top: 1.5px solid #1e293b;
     border-bottom: 1.5px solid #1e293b;
     padding: 1.8mm 2mm;
-    font-size: 11px;
-    font-weight: 800;
+    font-size: 9.5pt;
+    font-weight: 700;
     color: #0f172a;
     background: #f8fafc;
     letter-spacing: 0.02em;
@@ -1054,20 +1110,20 @@ const reportStyles = `
   }
 
   .sanjeevini-panel-row td {
-    padding: 3.5mm 2mm 1mm;
+    padding: 2.8mm 2mm 1mm;
     background: transparent;
   }
 
   .sanjeevini-panel-title {
-    font-size: 11.5px;
-    font-weight: 800;
+    font-size: 10.5pt;
+    font-weight: 700;
     color: #0f172a;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
   }
 
   .sanjeevini-data-row td {
-    padding: 1.6mm 2mm;
+    padding: 1.4mm 2mm;
     border-bottom: 1px solid #f1f5f9;
     color: #1e293b;
     vertical-align: middle;
@@ -1081,7 +1137,7 @@ const reportStyles = `
   .sanjeevini-test-name {
     font-weight: 500;
     color: #0f172a;
-    font-size: 11px;
+    font-size: 9.5pt;
   }
 
   .sanjeevini-cell-result {
@@ -1092,50 +1148,51 @@ const reportStyles = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
   }
 
   .sanjeevini-result-value {
     font-weight: 700;
-    font-size: 11.5px;
+    font-size: 9.5pt;
     color: #0f172a;
     font-variant-numeric: tabular-nums;
   }
 
   .sanjeevini-result-value--flagged {
-    color: #b91c1c;
-    font-weight: 800;
+    color: #dc2626;
+    font-weight: 700;
+    text-decoration: underline;
   }
 
   .sanjeevini-flag-pill {
-    font-size: 9px;
-    font-weight: 800;
-    padding: 1px 4px;
-    border-radius: 2px;
-    letter-spacing: 0.02em;
+    font-size: 9pt;
+    font-weight: 700;
+    color: #dc2626;
+    text-decoration: underline;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    letter-spacing: 0.01em;
   }
 
-  .sanjeevini-flag-pill--high {
-    background: #fee2e2;
-    color: #b91c1c;
-    border: 1px solid #fca5a5;
-  }
-
+  .sanjeevini-flag-pill--high,
   .sanjeevini-flag-pill--low {
-    background: #fef3c7;
-    color: #b45309;
-    border: 1px solid #fde68a;
+    background: transparent;
+    border: none;
+    color: #dc2626;
+    text-decoration: underline;
   }
 
   .sanjeevini-cell-unit {
     text-align: center;
-    font-size: 11px;
+    font-size: 9pt;
     color: #334155;
   }
 
   .sanjeevini-cell-ref {
     text-align: center;
-    font-size: 11px;
+    font-size: 9pt;
     color: #334155;
     font-variant-numeric: tabular-nums;
   }
@@ -1242,6 +1299,22 @@ const reportStyles = `
       background: #ffffff !important;
     }
 
+    .sanjeevini-header {
+      padding: 3.5mm 8mm 2.5mm !important;
+    }
+
+    .sanjeevini-patient-card {
+      margin: 1mm 8mm 1mm !important;
+      padding: 1mm 3.5mm !important;
+      font-size: 8.5pt !important;
+      line-height: 1.28 !important;
+    }
+
+    .sanjeevini-patient-left,
+    .sanjeevini-patient-right {
+      gap: 0.5mm !important;
+    }
+
     .sanjeevini-print-only-footer {
       display: block !important;
       position: fixed !important;
@@ -1267,6 +1340,7 @@ const reportStyles = `
       width: 100% !important;
       min-width: 0 !important;
       height: auto !important;
+      overflow: visible !important;
       margin: 0 !important;
       padding: 0 !important;
       background: #ffffff !important;
@@ -1280,7 +1354,11 @@ const reportStyles = `
     .sanjeevini-report-page {
       display: block !important;
       width: 100% !important;
+      max-width: none !important;
       height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      position: static !important;
       margin: 0 !important;
       padding: 0 !important;
       background: #ffffff !important;
@@ -1339,20 +1417,25 @@ const reportStyles = `
 
     .sanjeevini-thead-spacer {
       display: block !important;
-      height: 78mm !important;
+      height: 72mm !important;
     }
 
     .sanjeevini-thead-spacer--no-letterhead {
-      height: 70mm !important;
+      height: 72mm !important;
     }
 
     .sanjeevini-tfoot-spacer {
       display: block !important;
-      height: 25mm !important;
+      height: 34mm !important;
     }
 
     .sanjeevini-tfoot-spacer--no-letterhead {
-      height: 28mm !important;
+      height: 34mm !important;
+    }
+
+    .sanjeevini-panel-group {
+      break-inside: auto !important;
+      page-break-inside: auto !important;
     }
 
     .sanjeevini-table tbody tr,
@@ -1363,8 +1446,17 @@ const reportStyles = `
     }
 
     .sanjeevini-panel-row {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
       break-after: avoid !important;
       page-break-after: avoid !important;
+    }
+
+    .sanjeevini-result-value--flagged,
+    .sanjeevini-flag-pill {
+      color: #dc2626 !important;
+      font-weight: 700 !important;
+      text-decoration: underline !important;
     }
 
     @page {
