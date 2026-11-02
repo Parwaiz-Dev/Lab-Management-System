@@ -641,6 +641,49 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
 
         tx.pragma_update(None, "user_version", 16)?;
         tx.commit()?;
+        version = 16;
+    }
+
+    if version < 17 {
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        tx.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS doctors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL
+            );
+            ",
+        )?;
+
+        ensure_column(&tx, "doctors", "is_active INTEGER NOT NULL DEFAULT 1")?;
+        ensure_column(&tx, "doctors", "is_default INTEGER NOT NULL DEFAULT 0")?;
+
+        let default_count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM doctors WHERE is_default = 1",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        if default_count > 1 {
+            tx.execute(
+                "UPDATE doctors SET is_default = 0 WHERE id NOT IN (
+                    SELECT MIN(id) FROM doctors WHERE is_default = 1
+                )",
+                [],
+            )?;
+        }
+
+        tx.execute_batch(
+            "
+            CREATE INDEX IF NOT EXISTS idx_doctors_active ON doctors(is_active);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_doctors_single_default ON doctors(is_default) WHERE is_default = 1;
+            ",
+        )?;
+
+        tx.pragma_update(None, "user_version", 17)?;
+        tx.commit()?;
+        version = 17;
         let _ = version;
     }
 

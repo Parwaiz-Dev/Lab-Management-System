@@ -37,13 +37,8 @@ pub fn run() -> Result<(), String> {
         .map_err(|e| format!("failed to create DB connection: {}", e))?;
     log::info!("🔗 Shared database connection ready");
 
-    let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init());
-
-    #[cfg(not(debug_assertions))]
-    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-
-    builder
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(db_conn))
         .manage(AuthState::new(None))
         .invoke_handler(tauri::generate_handler![
@@ -65,7 +60,12 @@ pub fn run() -> Result<(), String> {
             modules::patient::commands::delete_patient,
             modules::patient::commands::search_patients,
             modules::patient::commands::get_doctors,
+            modules::patient::commands::get_all_doctors,
+            modules::patient::commands::get_default_doctor,
             modules::patient::commands::add_doctor,
+            modules::patient::commands::update_doctor,
+            modules::patient::commands::set_default_doctor,
+            modules::patient::commands::set_doctor_active,
 
             // 🧪 Catalog Management
             modules::catalog::commands::get_tests,

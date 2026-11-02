@@ -60,6 +60,7 @@ export default function PatientForm({
 
   const [suggestions, setSuggestions] = useState<Patient[]>([]);
   const [doctors, setDoctors] = useState<string[]>([]);
+  const [defaultDoctor, setDefaultDoctor] = useState<string | null>(null);
   const [newDoctor, setNewDoctor] = useState("");
   const [showAddDoctor, setShowAddDoctor] = useState(false);
 
@@ -80,22 +81,37 @@ export default function PatientForm({
 
   const loadDoctors = useCallback(async () => {
     try {
-      const data = await patientService.getDoctors();
+      const [data, defDoc] = await Promise.all([
+        patientService.getDoctors(),
+        patientService.getDefaultDoctor().catch(() => null),
+      ]);
 
       const cleaned = Array.from(
         new Set(data.map((doctor) => doctor.trim()).filter(Boolean))
       ).sort((a, b) => a.localeCompare(b));
 
       setDoctors(cleaned);
+      const defName = defDoc && defDoc.is_active ? defDoc.name : null;
+      setDefaultDoctor(defName);
+      return { doctors: cleaned, defaultName: defName };
     } catch (err) {
       console.error("Failed to load doctors:", err);
       showToast("Failed to load doctors", "error");
+      return { doctors: [], defaultName: null };
     }
   }, [showToast]);
 
   useEffect(() => {
-    void loadDoctors();
-  }, [loadDoctors]);
+    let cancelled = false;
+    void loadDoctors().then((res) => {
+      if (!cancelled && !selectedPatient && res?.defaultName) {
+        setReferredBy(res.defaultName);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDoctors, selectedPatient]);
 
   useEffect(() => {
     const query = name.trim();
@@ -162,7 +178,7 @@ export default function PatientForm({
     setAgeUnit("Years");
     setGender("Male");
     setPhone("");
-    setReferredBy("Self");
+    setReferredBy(defaultDoctor || "Self");
     setNewDoctor("");
     setShowAddDoctor(false);
     setSuggestions([]);
@@ -465,7 +481,7 @@ export default function PatientForm({
                   <option value="Self">Self (Direct Patient)</option>
                   {doctors.map((doctor) => (
                     <option key={doctor} value={doctor}>
-                      {doctor}
+                      {doctor} {doctor === defaultDoctor ? "★ (Default)" : ""}
                     </option>
                   ))}
                 </select>
@@ -684,7 +700,7 @@ export default function PatientForm({
               <option value="Self">Self (Direct Patient)</option>
               {doctors.map((doctor) => (
                 <option key={doctor} value={doctor}>
-                  {doctor}
+                  {doctor} {doctor === defaultDoctor ? "★ (Default)" : ""}
                 </option>
               ))}
             </select>

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Patient } from "../../../types";
+import type { Doctor, Patient } from "../../../types";
 
 export type AgeUnit = "Years" | "Months" | "Days";
 export type Gender = "Male" | "Female" | "Other";
@@ -31,7 +31,13 @@ function toErrorMessage(error: unknown, fallback: string): string {
 const hasDesktopBridge = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-const MOCK_DOCTORS: string[] = ["Dr. Chavan", "Dr. A. Sharma", "Dr. K. Patel", "Dr. R. Deshmukh"];
+const MOCK_DOCTOR_RECORDS: Doctor[] = [
+  { id: 1, name: "Dr. Chavan", is_active: true, is_default: true },
+  { id: 2, name: "Dr. A. Sharma", is_active: true, is_default: false },
+  { id: 3, name: "Dr. K. Patel", is_active: true, is_default: false },
+  { id: 4, name: "Dr. R. Deshmukh", is_active: true, is_default: false },
+];
+const MOCK_DOCTORS: string[] = MOCK_DOCTOR_RECORDS.filter(d => d.is_active).map(d => d.name);
 const MOCK_PATIENTS: Patient[] = [
   {
     id: 1,
@@ -103,8 +109,13 @@ export const patientService = {
     const cleanedName = name.trim();
 
     if (!hasDesktopBridge()) {
-      if (!MOCK_DOCTORS.includes(cleanedName)) {
-        MOCK_DOCTORS.push(cleanedName);
+      if (!MOCK_DOCTOR_RECORDS.some(d => d.name.toLowerCase() === cleanedName.toLowerCase())) {
+        MOCK_DOCTOR_RECORDS.push({
+          id: MOCK_DOCTOR_RECORDS.length + 1,
+          name: cleanedName,
+          is_active: true,
+          is_default: false,
+        });
       }
       return;
     }
@@ -113,6 +124,80 @@ export const patientService = {
       await invoke("add_doctor", { name: cleanedName });
     } catch (error) {
       throw new Error(toErrorMessage(error, "Failed to add doctor"));
+    }
+  },
+
+  async getAllDoctors(): Promise<Doctor[]> {
+    if (!hasDesktopBridge()) {
+      return [...MOCK_DOCTOR_RECORDS];
+    }
+
+    try {
+      return await invoke<Doctor[]>("get_all_doctors");
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to load doctors roster"));
+    }
+  },
+
+  async getDefaultDoctor(): Promise<Doctor | null> {
+    if (!hasDesktopBridge()) {
+      return MOCK_DOCTOR_RECORDS.find(d => d.is_default && d.is_active) || null;
+    }
+
+    try {
+      return await invoke<Doctor | null>("get_default_doctor");
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to load default doctor"));
+    }
+  },
+
+  async updateDoctor(id: number, name: string): Promise<void> {
+    const cleanedName = name.trim();
+
+    if (!hasDesktopBridge()) {
+      const doc = MOCK_DOCTOR_RECORDS.find(d => d.id === id);
+      if (doc) doc.name = cleanedName;
+      return;
+    }
+
+    try {
+      await invoke("update_doctor", { id, name: cleanedName });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to update doctor"));
+    }
+  },
+
+  async setDefaultDoctor(id: number): Promise<void> {
+    if (!hasDesktopBridge()) {
+      MOCK_DOCTOR_RECORDS.forEach(d => {
+        d.is_default = d.id === id;
+      });
+      return;
+    }
+
+    try {
+      await invoke("set_default_doctor", { id });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to set default doctor"));
+    }
+  },
+
+  async setDoctorActive(id: number, isActive: boolean): Promise<void> {
+    if (!hasDesktopBridge()) {
+      const doc = MOCK_DOCTOR_RECORDS.find(d => d.id === id);
+      if (doc) {
+        doc.is_active = isActive;
+        if (!isActive && doc.is_default) {
+          doc.is_default = false;
+        }
+      }
+      return;
+    }
+
+    try {
+      await invoke("set_doctor_active", { id, isActive });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to update doctor status"));
     }
   },
 

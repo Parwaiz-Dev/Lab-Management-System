@@ -1221,9 +1221,9 @@ mod tests {
         let res = crate::db::migrations::run_migrations(&mut conn);
         assert!(res.is_ok(), "Clean migration 16 must succeed");
 
-        // Verify version advanced to 16
+        // Verify version advanced past 16
         let v: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(v, 16);
+        assert!(v >= 16);
 
         // Verify index exists
         let idx_count: i64 = conn.query_row(
@@ -1249,6 +1249,6 @@ mod tests {
         let res2 = crate::db::migrations::run_migrations(&mut conn);
         assert!(res2.is_ok(), "Second migration run must be a no-op");
         let v2: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(v2, 16);
+        assert_eq!(v2, v);
     }
 }

@@ -6,6 +6,7 @@ import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Toast from "../../../components/ui/Toast";
 import TestCatalogManager from "./TestCatalogManager";
+import DoctorManager from "../components/DoctorManager";
 import UserManagement from "../../auth/components/UserManagement";
 import type { LabSettings, ToastMessage, SessionInfo } from "../../../types";
 import { settingsService } from "../services/settingsService";
@@ -216,6 +217,8 @@ export default function SettingsPage({ session }: { session: SessionInfo }) {
       </div>
 
       <TestCatalogManager />
+
+      {session.role === "admin" && <DoctorManager showToast={showToast} />}
 
       {session.role === "admin" && <UserManagement showToast={showToast} />}
 

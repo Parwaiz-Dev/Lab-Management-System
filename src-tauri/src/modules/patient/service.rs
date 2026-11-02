@@ -6,7 +6,7 @@ use crate::utils::validation::{
 use chrono::Datelike;
 use rusqlite::{params, Connection, Transaction};
 
-use super::model::Patient;
+use super::model::{DoctorRecord, Patient};
 
 fn clean_optional_text(value: Option<String>) -> Option<String> {
     value
@@ -227,7 +227,7 @@ pub fn get_doctors(conn: &Connection) -> AppResult<Vec<String>> {
         .prepare(
             "SELECT name
              FROM doctors
-             WHERE TRIM(name) <> ''
+             WHERE TRIM(name) <> '' AND IFNULL(is_active, 1) = 1
              ORDER BY name ASC",
         )
         .map_err(AppError::from)?;
@@ -239,20 +239,210 @@ pub fn get_doctors(conn: &Connection) -> AppResult<Vec<String>> {
     doctors.map(|doctor| doctor.map_err(AppError::from)).collect()
 }
 
-pub fn add_doctor(conn: &Connection, name: String) -> AppResult<()> {
+pub fn get_all_doctors(conn: &Connection) -> AppResult<Vec<DoctorRecord>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, IFNULL(is_active, 1), IFNULL(is_default, 0)
+             FROM doctors
+             WHERE TRIM(name) <> ''
+             ORDER BY is_default DESC, is_active DESC, name ASC",
+        )
+        .map_err(AppError::from)?;
+
+    let doctors = stmt
+        .query_map([], |row| {
+            let is_active_int: i32 = row.get(2)?;
+            let is_default_int: i32 = row.get(3)?;
+            Ok(DoctorRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                is_active: is_active_int != 0,
+                is_default: is_default_int != 0,
+            })
+        })
+        .map_err(AppError::from)?;
+
+    doctors.map(|doctor| doctor.map_err(AppError::from)).collect()
+}
+
+pub fn get_default_doctor(conn: &Connection) -> AppResult<Option<DoctorRecord>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, IFNULL(is_active, 1), IFNULL(is_default, 0)
+             FROM doctors
+             WHERE is_default = 1 AND IFNULL(is_active, 1) = 1
+             LIMIT 1",
+        )
+        .map_err(AppError::from)?;
+
+    let mut rows = stmt
+        .query_map([], |row| {
+            let is_active_int: i32 = row.get(2)?;
+            let is_default_int: i32 = row.get(3)?;
+            Ok(DoctorRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                is_active: is_active_int != 0,
+                is_default: is_default_int != 0,
+            })
+        })
+        .map_err(AppError::from)?;
+
+    if let Some(row) = rows.next() {
+        Ok(Some(row.map_err(AppError::from)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn add_doctor(conn: &Connection, name: String) -> AppResult<i64> {
     let cleaned_name = name.trim().to_string();
 
     validate_doctor_name(&cleaned_name)?;
 
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM doctors WHERE name = ?1 COLLATE NOCASE)",
+            params![cleaned_name],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if exists {
+        return Err(AppError::ValidationError(
+            "A doctor with this name already exists".into(),
+        ));
+    }
+
     conn.execute(
-        "INSERT OR IGNORE INTO doctors (name)
-         VALUES (?1)",
+        "INSERT INTO doctors (name, is_active, is_default)
+         VALUES (?1, 1, 0)",
         params![cleaned_name],
     )
     .map_err(AppError::from)?;
 
-    log::info!("Added doctor: {}", cleaned_name);
+    let id = conn.last_insert_rowid();
+    log::info!("Added doctor: {} with id {}", cleaned_name, id);
 
+    Ok(id)
+}
+
+pub fn update_doctor(conn: &Connection, id: i64, name: String) -> AppResult<()> {
+    if id <= 0 {
+        return Err(AppError::ValidationError("Invalid doctor id".into()));
+    }
+    let cleaned_name = name.trim().to_string();
+    validate_doctor_name(&cleaned_name)?;
+
+    let doctor_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM doctors WHERE id = ?1)",
+            params![id],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !doctor_exists {
+        return Err(AppError::NotFound("Doctor not found".into()));
+    }
+
+    let duplicate_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM doctors WHERE name = ?1 COLLATE NOCASE AND id <> ?2)",
+            params![cleaned_name, id],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if duplicate_exists {
+        return Err(AppError::ValidationError(
+            "Another doctor with this name already exists".into(),
+        ));
+    }
+
+    // Safeguard 1: Renaming a doctor only updates doctors.name.
+    // It does NOT update historical patient records, reports, invoices, or commission snapshots.
+    conn.execute(
+        "UPDATE doctors SET name = ?1 WHERE id = ?2",
+        params![cleaned_name, id],
+    )
+    .map_err(AppError::from)?;
+
+    log::info!("Updated doctor id {} to name: {}", id, cleaned_name);
+    Ok(())
+}
+
+pub fn set_default_doctor(conn: &mut Connection, id: i64) -> AppResult<()> {
+    if id <= 0 {
+        return Err(AppError::ValidationError("Invalid doctor id".into()));
+    }
+
+    let is_active: Option<i32> = conn
+        .query_row(
+            "SELECT is_active FROM doctors WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => AppError::NotFound("Doctor not found".into()),
+            other => AppError::from(other),
+        })?;
+
+    if is_active.unwrap_or(0) == 0 {
+        return Err(AppError::ValidationError(
+            "Cannot set an inactive doctor as default. Please activate the doctor first.".into(),
+        ));
+    }
+
+    let tx = conn.transaction().map_err(AppError::from)?;
+    tx.execute("UPDATE doctors SET is_default = 0 WHERE is_default = 1", [])
+        .map_err(AppError::from)?;
+    tx.execute(
+        "UPDATE doctors SET is_default = 1 WHERE id = ?1",
+        params![id],
+    )
+    .map_err(AppError::from)?;
+    tx.commit().map_err(AppError::from)?;
+
+    log::info!("Set doctor id {} as default", id);
+    Ok(())
+}
+
+pub fn set_doctor_active(conn: &mut Connection, id: i64, is_active: bool) -> AppResult<()> {
+    if id <= 0 {
+        return Err(AppError::ValidationError("Invalid doctor id".into()));
+    }
+
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM doctors WHERE id = ?1)",
+            params![id],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !exists {
+        return Err(AppError::NotFound("Doctor not found".into()));
+    }
+
+    let tx = conn.transaction().map_err(AppError::from)?;
+    if is_active {
+        tx.execute(
+            "UPDATE doctors SET is_active = 1 WHERE id = ?1",
+            params![id],
+        )
+        .map_err(AppError::from)?;
+    } else {
+        // Requirement: If current default is deactivated, clear the default designation safely
+        tx.execute(
+            "UPDATE doctors SET is_active = 0, is_default = 0 WHERE id = ?1",
+            params![id],
+        )
+        .map_err(AppError::from)?;
+    }
+    tx.commit().map_err(AppError::from)?;
+
+    log::info!("Set doctor id {} active state to {}", id, is_active);
     Ok(())
 }
 

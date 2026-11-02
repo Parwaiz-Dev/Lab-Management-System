@@ -99,23 +99,31 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
       Array.from(document.images, (image) => image.decode().catch(() => undefined)),
     );
 
-    // Capture current scroll positions
+    // Capture current scroll positions and document title
     const scrollContainer = document.querySelector(".page-content");
     const previousScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const previousWindowTop = window.scrollY || window.pageYOffset || 0;
+    const previousTitle = document.title;
 
     let restored = false;
-    const restoreScroll = () => {
+    const restoreState = () => {
       if (restored) return;
       restored = true;
+      document.title = previousTitle;
       if (scrollContainer) {
         scrollContainer.scrollTop = previousScrollTop;
       }
       window.scrollTo(0, previousWindowTop);
     };
 
-    // Standard after-print lifecycle listener
-    window.addEventListener("afterprint", restoreScroll, { once: true });
+    // Lifecycle hook: restore title and scroll positions ONLY after the print dialog is closed.
+    // The 100 ms buffer ensures the browser print spooler thread has completely finished
+    // before the DOM state is reverted.
+    const handleAfterPrint = () => {
+      setTimeout(restoreState, 100);
+    };
+
+    window.addEventListener("afterprint", handleAfterPrint, { once: true });
 
     // Reset scroll positions to top so print rendering captures Page 1 without clipping
     if (scrollContainer) {
@@ -123,13 +131,22 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
     }
     window.scrollTo(0, 0);
 
+    // Suppress browser header title ('LabManager') during print
+    document.title = "";
+
     try {
       window.print();
-    } finally {
-      // Fallback timeout in case afterprint does not fire or is delayed
-      setTimeout(restoreScroll, 200);
+    } catch (err) {
+      console.error("Print dialog launch failed:", err);
+      // If window.print throws synchronously, restore state immediately
+      restoreState();
     }
   };
+
+  const reportStyles = useMemo(
+    () => getReportStyles(hideHeaderFooter),
+    [hideHeaderFooter]
+  );
 
   return (
     <div className="sanjeevini-report-page">
@@ -179,13 +196,22 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
         <div className="sanjeevini-hidden-banner no-print">
           <EyeOff size={14} />
           <span>
-            <strong>Pre-printed Letterhead Mode:</strong> Header banner, watermark, and footer strip are hidden for printing on pre-printed stationary across all pages.
+            <strong>Pre-printed Letterhead Mode:</strong> Top 45 mm (company header) and bottom 45 mm (company footer/signature) are reserved on every page. In the print dialog, uncheck <strong>Headers and footers</strong> under <em>More settings</em> (WebView2 remembers this choice).
           </span>
         </div>
       )}
 
-      {/* ── PRINT-ONLY FIXED HEADER (Repeated at top of every printed page) ── */}
-      <div className="sanjeevini-print-only-header">
+      {/* ── SCREEN & PRINT MAIN DOCUMENT CONTAINER ── */}
+      <div className={`sanjeevini-report-paper ${hideHeaderFooter ? "sanjeevini-report-paper--no-letterhead" : ""}`}>
+        {/* Fixed Watermark (Only in With Header mode) */}
+        {!hideHeaderFooter && (
+          <div className="sanjeevini-watermark" aria-hidden="true">
+            <MicroscopeWatermark />
+            <div className="sanjeevini-watermark-text">SANJEEVINI DIAGNOSTICS LABORATORY</div>
+          </div>
+        )}
+
+        {/* ── APPLICATION HEADER (Option A: With Header, prints at top of Page 1) ── */}
         {!hideHeaderFooter ? (
           <header className="sanjeevini-header">
             <div className="sanjeevini-header-inner">
@@ -217,212 +243,11 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
             <div className="sanjeevini-header-stripe" />
           </header>
         ) : (
-          <div className="sanjeevini-preprinted-header-spacer" />
+          /* On screen only: shows visual 45 mm reserved header indicator */
+          <div className="sanjeevini-preprinted-header-spacer no-print" />
         )}
 
-        {/* Patient Card in Print Header */}
-        <section className="sanjeevini-patient-card">
-          <div className="sanjeevini-patient-left">
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Name</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <strong className="sanjeevini-info-val sanjeevini-patient-name">
-                {patient?.patient_name || "—"}
-              </strong>
-            </div>
-
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Patient ID</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val">{patient?.patient_code || "—"}</span>
-            </div>
-
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Age &amp; Sex</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val">{ageSex}</span>
-            </div>
-
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Lab Ref No</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val">{patient?.order_number || `LAB-${orderId}`}</span>
-            </div>
-          </div>
-
-          <div className="sanjeevini-patient-right">
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Collection Time</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val">{collectionDateTime}</span>
-            </div>
-
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Receiving Time</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val">{collectionDateTime}</span>
-            </div>
-
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Reporting Time</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val">{reportingDateTime}</span>
-            </div>
-
-            <div className="sanjeevini-info-row">
-              <span className="sanjeevini-info-label">Referred By</span>
-              <span className="sanjeevini-info-colon">:</span>
-              <span className="sanjeevini-info-val sanjeevini-referred-val">
-                {patient?.referred_by || "Direct / Self"}
-              </span>
-            </div>
-          </div>
-        </section>
-
-        {/* Column Headers in Print Header */}
-        <div className="sanjeevini-th-bar">
-          <div style={{ width: "38%", textAlign: "left", paddingLeft: "2mm" }}>Test Name</div>
-          <div style={{ width: "22%", textAlign: "center" }}>Results</div>
-          <div style={{ width: "15%", textAlign: "center" }}>Units</div>
-          <div style={{ width: "25%", textAlign: "center" }}>Biological Ref. Interval</div>
-        </div>
-      </div>
-
-      {/* ── PRINT-ONLY FIXED FOOTER (Repeated at absolute bottom of every printed page) ── */}
-      <div className="sanjeevini-print-only-footer">
-        {!hideHeaderFooter ? (
-          <>
-            <section className="sanjeevini-footer-section">
-              <div className="sanjeevini-footer-top">
-                <div className="sanjeevini-disclaimer">
-                  The above results are as per the sample received.
-                </div>
-
-                <div className="sanjeevini-signature-box">
-                  <div className="sanjeevini-signature-title">SIGNATURE</div>
-                  <div className="sanjeevini-home-service">HOME SERVICE AVAILABLE</div>
-                </div>
-              </div>
-            </section>
-
-            <footer className="sanjeevini-bottom-strip">
-              <div className="sanjeevini-bottom-kannada">
-                ಶ್ರೀ ಕೃಷ್ಣಯೋಗಾಶ್ರಮ, ಬಸವೇಶ್ವರ ನಗರ, ಗುಳೇದಗುಡ್ಡ-587203, ಜ-ಬಾಗಲಕೋಟ
-              </div>
-            </footer>
-          </>
-        ) : (
-          <div className="sanjeevini-preprinted-footer-spacer" />
-        )}
-      </div>
-
-      {/* ── SCREEN & PRINT MAIN DOCUMENT CONTAINER ── */}
-      <div className={`sanjeevini-report-paper ${hideHeaderFooter ? "sanjeevini-report-paper--no-letterhead" : ""}`}>
-        {/* Fixed Watermark */}
-        {!hideHeaderFooter && (
-          <div className="sanjeevini-watermark" aria-hidden="true">
-            <MicroscopeWatermark />
-            <div className="sanjeevini-watermark-text">SANJEEVINI DIAGNOSTICS LABORATORY</div>
-          </div>
-        )}
-
-        {/* ── SCREEN VIEW: HEADER (Visible on screen) ── */}
-        <div className="sanjeevini-screen-header">
-          {!hideHeaderFooter ? (
-            <header className="sanjeevini-header">
-              <div className="sanjeevini-header-inner">
-                <div className="sanjeevini-header-left">
-                  {logoSrc ? (
-                    <img src={logoSrc} alt="Lab Logo" className="sanjeevini-custom-logo" />
-                  ) : (
-                    <AyurvedaLogo />
-                  )}
-                </div>
-
-                <div className="sanjeevini-header-center">
-                  <div className="sanjeevini-kannada-sub">ಶ್ರೀ ಕೃಷ್ಣ ಯೋಗಾಶ್ರಮ</div>
-                  <div className="sanjeevini-kannada-main">ಸಂಜೀವಿನಿ ಚಿಕಿತ್ಸಾಲಯ</div>
-                  <div className="sanjeevini-contact-line">
-                    {labAddress ? (
-                      labAddress
-                    ) : (
-                      <>ಮೊನಂ. 8088113455, 7483324754, &nbsp; ಗುಳೇದಗುಡ್ಡ -587 203</>
-                    )}
-                  </div>
-                  <h1 className="sanjeevini-english-title">{labName}</h1>
-                </div>
-
-                <div className="sanjeevini-header-right">
-                  <DiagnosticsSeal />
-                </div>
-              </div>
-              <div className="sanjeevini-header-stripe" />
-            </header>
-          ) : (
-            <div className="sanjeevini-preprinted-header-spacer" />
-          )}
-
-          {/* Patient Demographic Card on Screen */}
-          <section className="sanjeevini-patient-card">
-            <div className="sanjeevini-patient-left">
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Name</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <strong className="sanjeevini-info-val sanjeevini-patient-name">
-                  {patient?.patient_name || "—"}
-                </strong>
-              </div>
-
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Patient ID</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val">{patient?.patient_code || "—"}</span>
-              </div>
-
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Age &amp; Sex</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val">{ageSex}</span>
-              </div>
-
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Lab Ref No</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val">{patient?.order_number || `LAB-${orderId}`}</span>
-              </div>
-            </div>
-
-            <div className="sanjeevini-patient-right">
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Collection Time</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val">{collectionDateTime}</span>
-              </div>
-
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Receiving Time</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val">{collectionDateTime}</span>
-              </div>
-
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Reporting Time</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val">{reportingDateTime}</span>
-              </div>
-
-              <div className="sanjeevini-info-row">
-                <span className="sanjeevini-info-label">Referred By</span>
-                <span className="sanjeevini-info-colon">:</span>
-                <span className="sanjeevini-info-val sanjeevini-referred-val">
-                  {patient?.referred_by || "Direct / Self"}
-                </span>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        {/* ── TABLE WITH TEST RESULTS ── */}
+        {/* ── TABLE WITH PATIENT INFO & TEST RESULTS ── */}
         <main className="sanjeevini-report-body">
           <table className="sanjeevini-table">
             <colgroup>
@@ -432,14 +257,70 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
               <col style={{ width: "25%" }} />
             </colgroup>
             <thead>
-              {/* Invisible spacer in print to push content below the fixed header */}
-              <tr className="sanjeevini-print-spacer-row">
-                <th colSpan={4} className="sanjeevini-thead-spacer-cell">
-                  <div className={`sanjeevini-thead-spacer ${hideHeaderFooter ? "sanjeevini-thead-spacer--no-letterhead" : ""}`} />
+              {/* Patient Card in thead: repeats cleanly at the top of every printed page */}
+              <tr className="sanjeevini-patient-header-row">
+                <th colSpan={4} className="sanjeevini-patient-header-cell">
+                  <section className="sanjeevini-patient-card">
+                    <div className="sanjeevini-patient-left">
+                      <div className="sanjeevini-info-row">
+                        <span className="sanjeevini-info-label">Name</span>
+                        <span className="sanjeevini-info-colon">:</span>
+                        <strong className="sanjeevini-info-val sanjeevini-patient-name">
+                          {patient?.patient_name || "—"}
+                        </strong>
+                      </div>
+
+                      <div className="sanjeevini-info-row">
+                        <span className="sanjeevini-info-label">Patient ID</span>
+                        <span className="sanjeevini-info-colon">:</span>
+                        <span className="sanjeevini-info-val">{patient?.patient_code || "—"}</span>
+                      </div>
+
+                      <div className="sanjeevini-info-row">
+                        <span className="sanjeevini-info-label">Age &amp; Sex</span>
+                        <span className="sanjeevini-info-colon">:</span>
+                        <span className="sanjeevini-info-val">{ageSex}</span>
+                      </div>
+
+                      <div className="sanjeevini-info-row">
+                        <span className="sanjeevini-info-label">Lab Ref No</span>
+                        <span className="sanjeevini-info-colon">:</span>
+                        <span className="sanjeevini-info-val">{patient?.order_number || `LAB-${orderId}`}</span>
+                      </div>
+                    </div>
+
+                    <div className="sanjeevini-patient-right">
+                      <div className="sanjeevini-info-row">
+                        <span className="sanjeevini-info-label">Collection Time</span>
+                        <span className="sanjeevini-info-colon">:</span>
+                        <span className="sanjeevini-info-val">{collectionDateTime}</span>
+                      </div>
+
+                      <div className="sanjeevini-info-row">
+                        <span className="sanjeevini-info-label">Receiving Time</span>
+                        <span className="sanjeevini-info-colon">:</span>
+                        <span className="sanjeevini-info-val">{collectionDateTime}</span>
+                      </div>
+
+                      <div className="sanjeevini-info-row">
+                        <span className="sanjeevini-info-label">Reporting Time</span>
+                        <span className="sanjeevini-info-colon">:</span>
+                        <span className="sanjeevini-info-val">{reportingDateTime}</span>
+                      </div>
+
+                      <div className="sanjeevini-info-row">
+                        <span className="sanjeevini-info-label">Referred By</span>
+                        <span className="sanjeevini-info-colon">:</span>
+                        <span className="sanjeevini-info-val sanjeevini-referred-val">
+                          {patient?.referred_by || "Direct / Self"}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
                 </th>
               </tr>
 
-              {/* Column Header Row */}
+              {/* Column Header Row: repeats cleanly right below patient card on every printed page */}
               <tr className="sanjeevini-th-row">
                 <th style={{ width: "38%", textAlign: "left", paddingLeft: "2mm" }}>Test Name</th>
                 <th style={{ width: "22%", textAlign: "center" }}>Results</th>
@@ -447,15 +328,6 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
                 <th style={{ width: "25%", textAlign: "center" }}>Biological Ref. Interval</th>
               </tr>
             </thead>
-
-            <tfoot>
-              {/* Invisible spacer in print to prevent content overlapping the fixed footer */}
-              <tr className="sanjeevini-print-spacer-row">
-                <td colSpan={4} className="sanjeevini-tfoot-spacer-cell">
-                  <div className={`sanjeevini-tfoot-spacer ${hideHeaderFooter ? "sanjeevini-tfoot-spacer--no-letterhead" : ""}`} />
-                </td>
-              </tr>
-            </tfoot>
 
             {loading ? (
               <tbody>
@@ -503,7 +375,9 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
                   {/* Parameter Rows */}
                   {group.rows.map((row, idx) => {
                     const flag = getFlagStatus(row.value, row.normal_range);
-                    const isAbnormal = flag === "High" || flag === "Low";
+                    const isHigh = flag === "High";
+                    const isLow = flag === "Low";
+                    const isAbnormal = isHigh || isLow;
 
                     return (
                       <tr
@@ -519,12 +393,16 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
                           </span>
                         </td>
 
-                        {/* Result Value */}
+                        {/* Result Value - ONLY HIGH is bold */}
                         <td className="sanjeevini-cell-result" style={{ width: "22%" }}>
                           <div className="sanjeevini-result-flex">
                             <span
                               className={`sanjeevini-result-value ${
-                                isAbnormal ? "sanjeevini-result-value--flagged" : ""
+                                isHigh
+                                  ? "sanjeevini-result-value--high"
+                                  : isLow
+                                  ? "sanjeevini-result-value--low"
+                                  : "sanjeevini-result-value--normal"
                               }`}
                             >
                               {formatValue(row.value)}
@@ -557,32 +435,9 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
           </table>
         </main>
 
-        {/* ── SCREEN VIEW: FOOTER (Visible at the bottom of screen preview) ── */}
-        <div className="sanjeevini-screen-footer">
-          {!hideHeaderFooter ? (
-            <>
-              <section className="sanjeevini-footer-section">
-                <div className="sanjeevini-footer-top">
-                  <div className="sanjeevini-disclaimer">
-                    The above results are as per the sample received.
-                  </div>
-
-                  <div className="sanjeevini-signature-box">
-                    <div className="sanjeevini-signature-title">SIGNATURE</div>
-                    <div className="sanjeevini-home-service">HOME SERVICE AVAILABLE</div>
-                  </div>
-                </div>
-              </section>
-
-              <footer className="sanjeevini-bottom-strip">
-                <div className="sanjeevini-bottom-kannada">
-                  ಶ್ರೀ ಕೃಷ್ಣಯೋಗಾಶ್ರಮ, ಬಸವೇಶ್ವರ ನಗರ, ಗುಳೇದಗುಡ್ಡ-587203, ಜ-ಬಾಗಲಕೋಟ
-                </div>
-              </footer>
-            </>
-          ) : (
-            <div className="sanjeevini-preprinted-footer-spacer" />
-          )}
+        {/* ── SCREEN VIEW: RESERVED FOOTER SPACER (45 mm on screen) ── */}
+        <div className="sanjeevini-screen-footer no-print">
+          <div className="sanjeevini-preprinted-footer-spacer" />
         </div>
       </div>
     </div>
@@ -747,9 +602,10 @@ function normalizeGender(gender?: string) {
   return "-";
 }
 
-// ── COMPREHENSIVE STYLES: FULL SCREEN PREVIEW & MULTI-PAGE PRINT PINNING ──
+// ── COMPREHENSIVE STYLES: FULL SCREEN PREVIEW & SINGLE-SOURCE A4 PAGINATION ──
 
-const reportStyles = `
+function getReportStyles(hideHeaderFooter: boolean) {
+  return `
   .sanjeevini-report-page {
     min-height: 100%;
     padding: 16px 20px 40px;
@@ -848,18 +704,10 @@ const reportStyles = `
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
   }
 
   .sanjeevini-report-paper--no-letterhead {
-    border-top: 2px dashed #e2e8f0;
-  }
-
-  /* Hidden on screen, enabled during print */
-  .sanjeevini-print-only-header,
-  .sanjeevini-print-only-footer,
-  .sanjeevini-print-spacer-row {
-    display: none;
+    border-top: 2px dashed #cbd5e1;
   }
 
   /* Watermark */
@@ -886,7 +734,7 @@ const reportStyles = `
     text-align: center;
   }
 
-  /* Header Banner */
+  /* Header Banner (Option A: With Header) */
   .sanjeevini-header {
     background: #136336;
     color: #ffffff;
@@ -1002,28 +850,75 @@ const reportStyles = `
     border-bottom: 2px solid #136336;
   }
 
+  /* Reserved 45 mm header spacer on screen in Without Header mode */
   .sanjeevini-preprinted-header-spacer {
-    height: 38mm;
+    height: 45mm;
     width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 10px,
+      rgba(241, 245, 249, 0.6) 10px,
+      rgba(241, 245, 249, 0.6) 20px
+    );
+    border-bottom: 1px dashed #cbd5e1;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
 
+  /* Reserved 45 mm footer spacer on screen in both modes */
   .sanjeevini-preprinted-footer-spacer {
-    height: 28mm;
+    height: 45mm;
     width: 100%;
+    margin-top: auto;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 10px,
+      rgba(241, 245, 249, 0.6) 10px,
+      rgba(241, 245, 249, 0.6) 20px
+    );
+    border-top: 1px dashed #cbd5e1;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
 
-  /* Patient Demographics Card */
+  /* Patient Demographics Card inside thead */
+  .sanjeevini-patient-header-cell {
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    font-weight: normal !important;
+    text-align: left !important;
+  }
+
   .sanjeevini-patient-card {
-    margin: 1.5mm 8mm 1.5mm;
+    margin: 2mm 0 2.5mm;
     border: 1px solid #475569;
     border-radius: 2px;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    padding: 1.5mm 4mm;
+    padding: 2mm 4mm;
     font-size: 9pt;
-    line-height: 1.32;
+    line-height: 1.35;
     background: #ffffff;
     column-gap: 8mm;
+    box-sizing: border-box;
+    width: 100%;
   }
 
   .sanjeevini-patient-left,
@@ -1057,13 +952,13 @@ const reportStyles = `
   .sanjeevini-info-val {
     flex: 1;
     color: #0f172a;
-    font-weight: 600;
+    font-weight: 500;
     font-size: 9pt;
     word-break: break-word;
   }
 
   .sanjeevini-patient-name {
-    font-size: 9.5pt;
+    font-size: 10pt;
     font-weight: 700;
     color: #0f172a;
   }
@@ -1074,7 +969,7 @@ const reportStyles = `
     font-size: 9.5pt;
   }
 
-  /* Table Header Bar for Screen & Print */
+  /* Table Body */
   .sanjeevini-report-body {
     flex: 1;
     padding: 0 8mm;
@@ -1090,11 +985,10 @@ const reportStyles = `
     line-height: 1.35;
   }
 
-  .sanjeevini-th-row th,
-  .sanjeevini-th-bar {
+  .sanjeevini-th-row th {
     border-top: 1.5px solid #1e293b;
     border-bottom: 1.5px solid #1e293b;
-    padding: 1.8mm 2mm;
+    padding: 2mm 2mm;
     font-size: 9.5pt;
     font-weight: 700;
     color: #0f172a;
@@ -1102,15 +996,8 @@ const reportStyles = `
     letter-spacing: 0.02em;
   }
 
-  .sanjeevini-th-bar {
-    display: flex;
-    align-items: center;
-    margin: 0 8mm;
-    box-sizing: border-box;
-  }
-
   .sanjeevini-panel-row td {
-    padding: 2.8mm 2mm 1mm;
+    padding: 3mm 2mm 1.2mm;
     background: transparent;
   }
 
@@ -1123,7 +1010,7 @@ const reportStyles = `
   }
 
   .sanjeevini-data-row td {
-    padding: 1.4mm 2mm;
+    padding: 1.5mm 2mm;
     border-bottom: 1px solid #f1f5f9;
     color: #1e293b;
     vertical-align: middle;
@@ -1151,37 +1038,47 @@ const reportStyles = `
     gap: 5px;
   }
 
+  /* Result Value: 10pt. Only HIGH is bold. NORMAL and LOW are regular. */
   .sanjeevini-result-value {
-    font-weight: 700;
-    font-size: 9.5pt;
+    font-size: 10pt;
+    font-weight: 400;
     color: #0f172a;
     font-variant-numeric: tabular-nums;
   }
 
-  .sanjeevini-result-value--flagged {
+  .sanjeevini-result-value--normal {
+    font-weight: 400;
+    color: #0f172a;
+  }
+
+  .sanjeevini-result-value--low {
+    font-weight: 400;
     color: #dc2626;
+    text-decoration: underline;
+  }
+
+  .sanjeevini-result-value--high {
     font-weight: 700;
+    color: #dc2626;
     text-decoration: underline;
   }
 
   .sanjeevini-flag-pill {
-    font-size: 9pt;
-    font-weight: 700;
+    font-size: 8.5pt;
     color: #dc2626;
     text-decoration: underline;
     background: transparent;
     border: none;
-    border-radius: 0;
     padding: 0;
     letter-spacing: 0.01em;
   }
 
-  .sanjeevini-flag-pill--high,
+  .sanjeevini-flag-pill--high {
+    font-weight: 700;
+  }
+
   .sanjeevini-flag-pill--low {
-    background: transparent;
-    border: none;
-    color: #dc2626;
-    text-decoration: underline;
+    font-weight: 400;
   }
 
   .sanjeevini-cell-unit {
@@ -1197,68 +1094,10 @@ const reportStyles = `
     font-variant-numeric: tabular-nums;
   }
 
-  /* Footer disclaimer & signatures on Screen */
   .sanjeevini-screen-footer {
     margin-top: auto;
     position: relative;
     z-index: 1;
-  }
-
-  .sanjeevini-footer-section {
-    padding: 3mm 8mm 2mm;
-    background: #ffffff;
-  }
-
-  .sanjeevini-footer-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    padding-bottom: 2mm;
-  }
-
-  .sanjeevini-disclaimer {
-    font-size: 10px;
-    color: #334155;
-    font-style: italic;
-  }
-
-  .sanjeevini-signature-box {
-    text-align: right;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-  }
-
-  .sanjeevini-signature-title {
-    font-size: 11px;
-    font-weight: 700;
-    color: #0f172a;
-    letter-spacing: 0.05em;
-  }
-
-  .sanjeevini-home-service {
-    font-size: 9.5px;
-    font-weight: 600;
-    color: #334155;
-    letter-spacing: 0.03em;
-  }
-
-  /* Bottom Green Strip */
-  .sanjeevini-bottom-strip {
-    background: #136336;
-    color: #ffffff;
-    text-align: center;
-    padding: 2.5mm 4mm;
-    margin-top: 0;
-  }
-
-  .sanjeevini-bottom-kannada {
-    font-size: 11.5px;
-    font-weight: 700;
-    color: #ffffff;
-    letter-spacing: 0.02em;
-    font-family: 'Segoe UI', Tahoma, 'Noto Sans Kannada', sans-serif;
   }
 
   .sanjeevini-state-box {
@@ -1276,62 +1115,16 @@ const reportStyles = `
     background: #fef2f2;
   }
 
-  /* ── PRINT RULES (Multi-Page Running Headers & Footers) ── */
+  /* ── PRINT MEDIA RULES: Clean Single-Source A4 Pagination ── */
   @media print {
     .no-print,
     .sanjeevini-report-toolbar,
     .sanjeevini-hidden-banner,
-    .sanjeevini-screen-header,
     .sanjeevini-screen-footer,
+    .sanjeevini-preprinted-header-spacer,
+    .sanjeevini-preprinted-footer-spacer,
     button {
       display: none !important;
-    }
-
-    /* Enable print-only fixed running header and running footer */
-    .sanjeevini-print-only-header {
-      display: block !important;
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      right: 0 !important;
-      width: 100% !important;
-      z-index: 100 !important;
-      background: #ffffff !important;
-    }
-
-    .sanjeevini-header {
-      padding: 3.5mm 8mm 2.5mm !important;
-    }
-
-    .sanjeevini-patient-card {
-      margin: 1mm 8mm 1mm !important;
-      padding: 1mm 3.5mm !important;
-      font-size: 8.5pt !important;
-      line-height: 1.28 !important;
-    }
-
-    .sanjeevini-patient-left,
-    .sanjeevini-patient-right {
-      gap: 0.5mm !important;
-    }
-
-    .sanjeevini-print-only-footer {
-      display: block !important;
-      position: fixed !important;
-      bottom: 0 !important;
-      left: 0 !important;
-      right: 0 !important;
-      width: 100% !important;
-      z-index: 100 !important;
-      background: #ffffff !important;
-    }
-
-    .sanjeevini-print-spacer-row {
-      display: table-row !important;
-    }
-
-    .sanjeevini-th-row {
-      display: none !important; /* already in fixed print header */
     }
 
     html,
@@ -1378,17 +1171,27 @@ const reportStyles = `
       border: none !important;
     }
 
-    /* Fixed Watermark across all pages */
-    .sanjeevini-watermark {
-      position: fixed !important;
-      top: 50% !important;
-      left: 50% !important;
-      transform: translate(-50%, -50%) !important;
-      z-index: 0 !important;
+    /* Option A: With Header prints banner on Page 1 */
+    .sanjeevini-header {
+      padding: 2.5mm 0 2mm !important;
+      margin-bottom: 2mm !important;
+      background: #136336 !important;
+      color: #ffffff !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    .sanjeevini-header-inner {
+      gap: 6px !important;
+    }
+
+    .sanjeevini-custom-logo {
+      height: 16mm !important;
+      max-width: 36mm !important;
     }
 
     .sanjeevini-report-body {
-      padding: 0 8mm !important;
+      padding: 0 !important;
     }
 
     .sanjeevini-table {
@@ -1400,37 +1203,35 @@ const reportStyles = `
       display: table-header-group !important;
     }
 
-    .sanjeevini-table tfoot {
-      display: table-footer-group !important;
-    }
-
     .sanjeevini-table tbody {
       display: table-row-group !important;
     }
 
-    /* Spacers reserve height for fixed running header and fixed running footer */
-    .sanjeevini-thead-spacer-cell,
-    .sanjeevini-tfoot-spacer-cell {
-      padding: 0 !important;
-      border: none !important;
+    .sanjeevini-patient-card {
+      margin: 0 0 2mm 0 !important;
+      padding: 1.5mm 3.5mm !important;
+      font-size: 9pt !important;
+      line-height: 1.32 !important;
+      border: 1px solid #475569 !important;
+      background: #ffffff !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
 
-    .sanjeevini-thead-spacer {
-      display: block !important;
-      height: 72mm !important;
+    .sanjeevini-patient-left,
+    .sanjeevini-patient-right {
+      gap: 0.6mm !important;
     }
 
-    .sanjeevini-thead-spacer--no-letterhead {
-      height: 72mm !important;
-    }
-
-    .sanjeevini-tfoot-spacer {
-      display: block !important;
-      height: 34mm !important;
-    }
-
-    .sanjeevini-tfoot-spacer--no-letterhead {
-      height: 34mm !important;
+    .sanjeevini-th-row th {
+      padding: 1.8mm 2mm !important;
+      font-size: 9.5pt !important;
+      font-weight: 700 !important;
+      background: #f8fafc !important;
+      border-top: 1.5px solid #1e293b !important;
+      border-bottom: 1.5px solid #1e293b !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
 
     .sanjeevini-panel-group {
@@ -1452,16 +1253,79 @@ const reportStyles = `
       page-break-after: avoid !important;
     }
 
-    .sanjeevini-result-value--flagged,
-    .sanjeevini-flag-pill {
-      color: #dc2626 !important;
+    .sanjeevini-panel-title {
+      font-size: 10.5pt !important;
       font-weight: 700 !important;
+    }
+
+    .sanjeevini-test-name {
+      font-size: 9.5pt !important;
+      font-weight: 500 !important;
+    }
+
+    .sanjeevini-result-value {
+      font-size: 10pt !important;
+    }
+
+    .sanjeevini-result-value--normal {
+      font-weight: 400 !important;
+      color: #0f172a !important;
+      text-decoration: none !important;
+    }
+
+    .sanjeevini-result-value--low {
+      font-weight: 400 !important;
+      color: #dc2626 !important;
       text-decoration: underline !important;
     }
 
+    .sanjeevini-result-value--high {
+      font-weight: 700 !important;
+      color: #dc2626 !important;
+      text-decoration: underline !important;
+    }
+
+    .sanjeevini-flag-pill--high {
+      font-weight: 700 !important;
+      color: #dc2626 !important;
+      text-decoration: underline !important;
+    }
+
+    .sanjeevini-flag-pill--low {
+      font-weight: 400 !important;
+      color: #dc2626 !important;
+      text-decoration: underline !important;
+    }
+
+    .sanjeevini-cell-unit {
+      font-size: 9pt !important;
+    }
+
+    .sanjeevini-cell-ref {
+      font-size: 9pt !important;
+    }
+
+    /* Fixed Watermark across all pages (Only in With Header mode) */
+    .sanjeevini-watermark {
+      position: fixed !important;
+      top: 50% !important;
+      left: 50% !important;
+      transform: translate(-50%, -50%) !important;
+      z-index: 0 !important;
+    }
+
+    /* Single Coherent @page Boundary: 
+       - Top 45 mm reserved in Without Header mode (Option B)
+       - Bottom 45 mm ALWAYS reserved in both modes (Option A & B)
+       - 8 mm Left / Right margins
+    */
     @page {
       size: A4 portrait;
-      margin: 0;
+      margin-top: ${hideHeaderFooter ? "45mm" : "8mm"};
+      margin-bottom: 45mm;
+      margin-left: 8mm;
+      margin-right: 8mm;
     }
   }
 `;
+}

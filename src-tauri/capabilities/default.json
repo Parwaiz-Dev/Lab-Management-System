@@ -8,7 +8,6 @@
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",
-    "dialog:allow-ask",
-    "updater:default"
+    "dialog:allow-ask"
   ]
 }

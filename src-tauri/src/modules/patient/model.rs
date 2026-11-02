@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
 pub struct Patient {
@@ -11,4 +11,12 @@ pub struct Patient {
     pub phone: Option<String>,
     pub referred_by: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct DoctorRecord {
+    pub id: i64,
+    pub name: String,
+    pub is_active: bool,
+    pub is_default: bool,
 }

@@ -9,11 +9,18 @@ export function setupDevMock() {
     return;
   }
 
-  const sampleDoctors = [
-    "Dr. S. K. Kulkarni (MD)",
-    "Dr. Ramesh Patil (MBBS)",
-    "Dr. Anand Deshmukh (MS)",
-    "Dr. Sneha Joshi (DGO)",
+  interface MockDoctor {
+    id: number;
+    name: string;
+    is_active: boolean;
+    is_default: boolean;
+  }
+
+  const sampleDoctorRecords: MockDoctor[] = [
+    { id: 1, name: "Dr. S. K. Kulkarni (MD)", is_active: true, is_default: true },
+    { id: 2, name: "Dr. Ramesh Patil (MBBS)", is_active: true, is_default: false },
+    { id: 3, name: "Dr. Anand Deshmukh (MS)", is_active: true, is_default: false },
+    { id: 4, name: "Dr. Sneha Joshi (DGO)", is_active: true, is_default: false },
   ];
 
   const sampleTests = [
@@ -188,13 +195,70 @@ export function setupDevMock() {
           return "Logged out";
 
         case "get_doctors":
-          return sampleDoctors;
+          return sampleDoctorRecords
+            .filter((d) => d.is_active)
+            .map((d) => d.name);
 
-        case "add_doctor":
-          if (args.name && !sampleDoctors.includes(args.name)) {
-            sampleDoctors.push(args.name);
+        case "get_all_doctors":
+          return sampleDoctorRecords.map((d) => ({ ...d }));
+
+        case "get_default_doctor":
+          return sampleDoctorRecords.find((d) => d.is_active && d.is_default) || null;
+
+        case "add_doctor": {
+          const trimmed = (args.name || "").trim();
+          if (!trimmed) {
+            throw new Error("Doctor name cannot be empty");
           }
-          return args.name;
+          if (sampleDoctorRecords.some((d) => d.name.toLowerCase() === trimmed.toLowerCase())) {
+            throw new Error("A doctor with this name already exists");
+          }
+          const nextId = sampleDoctorRecords.length ? Math.max(...sampleDoctorRecords.map((d) => d.id)) + 1 : 1;
+          sampleDoctorRecords.push({ id: nextId, name: trimmed, is_active: true, is_default: false });
+          return nextId;
+        }
+
+        case "update_doctor": {
+          const trimmed = (args.name || "").trim();
+          if (!trimmed) {
+            throw new Error("Doctor name cannot be empty");
+          }
+          const doc = sampleDoctorRecords.find((d) => d.id === args.id);
+          if (!doc) {
+            throw new Error("Doctor not found");
+          }
+          if (sampleDoctorRecords.some((d) => d.id !== args.id && d.name.toLowerCase() === trimmed.toLowerCase())) {
+            throw new Error("Another doctor with this name already exists");
+          }
+          doc.name = trimmed;
+          return { success: true };
+        }
+
+        case "set_default_doctor": {
+          const doc = sampleDoctorRecords.find((d) => d.id === args.id);
+          if (!doc) {
+            throw new Error("Doctor not found");
+          }
+          if (!doc.is_active) {
+            throw new Error("Cannot set an inactive doctor as default");
+          }
+          sampleDoctorRecords.forEach((d) => {
+            d.is_default = d.id === args.id;
+          });
+          return { success: true };
+        }
+
+        case "set_doctor_active": {
+          const doc = sampleDoctorRecords.find((d) => d.id === args.id);
+          if (!doc) {
+            throw new Error("Doctor not found");
+          }
+          doc.is_active = !!args.isActive;
+          if (!args.isActive && doc.is_default) {
+            doc.is_default = false;
+          }
+          return { success: true };
+        }
 
         case "get_tests":
           return sampleTests;
@@ -211,7 +275,7 @@ export function setupDevMock() {
 
         case "get_doctor_revenue":
           return Array.from(new Set([
-            ...sampleDoctors,
+            ...sampleDoctorRecords.map((d) => d.name),
             ...sampleOrders.map((order) => order.referredBy),
           ])).map((doctorName) => {
             const doctorOrders = sampleOrders.filter(
@@ -231,8 +295,8 @@ export function setupDevMock() {
             const sharePercentage = shareRate <= 1 ? shareRate * 100 : shareRate;
 
             const commissionEarned = Math.round(patientTotal * sharePercentage) / 100;
-            const registeredIndex = sampleDoctors.findIndex(
-              (doctor) => doctor.toLowerCase() === doctorName.toLowerCase(),
+            const registeredIndex = sampleDoctorRecords.findIndex(
+              (doctor) => doctor.name.toLowerCase() === doctorName.toLowerCase(),
             );
 
             return {

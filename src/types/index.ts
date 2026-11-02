@@ -42,6 +42,13 @@ export interface User {
   created_at: string;
 }
 
+export interface Doctor {
+  id: number;
+  name: string;
+  is_active: boolean;
+  is_default: boolean;
+}
+
 export interface Patient {
   id: number;
   patient_code: string;
