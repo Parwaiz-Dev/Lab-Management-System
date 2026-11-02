@@ -12,12 +12,14 @@ import {
   Receipt,
   MoreVertical,
   Ban,
+  Plus,
 } from "lucide-react";
 import {
   exportOrdersToPdf,
   exportDoctorRevenueToPdf,
 } from "../../../utils/exportUtils";
 import PaymentModal from "../components/PaymentModal";
+import AddTestModal from "../components/AddTestModal";
 import ConfirmationDialog from "../../../components/ui/ConfirmationDialog";
 import Toast from "../../../components/ui/Toast";
 import Card from "../../../components/ui/Card";
@@ -35,16 +37,19 @@ type LabDashboardProps = {
   onOpenReceipt: (orderId: number) => void;
   onOpenReport?: (orderId: number) => void;
   onEditOrder?: (orderId: number) => void;
+  userRole?: string;
 };
 
 export default function LabDashboard({
   onSelectOrder,
   onOpenReceipt,
   onOpenReport,
-  onEditOrder,
+  onEditOrder: _onEditOrder,
+  userRole,
 }: LabDashboardProps) {
   const [orders, setOrders] = useState<DashboardOrderRow[]>([]);
   const [paymentModal, setPaymentModal] = useState<DashboardOrderRow | null>(null);
+  const [addTestOrder, setAddTestOrder] = useState<DashboardOrderRow | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState("");
@@ -190,7 +195,7 @@ export default function LabDashboard({
     if (!text) return orders;
 
     return orders.filter((order) =>
-      `${order.id} ${order.patientName || ""} ${order.tests || ""} ${order.paymentStatus || ""} ${order.reportStatus || ""}`
+      `${order.id} ${order.orderNumber || ""} ${order.patientCode || ""} ${order.invoiceNo || ""} ${order.patientName || ""} ${order.tests || ""} ${order.paymentStatus || ""} ${order.reportStatus || ""}`
         .toLowerCase()
         .includes(text)
     );
@@ -278,8 +283,9 @@ export default function LabDashboard({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* 4 Primary KPI Cards (Chavan Saree Center compact stat cards) */}
-      <div className="dashboard-kpi-grid">
+      {/* 4 Primary KPI Cards (Chavan Saree Center compact stat cards) - Admin only */}
+      {userRole === "admin" && (
+        <div className="dashboard-kpi-grid">
         <StatCard
           title="Total Orders"
           value={orders.length}
@@ -312,6 +318,7 @@ export default function LabDashboard({
           tone="emerald"
         />
       </div>
+      )}
 
       {/* Filter and Toolbar Bar (Matching Chavan Saree Center filter bar) */}
       <div
@@ -381,15 +388,17 @@ export default function LabDashboard({
 
           <span style={{ width: 1, height: 20, background: "var(--color-border)" }} />
 
-          <Button
-            type="button"
-            onClick={loadDoctorRevenue}
-            variant="outline"
-            size="sm"
-            icon={<Users size={12} />}
-          >
-            Doctor Revenue
-          </Button>
+          {userRole === "admin" && (
+            <Button
+              type="button"
+              onClick={loadDoctorRevenue}
+              variant="outline"
+              size="sm"
+              icon={<Users size={12} />}
+            >
+              Doctor Revenue
+            </Button>
+          )}
 
           <Button
             type="button"
@@ -481,15 +490,20 @@ export default function LabDashboard({
                       {/* Order ID */}
                       <td>
                         <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--color-text)" }}>
-                          #{orderId}
+                          {order.orderNumber || `#${orderId}`}
                         </span>
                       </td>
 
-                      {/* Patient Name */}
+                      {/* Patient Details: Name and Patient ID */}
                       <td>
                         <strong style={{ display: "block", color: "var(--color-text)", fontWeight: 600 }}>
                           {order.patientName || "Unknown Patient"}
                         </strong>
+                        {order.patientCode && (
+                          <span style={{ display: "block", fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-text-soft)", marginTop: 2 }}>
+                            {order.patientCode}
+                          </span>
+                        )}
                       </td>
 
                       {/* Tests */}
@@ -639,12 +653,12 @@ export default function LabDashboard({
                                     <span>Cancel Order</span>
                                   </button>
                                 )}
-                                {reportStatus === "In Progress" && onEditOrder && (
+                                {reportStatus !== "Cancelled" && (
                                   <button
                                     type="button"
                                     onClick={() => {
                                       setMenuOpen(null);
-                                      onEditOrder(orderId);
+                                      setAddTestOrder(order);
                                     }}
                                     style={{
                                       width: "100%",
@@ -652,11 +666,15 @@ export default function LabDashboard({
                                       padding: "6px 8px",
                                       fontSize: 11,
                                       fontWeight: 600,
-                                      color: "var(--color-text)",
+                                      color: "var(--color-primary)",
                                       borderRadius: "var(--radius-sm)",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 6,
                                     }}
                                   >
-                                    Add Test
+                                    <Plus size={12} />
+                                    <span>Add Test</span>
                                   </button>
                                 )}
                                 {reportStatus === "Cancelled" && (
@@ -945,6 +963,22 @@ export default function LabDashboard({
           </div>
         </div>
       </Modal>
+
+      {/* Add Test Modal */}
+      {addTestOrder && (
+        <AddTestModal
+          order={addTestOrder}
+          onClose={() => setAddTestOrder(null)}
+          onSuccess={async () => {
+            setAddTestOrder(null);
+            setToast({
+              message: "Tests added to order successfully.",
+              tone: "success",
+            });
+            await loadAll();
+          }}
+        />
+      )}
 
       {/* Payment Modal */}
       {paymentModal && (

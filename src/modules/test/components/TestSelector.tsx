@@ -29,6 +29,27 @@ import { getErrorMessage, money, testService } from "../services/testService";
 
 type SelectedTest = Test & {
   selectedParameterIds: number[];
+  customPrice?: number | string;
+};
+
+const getEffectivePrice = (test: SelectedTest): number => {
+  if (test.customPrice !== undefined && test.customPrice !== "") {
+    const parsed = Number(test.customPrice);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+  return test.price;
+};
+
+const getPaymentMethodLabel = (method?: "cash" | "upi" | "card"): string => {
+  switch (method) {
+    case "upi":
+      return "QR / UPI";
+    case "card":
+      return "Card";
+    case "cash":
+    default:
+      return "Cash";
+  }
 };
 
 type LastOrder = {
@@ -80,7 +101,7 @@ export default function TestSelector({
 
   // Billing & Real-Time Payment State
   const [discount, setDiscount] = useState("");
-  const [paymentMode, setPaymentMode] = useState<"full" | "partial" | "later">("full");
+  const [paymentMode, setPaymentMode] = useState<"full" | "partial" | "later">("later");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "upi" | "card">("cash");
   const [advanceAmount, setAdvanceAmount] = useState("");
   const [postPaymentAmount, setPostPaymentAmount] = useState("");
@@ -124,7 +145,7 @@ export default function TestSelector({
     setSearch("");
     setLastOrder(null);
     setDiscount("");
-    setPaymentMode("full");
+    setPaymentMode("later");
     setAdvanceAmount("");
     setActiveChecklistId(null);
   }, [patient?.id]);
@@ -217,11 +238,34 @@ export default function TestSelector({
         {
           ...test,
           selectedParameterIds: test.parameters.map((param) => param.id),
+          customPrice: test.price,
         },
       ];
     });
 
     setSearch("");
+  };
+
+  const handlePriceChange = (testId: number, rawValue: string) => {
+    if (rawValue.trim() === "") {
+      setSelected((prev) =>
+        prev.map((t) => (t.id === testId ? { ...t, customPrice: "" } : t))
+      );
+      return;
+    }
+
+    const val = Number(rawValue);
+    if (!Number.isFinite(val) || val < 0) return;
+
+    setSelected((prev) =>
+      prev.map((t) => (t.id === testId ? { ...t, customPrice: Math.round(val) } : t))
+    );
+  };
+
+  const handleResetPrice = (testId: number) => {
+    setSelected((prev) =>
+      prev.map((t) => (t.id === testId ? { ...t, customPrice: t.price } : t))
+    );
   };
 
   const removeTest = (id: number) => {
@@ -268,7 +312,7 @@ export default function TestSelector({
   };
 
   // Math & Financials
-  const subtotal = selected.reduce((sum, test) => sum + test.price, 0);
+  const subtotal = selected.reduce((sum, test) => sum + getEffectivePrice(test), 0);
   const selectedParameterCount = selected.reduce(
     (sum, test) => sum + test.selectedParameterIds.length,
     0
@@ -318,6 +362,29 @@ export default function TestSelector({
       return false;
     }
 
+    const hasIncompletePrice = selected.some(
+      (t) => t.customPrice === ""
+    );
+
+    if (hasIncompletePrice) {
+      setToast({
+        message: "Please enter a valid price for all selected tests or click Reset",
+        type: "warning",
+      });
+      return false;
+    }
+
+    for (const test of selected) {
+      const p = getEffectivePrice(test);
+      if (isNaN(p) || p < 0) {
+        setToast({
+          message: `Invalid price for "${test.name}". Price must be 0 or higher.`,
+          type: "error",
+        });
+        return false;
+      }
+    }
+
     return true;
   };
 
@@ -329,7 +396,15 @@ export default function TestSelector({
 
     try {
       setSaving(true);
-      const orderTestsSnapshot = selected.map((test) => ({ ...test }));
+      const customPrices: Record<number, number> = {};
+      selected.forEach((test) => {
+        customPrices[test.id] = getEffectivePrice(test);
+      });
+
+      const orderTestsSnapshot = selected.map((test) => ({
+        ...test,
+        price: getEffectivePrice(test),
+      }));
 
       // 1. Create order in database
       const orderId = await testService.createOrder({
@@ -338,11 +413,12 @@ export default function TestSelector({
         parameterIds,
         totalAmount: netPayable,
         discountAmount: discountValue,
+        customPrices,
       });
 
       // 2. If upfront payment selected, update payment atomically
       if (upfrontPaidAmount > 0) {
-        await testService.updatePayment(orderId, upfrontPaidAmount);
+        await testService.updatePayment(orderId, upfrontPaidAmount, paymentMethod);
       }
 
       setBilledTests(orderTestsSnapshot);
@@ -384,11 +460,12 @@ export default function TestSelector({
   const handleCreateBillClick = () => {
     if (!patient || !validateOrderSelection()) return;
 
+    const methodDisplay = getPaymentMethodLabel(paymentMethod);
     const modeText =
       paymentMode === "full"
-        ? `Full Payment: ${money(netPayable)} via ${paymentMethod.toUpperCase()}`
+        ? `Full Payment: ${money(netPayable)} via ${methodDisplay}`
         : paymentMode === "partial"
-          ? `Advance Payment: ${money(upfrontPaidAmount)} (Due: ${money(upfrontBalanceDue)}) via ${paymentMethod.toUpperCase()}`
+          ? `Advance Payment: ${money(upfrontPaidAmount)} (Due: ${money(upfrontBalanceDue)}) via ${methodDisplay}`
           : `Pay Later: Full ${money(netPayable)} due upon completion`;
 
     setConfirmation({
@@ -402,7 +479,7 @@ export default function TestSelector({
   const startNewBill = () => {
     setLastOrder(null);
     setBilledTests([]);
-    setPaymentMode("full");
+    setPaymentMode("later");
     setAdvanceAmount("");
     setPostPaymentAmount("");
     setDiscount("");
@@ -430,7 +507,7 @@ export default function TestSelector({
 
     try {
       setPaymentSaving(true);
-      await testService.updatePayment(lastOrder.id, lastOrder.paid + amount);
+      await testService.updatePayment(lastOrder.id, lastOrder.paid + amount, paymentMethod);
       setLastOrder({ ...lastOrder, paid: lastOrder.paid + amount });
       setPostPaymentAmount("");
       setToast({ message: `Recorded ${money(amount)} payment for Order #${lastOrder.id}`, type: "success" });
@@ -607,52 +684,104 @@ export default function TestSelector({
               </tr>
             </thead>
             <tbody>
-              {(lastOrder ? billedTests : selected).map((test) => (
-                <tr key={test.id}>
-                  <td>
-                    <div style={{ fontWeight: 600, color: "var(--color-text)", fontSize: 12 }}>
-                      {test.name}
-                    </div>
-                  </td>
-                  <td>
-                    {!lastOrder ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveChecklistId(test.id);
-                          setParamSearch("");
-                        }}
-                        className="test-selector__param-pill"
-                        title="Configure individual sub-tests"
-                      >
-                        <SlidersHorizontal size={11} />
-                        <span>
-                          {test.selectedParameterIds.length} of {test.parameters.length} active
-                        </span>
-                      </button>
-                    ) : (
-                      <span className="test-selector__param-pill" style={{ cursor: "default" }}>
-                        {test.selectedParameterIds.length} active
-                      </span>
-                    )}
-                  </td>
-                  <td className="text-right" style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 12 }}>
-                    {money(test.price)}
-                  </td>
-                  {!lastOrder && (
-                    <td className="text-center">
-                      <button
-                        type="button"
-                        onClick={() => removeTest(test.id)}
-                        className="test-selector__row-delete-btn"
-                        title="Remove test"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+              {(lastOrder ? billedTests : selected).map((test) => {
+                const effectivePrice = getEffectivePrice(test);
+                const isCustom =
+                  !lastOrder &&
+                  test.customPrice !== undefined &&
+                  test.customPrice !== "" &&
+                  Number(test.customPrice) !== test.price;
+
+                return (
+                  <tr key={test.id}>
+                    <td>
+                      <div style={{ fontWeight: 600, color: "var(--color-text)", fontSize: 12 }}>
+                        {test.name}
+                      </div>
                     </td>
-                  )}
-                </tr>
-              ))}
+                    <td>
+                      {!lastOrder ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveChecklistId(test.id);
+                            setParamSearch("");
+                          }}
+                          className="test-selector__param-pill"
+                          title="Configure individual sub-tests"
+                        >
+                          <SlidersHorizontal size={11} />
+                          <span>
+                            {test.selectedParameterIds.length} of {test.parameters.length} active
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="test-selector__param-pill" style={{ cursor: "default" }}>
+                          {test.selectedParameterIds.length} active
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-right">
+                      {!lastOrder ? (
+                        <div className="test-selector__price-cell">
+                          <div
+                            className={`test-selector__price-input-wrap ${
+                              isCustom ? "test-selector__price-input-wrap--custom" : ""
+                            }`}
+                            title={`Standard Catalog Price: ${money(test.price)}`}
+                          >
+                            <span className="test-selector__price-currency">₹</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={test.customPrice !== undefined ? test.customPrice : test.price}
+                              onChange={(e) => handlePriceChange(test.id, e.target.value)}
+                              onBlur={() => {
+                                if (test.customPrice === "") {
+                                  handleResetPrice(test.id);
+                                }
+                              }}
+                              disabled={saving}
+                              className="test-selector__price-input"
+                              aria-label={`Price for ${test.name}`}
+                            />
+                          </div>
+                          {isCustom && (
+                            <div className="test-selector__price-hint">
+                              <span className="test-selector__price-std">Std: ₹{test.price}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleResetPrice(test.id)}
+                                className="test-selector__price-reset"
+                                title="Reset to standard catalog price"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", fontSize: 12 }}>
+                          {money(effectivePrice)}
+                        </span>
+                      )}
+                    </td>
+                    {!lastOrder && (
+                      <td className="text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeTest(test.id)}
+                          className="test-selector__row-delete-btn"
+                          title="Remove test"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -718,12 +847,19 @@ export default function TestSelector({
               <span>Total Bill:</span>
               <span className="font-mono">{money(lastOrder.total)}</span>
             </div>
-            <div className="test-selector__calc-row" style={{ color: "var(--color-success)", fontWeight: 700 }}>
-              <span>Amount Paid:</span>
-              <span className="font-mono">
-                {money(lastOrder.paid)} ({lastOrder.method?.toUpperCase() || "CASH"})
-              </span>
-            </div>
+            {lastOrder.paid > 0 ? (
+              <div className="test-selector__calc-row" style={{ color: "var(--color-success)", fontWeight: 700 }}>
+                <span>Amount Paid:</span>
+                <span className="font-mono">
+                  {money(lastOrder.paid)} ({getPaymentMethodLabel(lastOrder.method)})
+                </span>
+              </div>
+            ) : (
+              <div className="test-selector__calc-row" style={{ color: "var(--color-text-muted)", fontWeight: 600 }}>
+                <span>Amount Paid:</span>
+                <span className="font-mono">{money(0)}</span>
+              </div>
+            )}
             {lastOrder.total > lastOrder.paid && (
               <div className="test-selector__calc-row" style={{ color: "var(--color-danger)", fontWeight: 700 }}>
                 <span>Balance Due:</span>
@@ -823,7 +959,7 @@ export default function TestSelector({
                       {test.name}
                     </span>
                     <span className="font-mono" style={{ fontWeight: 600, flexShrink: 0 }}>
-                      {money(test.price)}
+                      {money(getEffectivePrice(test))}
                     </span>
                   </div>
                 ))}
@@ -917,40 +1053,41 @@ export default function TestSelector({
               </button>
             </div>
 
-            {/* Payment Method Pills (When Paid Full or Partial) */}
-            {paymentMode !== "later" && (
-              <div style={{ marginTop: 6 }}>
-                <div style={{ fontSize: 10, color: "var(--color-muted)", fontWeight: 600, marginBottom: 3 }}>
-                  Payment Method:
-                </div>
-                <div className="payment-method-tabs">
-                  <button
-                    type="button"
-                    className={`payment-method-tab ${paymentMethod === "cash" ? "payment-method-tab--active" : ""}`}
-                    onClick={() => setPaymentMethod("cash")}
-                  >
-                    <Banknote size={12} />
-                    <span>Cash</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`payment-method-tab ${paymentMethod === "upi" ? "payment-method-tab--active" : ""}`}
-                    onClick={() => setPaymentMethod("upi")}
-                  >
-                    <QrCode size={12} />
-                    <span>UPI / QR</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`payment-method-tab ${paymentMethod === "card" ? "payment-method-tab--active" : ""}`}
-                    onClick={() => setPaymentMethod("card")}
-                  >
-                    <CreditCard size={12} />
-                    <span>Card</span>
-                  </button>
-                </div>
+            {/* Payment Method Tabs */}
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 10, color: "var(--color-muted)", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Payment Method {paymentMode === "later" ? "(Upon Settlement)" : ""}:
               </div>
-            )}
+              <div className="payment-method-tabs" role="group" aria-label="Payment Method">
+                <button
+                  type="button"
+                  className={`payment-method-tab ${paymentMethod === "cash" ? "payment-method-tab--active" : ""}`}
+                  onClick={() => setPaymentMethod("cash")}
+                  aria-pressed={paymentMethod === "cash"}
+                >
+                  <Banknote size={13} />
+                  <span>Cash</span>
+                </button>
+                <button
+                  type="button"
+                  className={`payment-method-tab ${paymentMethod === "upi" ? "payment-method-tab--active" : ""}`}
+                  onClick={() => setPaymentMethod("upi")}
+                  aria-pressed={paymentMethod === "upi"}
+                >
+                  <QrCode size={13} />
+                  <span>QR / UPI</span>
+                </button>
+                <button
+                  type="button"
+                  className={`payment-method-tab ${paymentMethod === "card" ? "payment-method-tab--active" : ""}`}
+                  onClick={() => setPaymentMethod("card")}
+                  aria-pressed={paymentMethod === "card"}
+                >
+                  <CreditCard size={13} />
+                  <span>Card</span>
+                </button>
+              </div>
+            </div>
 
             {/* Partial Advance Input */}
             {paymentMode === "partial" && (

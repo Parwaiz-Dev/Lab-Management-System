@@ -66,6 +66,7 @@ export interface Test {
   name: string;
   price: number;
   parameters: TestParameter[];
+  is_active?: boolean;
 }
 
 export interface OrderParameter extends TestParameter {
@@ -81,6 +82,9 @@ export interface DashboardOrderRow {
   paidAmount: number;
   paymentStatus: OrderStatus | string;
   reportStatus: string;
+  orderNumber?: string;
+  patientCode?: string;
+  invoiceNo?: string;
 }
 
 export interface FinancialSummary {
@@ -100,6 +104,7 @@ export interface ReportRow {
 export interface ReportPatientInfo {
   patient_name: string;
   patient_code: string;
+  order_number?: string;
   age_value: number;
   age_unit: string;
   gender: string;
@@ -120,11 +125,15 @@ export interface ReceiptLine {
 
 export interface ReceiptData {
   patient: string;
+  patient_code?: string;
+  order_number?: string;
   invoice: string;
   total: number;
   paid: number;
   discount: number;
   tests: ReceiptLine[];
+  payment_method?: string | null;
+  order_date?: string;
 }
 
 export interface LabSettings {
@@ -146,6 +155,7 @@ export interface PaymentHistoryEntry {
   previous_paid: number;
   new_paid: number;
   total_amount: number;
+  payment_method?: string | null;
   created_at: string;
 }
 
@@ -182,6 +192,12 @@ export interface UpdateOrderPayload {
   parameter_ids: number[];
   total_amount: number;
   discount_amount: number;
+  custom_prices?: Record<number, number>;
+}
+
+export interface AddTestsPayload {
+  test_ids: number[];
+  custom_prices?: Record<number, number>;
 }
 
 export interface FormState<T> {
@@ -215,6 +231,7 @@ export interface PatientHistoryProfile {
 
 export interface PatientHistoryOrder {
   id: number;
+  order_number?: string;
   invoice_no: string;
   total_amount: number;
   paid_amount: number;
@@ -227,15 +244,18 @@ export interface PatientHistoryOrder {
 export interface PatientHistoryPayment {
   id: number;
   order_id: number;
+  order_number?: string;
   invoice_no: string;
   previous_paid: number;
   new_paid: number;
   total_amount: number;
+  payment_method?: string | null;
   created_at: string;
 }
 
 export interface PatientHistoryReport {
   order_id: number;
+  order_number?: string;
   invoice_no: string;
   test_name: string;
   parameter_name: string;
@@ -255,6 +275,7 @@ export interface PatientHistoryResultGroup {
 
 export interface PatientHistoryResultEntry {
   order_id: number;
+  order_number?: string;
   invoice_no: string;
   order_date: string;
   value: string;

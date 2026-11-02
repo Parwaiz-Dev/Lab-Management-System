@@ -10,6 +10,7 @@ import type {
   ReportPatientInfo,
   ReportRow,
   ResultValuePayload,
+  AddTestsPayload,
   Test,
   UpdateOrderPayload,
 } from "../../../types";
@@ -44,6 +45,9 @@ function normalizeDashboardOrder(row: unknown): DashboardOrderRow {
       paidAmount: toNumber(row[4]),
       paymentStatus: toText(row[5] || "Pending"),
       reportStatus: toText(row[6] || "Pending"),
+      orderNumber: toText(row[7]),
+      patientCode: toText(row[8]),
+      invoiceNo: toText(row[9]),
     };
   }
 
@@ -61,6 +65,9 @@ function normalizeDashboardOrder(row: unknown): DashboardOrderRow {
     reportStatus: toText(
       item.reportStatus ?? item.report_status ?? "Pending",
     ),
+    orderNumber: toText(item.orderNumber ?? item.order_number),
+    patientCode: toText(item.patientCode ?? item.patient_code),
+    invoiceNo: toText(item.invoiceNo ?? item.invoice_no),
   };
 }
 
@@ -118,6 +125,8 @@ function normalizeReceipt(row: unknown): ReceiptData {
       paid: toNumber(row[3]),
       discount: toNumber(row[4]),
       tests,
+      order_number: toText(row[6]),
+      patient_code: toText(row[7]),
     };
   }
 
@@ -126,11 +135,15 @@ function normalizeReceipt(row: unknown): ReceiptData {
 
   return {
     patient: toText(item.patient ?? item.patient_name ?? item.patientName),
+    patient_code: toText(item.patient_code ?? item.patientCode),
+    order_number: toText(item.order_number ?? item.orderNumber),
     invoice: toText(item.invoice ?? item.invoice_no ?? item.invoiceNo),
     total: toNumber(item.total ?? item.total_amount ?? item.totalAmount),
     paid: toNumber(item.paid ?? item.paid_amount ?? item.paidAmount),
     discount: toNumber(item.discount ?? item.discount_amount ?? item.discountAmount),
     tests: Array.isArray(rawTests) ? rawTests.map(normalizeReceiptLine) : [],
+    payment_method: toText(item.payment_method ?? item.paymentMethod) || null,
+    order_date: toText(item.order_date ?? item.orderDate),
   };
 }
 
@@ -212,6 +225,7 @@ function normalizePatientInfo(row: unknown): ReportPatientInfo {
   return {
     patient_name: toText(item.patient_name ?? item.patientName ?? item.name),
     patient_code: toText(item.patient_code ?? item.patientCode),
+    order_number: toText(item.order_number ?? item.orderNumber),
     age_value: toNumber(item.age_value ?? item.ageValue),
     age_unit: toText(item.age_unit ?? item.ageUnit),
     gender: toText(item.gender),
@@ -227,9 +241,27 @@ function normalizePatientInfo(row: unknown): ReportPatientInfo {
 
 export const money = (value: number) => `Rs ${Number(value || 0).toFixed(0)}`;
 
-export const getErrorMessage = (err: unknown, fallback: string) => {
+export const getErrorMessage = (err: unknown, fallback: string): string => {
   if (typeof err === "string") return err;
   if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    if ("message" in err && typeof (err as { message: unknown }).message === "string") {
+      return (err as { message: string }).message;
+    }
+    const values = Object.values(err);
+    if (values.length === 1 && typeof values[0] === "string") {
+      return values[0];
+    }
+    if ("error" in err && typeof (err as { error: unknown }).error === "string") {
+      return (err as { error: string }).error;
+    }
+    try {
+      const json = JSON.stringify(err);
+      if (json && json !== "{}") return json;
+    } catch {
+      // ignore
+    }
+  }
   return fallback;
 };
 
@@ -369,6 +401,7 @@ export const testService = {
     parameterIds: number[];
     totalAmount: number;
     discountAmount: number;
+    customPrices?: Record<number, number>;
   }): Promise<number> {
     if (!hasDesktopBridge()) {
       return Promise.resolve(Math.floor(Date.now() / 1000) % 1000 || 1);
@@ -486,13 +519,14 @@ export const testService = {
     });
   },
 
-  updatePayment(orderId: number, paidAmount: number): Promise<string> {
+  updatePayment(orderId: number, paidAmount: number, paymentMethod?: string | null): Promise<string> {
     if (!hasDesktopBridge()) {
       return Promise.resolve("Payment updated");
     }
     return invoke<string>("update_payment", {
       orderId,
       paidAmount,
+      paymentMethod: paymentMethod ?? null,
     });
   },
 
@@ -502,6 +536,10 @@ export const testService = {
 
   updateOrder(orderId: number, payload: UpdateOrderPayload): Promise<void> {
     return invoke<void>("update_order", { orderId, payload });
+  },
+
+  addTestsToOrder(orderId: number, payload: AddTestsPayload): Promise<void> {
+    return invoke<void>("add_tests_to_order", { orderId, payload });
   },
 
   updateOrderStatus(orderId: number, newStatus: string): Promise<void> {
@@ -539,6 +577,7 @@ export const testService = {
         previous_paid: toNumber(item.previous_paid ?? item.previousPaid),
         new_paid: toNumber(item.new_paid ?? item.newPaid),
         total_amount: toNumber(item.total_amount ?? item.totalAmount),
+        payment_method: toText(item.payment_method ?? item.paymentMethod) || null,
         created_at: toText(item.created_at ?? item.createdAt),
       };
     });

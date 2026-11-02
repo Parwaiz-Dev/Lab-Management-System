@@ -1,3 +1,4 @@
+use chrono::Datelike;
 use rusqlite::{Connection, Result};
 
 fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
@@ -33,7 +34,7 @@ fn ensure_column(conn: &Connection, table: &str, column_def: &str) -> Result<()>
     Ok(())
 }
 
-pub fn run_migrations(conn: &Connection) -> Result<()> {
+pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     let mut version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if version < 1 {
@@ -423,7 +424,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             conn.execute(
                 "INSERT INTO test_parameters (test_id, name, unit, normal_range, is_active)
                  SELECT ?1, ?2, ?3, ?4, 1
-                 WHERE NOT EXISTS (
+                 WHERE EXISTS (
+                     SELECT 1 FROM tests WHERE id = ?1
+                 )
+                 AND NOT EXISTS (
                      SELECT 1 FROM test_parameters WHERE test_id = ?1 AND name = ?2
                  )",
                 rusqlite::params![test_id, name, unit, range],
@@ -431,8 +435,186 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         }
 
         conn.pragma_update(None, "user_version", 12)?;
+        version = 12;
     }
 
+    if version < 13 {
+        ensure_column(conn, "payment_history", "payment_method TEXT")?;
+
+        conn.pragma_update(None, "user_version", 13)?;
+        version = 13;
+    }
+
+    if version < 14 {
+        ensure_column(conn, "orders", "status TEXT DEFAULT 'Pending'")?;
+        conn.execute(
+            "UPDATE orders SET status = 'Pending' WHERE status IS NULL OR TRIM(status) = ''",
+            [],
+        )?;
+
+        conn.pragma_update(None, "user_version", 14)?;
+        version = 14;
+    }
+
+    if version < 15 {
+        ensure_column(conn, "orders", "order_number TEXT")?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, IFNULL(created_at, '') FROM orders ORDER BY created_at ASC, id ASC",
+        )?;
+        let orders: Vec<(i32, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let current_year = chrono::Local::now().year();
+        let mut yearly_order_seq: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+        let mut yearly_invoice_seq: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+
+        // 1. Scan existing valid order_number and invoice_no to find max seq per year
+        for (order_id, created_at) in &orders {
+            let year = if created_at.len() >= 4 {
+                created_at[0..4].parse::<i32>().unwrap_or(current_year)
+            } else {
+                current_year
+            };
+
+            let existing_order_number: Option<String> = conn
+                .query_row("SELECT order_number FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+                .unwrap_or(None);
+
+            if let Some(on) = existing_order_number.as_deref().filter(|s| !s.trim().is_empty()) {
+                let prefix = format!("LAB-{}-", year);
+                if on.starts_with(&prefix) && on.len() >= 10 {
+                    if let Ok(seq) = on[prefix.len()..].parse::<i32>() {
+                        let cur = yearly_order_seq.entry(year).or_insert(0);
+                        if seq > *cur { *cur = seq; }
+                    }
+                }
+            }
+
+            let existing_invoice_no: Option<String> = conn
+                .query_row("SELECT invoice_no FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+                .unwrap_or(None);
+
+            if let Some(inv) = existing_invoice_no.as_deref().filter(|s| !s.trim().is_empty()) {
+                let prefix = format!("INV-{}-", year);
+                if inv.starts_with(&prefix) && inv.len() >= 10 {
+                    if let Ok(seq) = inv[prefix.len()..].parse::<i32>() {
+                        let cur = yearly_invoice_seq.entry(year).or_insert(0);
+                        if seq > *cur { *cur = seq; }
+                    }
+                }
+            }
+        }
+
+        // 2. Backfill missing order_numbers and migrate legacy/missing invoice_nos
+        for (order_id, created_at) in &orders {
+            let year = if created_at.len() >= 4 {
+                created_at[0..4].parse::<i32>().unwrap_or(current_year)
+            } else {
+                current_year
+            };
+
+            let existing_order_number: Option<String> = conn
+                .query_row("SELECT order_number FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+                .unwrap_or(None);
+
+            if existing_order_number.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                let seq = yearly_order_seq.entry(year).or_insert(0);
+                *seq += 1;
+                let new_order_number = format!("LAB-{}-{:04}", year, *seq);
+                conn.execute(
+                    "UPDATE orders SET order_number = ?1 WHERE id = ?2",
+                    rusqlite::params![new_order_number, order_id],
+                )?;
+            }
+
+            let existing_invoice_no: Option<String> = conn
+                .query_row("SELECT invoice_no FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+                .unwrap_or(None);
+
+            let needs_invoice_migration = match existing_invoice_no.as_deref() {
+                None => true,
+                Some(inv) if inv.trim().is_empty() => true,
+                Some(inv) => {
+                    let is_standard = inv.starts_with("INV-")
+                        && inv.len() >= 13
+                        && inv.chars().nth(8) == Some('-')
+                        && inv[4..8].chars().all(|c| c.is_ascii_digit())
+                        && inv[9..].chars().all(|c| c.is_ascii_digit());
+                    !is_standard
+                }
+            };
+
+            if needs_invoice_migration {
+                let seq = yearly_invoice_seq.entry(year).or_insert(0);
+                *seq += 1;
+                let new_invoice_no = format!("INV-{}-{:04}", year, *seq);
+                conn.execute(
+                    "UPDATE orders SET invoice_no = ?1 WHERE id = ?2",
+                    rusqlite::params![new_invoice_no, order_id],
+                )?;
+            }
+        }
+
+        conn.execute_batch(
+            "
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_invoice_no ON orders(invoice_no);
+            ",
+        )?;
+
+        conn.pragma_update(None, "user_version", 15)?;
+        version = 15;
+    }
+
+
+    // Safety check: ensure doctor commissions tables exist unconditionally
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS doctor_commissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL UNIQUE,
+            doctor_id INTEGER,
+            doctor_name_snapshot TEXT NOT NULL,
+            eligible_amount_paise INTEGER NOT NULL,
+            share_rate_basis_points INTEGER NOT NULL,
+            commission_paise INTEGER NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (order_id) REFERENCES orders(id),
+            FOREIGN KEY (doctor_id) REFERENCES doctors(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS doctor_commission_adjustments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            commission_id INTEGER NOT NULL,
+            amount_delta_paise INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (commission_id) REFERENCES doctor_commissions(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS doctor_commission_settlements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doctor_id INTEGER NOT NULL,
+            doctor_name_snapshot TEXT NOT NULL,
+            amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+            idempotency_key TEXT NOT NULL UNIQUE,
+            note TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (doctor_id) REFERENCES doctors(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_doctor_commissions_doctor
+        ON doctor_commissions(doctor_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_doctor_commission_adjustments_commission
+        ON doctor_commission_adjustments(commission_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_doctor_commission_settlements_doctor
+        ON doctor_commission_settlements(doctor_id, created_at);
+        ",
+    )?;
 
     Ok(())
 }

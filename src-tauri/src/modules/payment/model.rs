@@ -7,5 +7,6 @@ pub struct PaymentHistoryEntry {
     pub previous_paid: f64,
     pub new_paid: f64,
     pub total_amount: f64,
+    pub payment_method: Option<String>,
     pub created_at: String,
 }

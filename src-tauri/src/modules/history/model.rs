@@ -27,6 +27,7 @@ pub struct PatientProfile {
 #[derive(Debug, Serialize)]
 pub struct HistoryOrder {
     pub id: i32,
+    pub order_number: String,
     pub invoice_no: String,
     pub total_amount: f64,
     pub paid_amount: f64,
@@ -40,16 +41,19 @@ pub struct HistoryOrder {
 pub struct HistoryPayment {
     pub id: i32,
     pub order_id: i32,
+    pub order_number: String,
     pub invoice_no: String,
     pub previous_paid: f64,
     pub new_paid: f64,
     pub total_amount: f64,
+    pub payment_method: Option<String>,
     pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct HistoryReport {
     pub order_id: i32,
+    pub order_number: String,
     pub invoice_no: String,
     pub test_name: String,
     pub parameter_name: String,
@@ -71,6 +75,7 @@ pub struct PreviousResultGroup {
 #[derive(Debug, Serialize)]
 pub struct PreviousResultEntry {
     pub order_id: i32,
+    pub order_number: String,
     pub invoice_no: String,
     pub order_date: String,
     pub value: String,

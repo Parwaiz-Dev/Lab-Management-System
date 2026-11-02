@@ -178,7 +178,15 @@ function App() {
     setPage("dashboard");
   };
 
+  // Route guard: if staff session attempts to access admin pages, redirect to dashboard
+  useEffect(() => {
+    if (session && session.role !== "admin" && ["settings", "audit", "history"].includes(page)) {
+      setPage("dashboard");
+    }
+  }, [session, page]);
+
   const goToSettings = () => {
+    if (session?.role !== "admin") return;
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
@@ -186,6 +194,7 @@ function App() {
   };
 
   const goToAudit = () => {
+    if (session?.role !== "admin") return;
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
@@ -193,6 +202,7 @@ function App() {
   };
 
   const goToHistory = () => {
+    if (session?.role !== "admin") return;
     setSelectedOrder(null);
     setReportOrder(null);
     setReceiptOrder(null);
@@ -281,36 +291,38 @@ function App() {
               <span>Operations</span>
             </button>
 
-            <button
-              type="button"
-              className={`app-nav__item ${page === "history" ? "app-nav__item--active" : ""}`}
-              onClick={goToHistory}
-              title="Patient History"
-            >
-              <History size={16} strokeWidth={2} className="app-nav__icon" />
-              <span>Patient History</span>
-            </button>
-
-            <button
-              type="button"
-              className={`app-nav__item ${page === "settings" ? "app-nav__item--active" : ""}`}
-              onClick={goToSettings}
-              title="Settings & Catalog"
-            >
-              <Settings size={16} strokeWidth={2} className="app-nav__icon" />
-              <span>Settings</span>
-            </button>
-
             {session.role === "admin" && (
-              <button
-                type="button"
-                className={`app-nav__item ${page === "audit" ? "app-nav__item--active" : ""}`}
-                onClick={goToAudit}
-                title="System Audit Log"
-              >
-                <FileText size={16} strokeWidth={2} className="app-nav__icon" />
-                <span>Audit Log</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={`app-nav__item ${page === "history" ? "app-nav__item--active" : ""}`}
+                  onClick={goToHistory}
+                  title="Patient History"
+                >
+                  <History size={16} strokeWidth={2} className="app-nav__icon" />
+                  <span>Patient History</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`app-nav__item ${page === "settings" ? "app-nav__item--active" : ""}`}
+                  onClick={goToSettings}
+                  title="Settings & Catalog"
+                >
+                  <Settings size={16} strokeWidth={2} className="app-nav__icon" />
+                  <span>Settings</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`app-nav__item ${page === "audit" ? "app-nav__item--active" : ""}`}
+                  onClick={goToAudit}
+                  title="System Audit Log"
+                >
+                  <FileText size={16} strokeWidth={2} className="app-nav__icon" />
+                  <span>Audit Log</span>
+                </button>
+              </>
             )}
           </nav>
 
@@ -367,8 +379,8 @@ function App() {
             </div>
 
             <div className="page-header__right">
-              {/* Quick Jump to Settings Button */}
-              {page !== "settings" && (
+              {/* Quick Jump to Settings Button (Admin only) */}
+              {session.role === "admin" && page !== "settings" && (
                 <button
                   type="button"
                   onClick={goToSettings}
@@ -406,6 +418,7 @@ function App() {
               onSelectOrder={openResult}
               onOpenReceipt={openReceipt}
               onOpenReport={openReport}
+              userRole={session.role}
             />
           )}
 
@@ -467,11 +480,11 @@ function App() {
             </div>
           )}
 
-          {page === "settings" && <SettingsPage session={session} />}
+          {page === "settings" && session.role === "admin" && <SettingsPage session={session} />}
 
-          {page === "audit" && <AuditPage />}
+          {page === "audit" && session.role === "admin" && <AuditPage />}
 
-          {page === "history" && (
+          {page === "history" && session.role === "admin" && (
             <PatientHistoryPage
               onViewReport={openReport}
               onViewReceipt={openReceipt}

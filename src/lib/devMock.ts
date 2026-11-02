@@ -327,8 +327,8 @@ export function setupDevMock() {
 
         case "get_payment_history":
           return [
-            { id: 1, order_id: args.order_id || 101, previous_paid_paise: 0, new_paid_paise: 60000, total_amount_paise: 110000, created_at: "2026-09-26T09:30:00" },
-            { id: 2, order_id: args.order_id || 101, previous_paid_paise: 60000, new_paid_paise: 110000, total_amount_paise: 110000, created_at: "2026-09-26T11:20:00" },
+            { id: 1, order_id: args.order_id || 101, previous_paid_paise: 0, new_paid_paise: 60000, total_amount_paise: 110000, payment_method: "upi", created_at: "2026-09-26T09:30:00" },
+            { id: 2, order_id: args.order_id || 101, previous_paid_paise: 60000, new_paid_paise: 110000, total_amount_paise: 110000, payment_method: "cash", created_at: "2026-09-26T11:20:00" },
           ];
 
         case "get_patient_history":

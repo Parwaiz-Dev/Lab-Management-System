@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, FileText, FlaskConical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, FileText, FlaskConical, RotateCcw } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
 import Toast from "../../../components/ui/Toast";
@@ -9,6 +9,20 @@ import EmptyState from "../../../components/ui/EmptyState";
 import type { OrderParameter, ToastMessage } from "../../../types";
 import { getErrorMessage, testService } from "../services/testService";
 import { getFlagStatus } from "../../../utils/clinicalRange";
+import {
+  calculateLipidProfile,
+  getParameterConfig,
+  isHdlParam,
+  isLdlParam,
+  isLipidTest,
+  isRatioParam,
+  isTcParam,
+  isTgParam,
+  isVldlParam,
+  parseClinicalNumber,
+  FRIEDEWALD_TG_LIMIT,
+  FRIEDEWALD_WARNING,
+} from "../utils/resultTypeConfig";
 
 type ResultPageProps = {
   orderId: number;
@@ -28,6 +42,7 @@ export default function ResultPage({
 }: ResultPageProps) {
   const [params, setParams] = useState<OrderParameter[]>([]);
   const [values, setValues] = useState<Record<number, string>>({});
+  const [overriddenParams, setOverriddenParams] = useState<Record<number, boolean>>({});
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [saving, setSaving] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -79,7 +94,63 @@ export default function ResultPage({
           resultMap[parameterId] = value;
         });
 
+        const initialOverrides: Record<number, boolean> = {};
+
+        // For Lipid Profile panels, resolve auto-calculations and identify manual overrides
+        parameters.forEach((param) => {
+          if (isLipidTest(param.test_name)) {
+            const lipidParams = parameters.filter((p) => p.test_id === param.test_id);
+            const tcParam = lipidParams.find((p) => isTcParam(p.name));
+            const tgParam = lipidParams.find((p) => isTgParam(p.name));
+            const hdlParam = lipidParams.find((p) => isHdlParam(p.name));
+            const ldlParam = lipidParams.find((p) => isLdlParam(p.name));
+            const vldlParam = lipidParams.find((p) => isVldlParam(p.name));
+            const ratioParam = lipidParams.find((p) => isRatioParam(p.name));
+
+            const tcVal = tcParam ? resultMap[tcParam.id] : undefined;
+            const tgVal = tgParam ? resultMap[tgParam.id] : undefined;
+            const hdlVal = hdlParam ? resultMap[hdlParam.id] : undefined;
+
+            const calc = calculateLipidProfile({
+              totalCholesterol: tcVal,
+              triglycerides: tgVal,
+              hdl: hdlVal,
+            });
+
+            // VLDL
+            if (vldlParam) {
+              if (resultMap[vldlParam.id]) {
+                initialOverrides[vldlParam.id] = Boolean(calc.vldl && resultMap[vldlParam.id] !== calc.vldl);
+              } else if (calc.vldl) {
+                resultMap[vldlParam.id] = calc.vldl;
+                initialOverrides[vldlParam.id] = false;
+              }
+            }
+
+            // LDL
+            if (ldlParam) {
+              if (resultMap[ldlParam.id]) {
+                initialOverrides[ldlParam.id] = Boolean(!calc.ldl || resultMap[ldlParam.id] !== calc.ldl);
+              } else if (calc.ldl) {
+                resultMap[ldlParam.id] = calc.ldl;
+                initialOverrides[ldlParam.id] = false;
+              }
+            }
+
+            // TC / HDL Ratio
+            if (ratioParam) {
+              if (resultMap[ratioParam.id]) {
+                initialOverrides[ratioParam.id] = Boolean(!calc.ratio || resultMap[ratioParam.id] !== calc.ratio);
+              } else if (calc.ratio) {
+                resultMap[ratioParam.id] = calc.ratio;
+                initialOverrides[ratioParam.id] = false;
+              }
+            }
+          }
+        });
+
         setValues(resultMap);
+        setOverriddenParams(initialOverrides);
       } catch (err) {
         console.error(err);
         const isDemo = new URLSearchParams(window.location.search).get("demo") || new URLSearchParams(window.location.search).get("mock");
@@ -143,15 +214,19 @@ export default function ResultPage({
 
   const allParamIds = useMemo(() => params.map((p) => p.id), [params]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, currentId: number) => {
-    if (e.key === "Enter" || e.key === "ArrowDown") {
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
+    currentId: number
+  ) => {
+    const isSelect = (e.target as HTMLElement).tagName === "SELECT";
+    if (e.key === "Enter" || (e.key === "ArrowDown" && !isSelect)) {
       e.preventDefault();
       const currIdx = allParamIds.indexOf(currentId);
       if (currIdx >= 0 && currIdx < allParamIds.length - 1) {
         const nextId = allParamIds[currIdx + 1];
         document.getElementById(`result-param-${nextId}`)?.focus();
       }
-    } else if (e.key === "ArrowUp") {
+    } else if (e.key === "ArrowUp" && !isSelect) {
       e.preventDefault();
       const currIdx = allParamIds.indexOf(currentId);
       if (currIdx > 0) {
@@ -162,7 +237,86 @@ export default function ResultPage({
   };
 
   const handleChange = (id: number, value: string) => {
+    setValues((prev) => {
+      const next = { ...prev, [id]: value };
+
+      const changedParam = params.find((p) => p.id === id);
+      if (changedParam && isLipidTest(changedParam.test_name)) {
+        const lipidParams = params.filter((p) => p.test_id === changedParam.test_id);
+        const tcParam = lipidParams.find((p) => isTcParam(p.name));
+        const tgParam = lipidParams.find((p) => isTgParam(p.name));
+        const hdlParam = lipidParams.find((p) => isHdlParam(p.name));
+        const ldlParam = lipidParams.find((p) => isLdlParam(p.name));
+        const vldlParam = lipidParams.find((p) => isVldlParam(p.name));
+        const ratioParam = lipidParams.find((p) => isRatioParam(p.name));
+
+        if (
+          (tcParam && tcParam.id === id) ||
+          (tgParam && tgParam.id === id) ||
+          (hdlParam && hdlParam.id === id)
+        ) {
+          const tcVal = tcParam ? next[tcParam.id] : undefined;
+          const tgVal = tgParam ? next[tgParam.id] : undefined;
+          const hdlVal = hdlParam ? next[hdlParam.id] : undefined;
+
+          const calc = calculateLipidProfile({
+            totalCholesterol: tcVal,
+            triglycerides: tgVal,
+            hdl: hdlVal,
+          });
+
+          // Recalculate only fields that have not been manually overridden
+          if (vldlParam && !overriddenParams[vldlParam.id]) {
+            next[vldlParam.id] = calc.vldl;
+          }
+          if (ldlParam && !overriddenParams[ldlParam.id]) {
+            next[ldlParam.id] = calc.ldl;
+          }
+          if (ratioParam && !overriddenParams[ratioParam.id]) {
+            next[ratioParam.id] = calc.ratio;
+          }
+        }
+      }
+
+      return next;
+    });
+  };
+
+  const handleCalculatedChange = (id: number, value: string) => {
     setValues((prev) => ({ ...prev, [id]: value }));
+    setOverriddenParams((prev) => ({ ...prev, [id]: true }));
+  };
+
+  const handleResetCalculated = (id: number) => {
+    const targetParam = params.find((p) => p.id === id);
+    if (!targetParam) return;
+
+    const lipidParams = params.filter((p) => p.test_id === targetParam.test_id);
+    const tcParam = lipidParams.find((p) => isTcParam(p.name));
+    const tgParam = lipidParams.find((p) => isTgParam(p.name));
+    const hdlParam = lipidParams.find((p) => isHdlParam(p.name));
+
+    const tcVal = tcParam ? values[tcParam.id] : undefined;
+    const tgVal = tgParam ? values[tgParam.id] : undefined;
+    const hdlVal = hdlParam ? values[hdlParam.id] : undefined;
+
+    const calc = calculateLipidProfile({
+      totalCholesterol: tcVal,
+      triglycerides: tgVal,
+      hdl: hdlVal,
+    });
+
+    let recalculatedValue = "";
+    if (isVldlParam(targetParam.name)) {
+      recalculatedValue = calc.vldl;
+    } else if (isLdlParam(targetParam.name)) {
+      recalculatedValue = calc.ldl;
+    } else if (isRatioParam(targetParam.name)) {
+      recalculatedValue = calc.ratio;
+    }
+
+    setValues((prev) => ({ ...prev, [id]: recalculatedValue }));
+    setOverriddenParams((prev) => ({ ...prev, [id]: false }));
   };
 
   const saveResults = async () => {
@@ -279,6 +433,12 @@ export default function ResultPage({
           {groupedParams.map((group) => {
             const groupEntered = group.parameters.filter((param) => values[param.id]?.trim()).length;
             const isGroupComplete = groupEntered === group.parameters.length && group.parameters.length > 0;
+            const isLipidPanel = isLipidTest(group.testName);
+            const tgParam = isLipidPanel
+              ? group.parameters.find((p) => isTgParam(p.name))
+              : undefined;
+            const tgNum = tgParam ? parseClinicalNumber(values[tgParam.id]) : null;
+            const showFriedewaldWarning = tgNum !== null && tgNum >= FRIEDEWALD_TG_LIMIT;
 
             return (
               <Card
@@ -294,6 +454,26 @@ export default function ResultPage({
                   </span>
                 }
               >
+                {showFriedewaldWarning && (
+                  <div
+                    style={{
+                      margin: "0 0 8px 0",
+                      padding: "6px 10px",
+                      background: "#fffbeb",
+                      border: "1px solid #fde68a",
+                      borderRadius: "var(--radius-sm)",
+                      color: "#92400e",
+                      fontSize: 11,
+                      fontWeight: 500,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <AlertTriangle size={14} style={{ flexShrink: 0, color: "#d97706" }} />
+                    <span>{FRIEDEWALD_WARNING}</span>
+                  </div>
+                )}
                 <div className="data-table-wrap">
                   <table className="data-table result-parameter-table">
                     <thead>
@@ -309,6 +489,7 @@ export default function ResultPage({
                       {group.parameters.map((param) => {
                         const value = values[param.id] || "";
                         const hasValue = Boolean(value.trim());
+                        const config = getParameterConfig(group.testName, param.name, param.normal_range);
                         const flag = hasValue && param.normal_range ? getFlagStatus(value, param.normal_range) : "";
 
                         let inputModifier = "";
@@ -327,15 +508,86 @@ export default function ResultPage({
                             </td>
 
                             <td>
-                              <input
-                                id={`result-param-${param.id}`}
-                                value={value}
-                                onChange={(e) => handleChange(param.id, e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, param.id)}
-                                placeholder="Value..."
-                                disabled={saving}
-                                className={`result-input-field ${inputModifier}`}
-                              />
+                              {config.type === "calculated" ? (
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <input
+                                    id={`result-param-${param.id}`}
+                                    value={value}
+                                    onChange={(e) => handleCalculatedChange(param.id, e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, param.id)}
+                                    placeholder={config.placeholder || "Value..."}
+                                    disabled={saving}
+                                    className={`result-input-field ${inputModifier}`}
+                                  />
+                                  {hasValue && (
+                                    overriddenParams[param.id] ? (
+                                      <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                                        <Badge tone="neutral" size="sm" title="Manually entered or overridden">
+                                          Manual
+                                        </Badge>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleResetCalculated(param.id)}
+                                          title="Reset to calculated formula value"
+                                          style={{
+                                            background: "none",
+                                            border: "none",
+                                            padding: "2px 4px",
+                                            cursor: "pointer",
+                                            color: "var(--color-primary, #4f46e5)",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            borderRadius: "var(--radius-sm)",
+                                          }}
+                                        >
+                                          <RotateCcw size={12} />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div style={{ flexShrink: 0 }}>
+                                        <Badge tone="info" size="sm" title="Automatically calculated from source values">
+                                          Calculated
+                                        </Badge>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              ) : config.type === "qualitative" || config.type === "semi_quantitative" || (config.type === "text" && config.options) ? (
+                                (() => {
+                                  const selectOptions = config.options ? [...config.options] : [];
+                                  if (value && !selectOptions.includes(value)) {
+                                    selectOptions.unshift(value);
+                                  }
+                                  return (
+                                    <select
+                                      id={`result-param-${param.id}`}
+                                      value={value}
+                                      onChange={(e) => handleChange(param.id, e.target.value)}
+                                      onKeyDown={(e) => handleKeyDown(e, param.id)}
+                                      disabled={saving}
+                                      className={`result-input-field ${inputModifier}`}
+                                    >
+                                      <option value="">Select...</option>
+                                      {selectOptions.map((opt) => (
+                                        <option key={opt} value={opt}>
+                                          {opt}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  );
+                                })()
+                              ) : (
+                                <input
+                                  id={`result-param-${param.id}`}
+                                  value={value}
+                                  onChange={(e) => handleChange(param.id, e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, param.id)}
+                                  placeholder={config.placeholder || "Value..."}
+                                  disabled={saving}
+                                  className={`result-input-field ${inputModifier}`}
+                                />
+                              )}
                             </td>
 
                             <td style={{ fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>

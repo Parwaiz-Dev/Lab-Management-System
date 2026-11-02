@@ -22,6 +22,7 @@ pub fn get_receipt(conn: &Connection, order_id: i32) -> AppResult<ReceiptData> {
         paid_paise,
         discount_paise,
         order_date,
+        order_number,
     ): (
         String,
         String,
@@ -34,6 +35,7 @@ pub fn get_receipt(conn: &Connection, order_id: i32) -> AppResult<ReceiptData> {
         i64,
         i64,
         i64,
+        String,
         String,
     ) = conn
         .query_row(
@@ -49,7 +51,8 @@ pub fn get_receipt(conn: &Connection, order_id: i32) -> AppResult<ReceiptData> {
                 IFNULL(o.total_amount_paise, 0),
                 IFNULL(o.paid_amount_paise, 0),
                 IFNULL(o.discount_amount_paise, 0),
-                IFNULL(o.created_at, '')
+                IFNULL(o.created_at, ''),
+                COALESCE(NULLIF(o.order_number, ''), 'LAB-' || o.id)
              FROM orders o
              JOIN patients p ON p.id = o.patient_id
              WHERE o.id = ?1",
@@ -68,6 +71,7 @@ pub fn get_receipt(conn: &Connection, order_id: i32) -> AppResult<ReceiptData> {
                     row.get(9)?,
                     row.get(10)?,
                     row.get(11)?,
+                    row.get(12)?,
                 ))
             },
         )
@@ -77,10 +81,7 @@ pub fn get_receipt(conn: &Connection, order_id: i32) -> AppResult<ReceiptData> {
         .prepare(
             "SELECT
                 COALESCE(NULLIF(ot.test_name_snapshot, ''), t.name),
-                CASE
-                    WHEN IFNULL(ot.price_paise, 0) > 0 THEN ot.price_paise
-                    ELSE ROUND(IFNULL(t.price, 0) * 100)
-                END,
+                COALESCE(ot.price_paise, ROUND(IFNULL(t.price, 0) * 100)),
                 IFNULL((
                     SELECT GROUP_CONCAT(parameter_name, '||')
                     FROM (
@@ -126,8 +127,45 @@ pub fn get_receipt(conn: &Connection, order_id: i32) -> AppResult<ReceiptData> {
     let pending_paise = (total_paise - paid_paise).max(0);
     let subtotal_paise = total_paise + discount_paise;
 
+    let payment_method: Option<String> = if paid_paise == 0 {
+        None
+    } else {
+        let mut ph_stmt = conn
+            .prepare(
+                "SELECT payment_method
+                 FROM payment_history
+                 WHERE order_id = ?1
+                 ORDER BY id ASC",
+            )
+            .map_err(AppError::from)?;
+
+        let ph_rows = ph_stmt
+            .query_map([order_id], |row| row.get::<_, Option<String>>(0))
+            .map_err(AppError::from)?;
+
+        let mut distinct_methods: Vec<String> = Vec::new();
+        for m in ph_rows {
+            let label = match m?.as_deref() {
+                Some("cash") => "Cash".to_string(),
+                Some("upi") => "QR / UPI".to_string(),
+                Some("card") => "Card".to_string(),
+                _ => "Not recorded".to_string(),
+            };
+            if !distinct_methods.contains(&label) {
+                distinct_methods.push(label);
+            }
+        }
+
+        if distinct_methods.is_empty() {
+            Some("Not recorded".to_string())
+        } else {
+            Some(distinct_methods.join(", "))
+        }
+    };
+
     Ok(ReceiptData {
         order_id,
+        order_number,
         invoice_no,
 
         patient_name,
@@ -144,6 +182,7 @@ pub fn get_receipt(conn: &Connection, order_id: i32) -> AppResult<ReceiptData> {
         paid_amount: from_paise(paid_paise),
         pending_amount: from_paise(pending_paise),
         payment_status: payment_status(total_paise, paid_paise),
+        payment_method,
 
         order_date,
         tests,

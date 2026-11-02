@@ -57,7 +57,8 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
             "SELECT o.id, COALESCE(NULLIF(o.invoice_no, ''), 'INV-' || o.id),
                     IFNULL(o.total_amount_paise, 0), IFNULL(o.paid_amount_paise, 0),
                     IFNULL(o.status, ''), IFNULL(o.created_at, ''),
-                    GROUP_CONCAT(COALESCE(NULLIF(ot.test_name_snapshot, ''), t.name), ', ')
+                    GROUP_CONCAT(COALESCE(NULLIF(ot.test_name_snapshot, ''), t.name), ', '),
+                    COALESCE(NULLIF(o.order_number, ''), 'LAB-' || o.id)
              FROM orders o
              LEFT JOIN order_tests ot ON ot.order_id = o.id
              LEFT JOIN tests t ON t.id = ot.test_id
@@ -76,6 +77,7 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
             let status_str: String = row.get(4)?;
             Ok(HistoryOrder {
                 id: row.get(0)?,
+                order_number: row.get(7)?,
                 invoice_no: row.get(1)?,
                 total_amount: from_paise(total_paise),
                 paid_amount: from_paise(paid_paise),
@@ -95,7 +97,8 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
             "SELECT ph.id, ph.order_id,
                     COALESCE(NULLIF(o.invoice_no, ''), 'INV-' || o.id),
                     IFNULL(ph.previous_paid_paise, 0), ph.new_paid_paise,
-                    ph.total_amount_paise, IFNULL(ph.created_at, '')
+                    ph.total_amount_paise, ph.payment_method, IFNULL(ph.created_at, ''),
+                    COALESCE(NULLIF(o.order_number, ''), 'LAB-' || o.id)
              FROM payment_history ph
              JOIN orders o ON o.id = ph.order_id
              WHERE o.patient_id = ?1
@@ -109,11 +112,13 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
             Ok(HistoryPayment {
                 id: row.get(0)?,
                 order_id: row.get(1)?,
+                order_number: row.get(8)?,
                 invoice_no: row.get(2)?,
                 previous_paid: from_paise(row.get::<_, i64>(3)?),
                 new_paid: from_paise(row.get::<_, i64>(4)?),
                 total_amount: from_paise(row.get::<_, i64>(5)?),
-                created_at: row.get(6)?,
+                payment_method: row.get(6)?,
+                created_at: row.get(7)?,
             })
         })
         .map_err(AppError::from)?
@@ -130,7 +135,8 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
                     IFNULL(r.value, ''),
                     COALESCE(NULLIF(op.unit_snapshot, ''), tp.unit, ''),
                     COALESCE(NULLIF(op.normal_range_snapshot, ''), tp.normal_range, ''),
-                    IFNULL(o.created_at, '')
+                    IFNULL(o.created_at, ''),
+                    COALESCE(NULLIF(o.order_number, ''), 'LAB-' || o.id)
              FROM results r
              JOIN orders o ON o.id = r.order_id
              JOIN order_parameters op ON op.order_id = r.order_id AND op.parameter_id = r.parameter_id
@@ -148,6 +154,7 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
         .query_map([patient_id], |row| {
             Ok(HistoryReport {
                 order_id: row.get(0)?,
+                order_number: row.get(8)?,
                 invoice_no: row.get(1)?,
                 test_name: row.get(2)?,
                 parameter_name: row.get(3)?,
@@ -184,7 +191,7 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
         )
         .map_err(AppError::from)?;
 
-    let rows: Vec<(String, String, String, String, i32, String, String, String)> = prev_stmt
+    let rows: Vec<(String, String, String, String, i32, String, String, String, String)> = prev_stmt
         .query_map([patient_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -195,6 +202,7 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?
             ))
         })
         .map_err(AppError::from)?
@@ -203,7 +211,7 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
 
     let mut prev_groups: Vec<PreviousResultGroup> = Vec::new();
 
-    for (param_name, test_name, unit, normal_range, order_id, invoice_no, order_date, value) in rows {
+    for (param_name, test_name, unit, normal_range, order_id, invoice_no, order_date, value, order_number) in rows {
         // Find existing group or create new one
         let group = prev_groups.iter_mut().find(|g| {
             g.parameter_name == param_name && g.test_name == test_name
@@ -213,6 +221,7 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
             Some(g) => {
                 g.entries.push(PreviousResultEntry {
                     order_id,
+                    order_number,
                     invoice_no,
                     order_date,
                     value,
@@ -226,6 +235,7 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
                     normal_range,
                     entries: vec![PreviousResultEntry {
                         order_id,
+                        order_number,
                         invoice_no,
                         order_date,
                         value,

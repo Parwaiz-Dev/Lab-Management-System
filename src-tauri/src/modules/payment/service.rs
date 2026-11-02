@@ -4,9 +4,27 @@ use crate::utils::money::{from_paise, to_paise};
 use crate::utils::validation::{validate_amount, validate_positive_id};
 use rusqlite::{params, Connection, OptionalExtension};
 
-pub fn update_payment(conn: &mut Connection, order_id: i32, paid_amount: f64) -> AppResult<()> {
+pub fn normalize_payment_method(method: Option<&str>) -> AppResult<Option<String>> {
+    match method.map(|s| s.trim().to_lowercase()) {
+        None => Ok(None),
+        Some(ref s) if s.is_empty() => Ok(None),
+        Some(ref s) if s == "cash" || s == "upi" || s == "card" => Ok(Some(s.clone())),
+        Some(other) => Err(AppError::ValidationError(format!(
+            "Invalid payment method '{}'. Must be 'cash', 'upi', or 'card'.",
+            other
+        ))),
+    }
+}
+
+pub fn update_payment(
+    conn: &mut Connection,
+    order_id: i32,
+    paid_amount: f64,
+    payment_method: Option<&str>,
+) -> AppResult<()> {
     validate_positive_id(order_id, "order_id")?;
     validate_amount(paid_amount)?;
+    let clean_method = normalize_payment_method(payment_method)?;
 
     let paid_amount_paise = to_paise(paid_amount)?;
 
@@ -50,9 +68,9 @@ pub fn update_payment(conn: &mut Connection, order_id: i32, paid_amount: f64) ->
     .map_err(AppError::from)?;
 
     tx.execute(
-        "INSERT INTO payment_history (order_id, previous_paid_paise, new_paid_paise, total_amount_paise)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![order_id, current_paid_paise, paid_amount_paise, total_amount_paise],
+        "INSERT INTO payment_history (order_id, previous_paid_paise, new_paid_paise, total_amount_paise, payment_method)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![order_id, current_paid_paise, paid_amount_paise, total_amount_paise, clean_method],
     )
     .map_err(AppError::from)?;
 
@@ -114,7 +132,7 @@ pub fn get_overall_summary(conn: &Connection) -> AppResult<(f64, f64, f64)> {
 pub fn get_payment_history(conn: &Connection, order_id: i32) -> AppResult<Vec<PaymentHistoryEntry>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, order_id, IFNULL(previous_paid_paise, 0), new_paid_paise, total_amount_paise, created_at
+            "SELECT id, order_id, IFNULL(previous_paid_paise, 0), new_paid_paise, total_amount_paise, payment_method, created_at
              FROM payment_history
              WHERE order_id = ?1
              ORDER BY created_at DESC",
@@ -129,7 +147,8 @@ pub fn get_payment_history(conn: &Connection, order_id: i32) -> AppResult<Vec<Pa
                 previous_paid: from_paise(row.get::<_, i64>(2)?),
                 new_paid: from_paise(row.get::<_, i64>(3)?),
                 total_amount: from_paise(row.get::<_, i64>(4)?),
-                created_at: row.get(5)?,
+                payment_method: row.get(5)?,
+                created_at: row.get(6)?,
             })
         })
         .map_err(AppError::from)?;

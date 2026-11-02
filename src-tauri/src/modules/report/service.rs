@@ -124,7 +124,8 @@ pub fn get_patient_by_order(conn: &Connection, order_id: i32) -> AppResult<Repor
                 IFNULL(p.phone, ''),
                 COALESCE(NULLIF(p.referred_by, ''), 'Self'),
                 COALESCE(NULLIF(o.invoice_no, ''), 'INV-' || o.id),
-                IFNULL(o.created_at, '')
+                IFNULL(o.created_at, ''),
+                COALESCE(NULLIF(o.order_number, ''), 'LAB-' || o.id)
              FROM orders o
              JOIN patients p ON p.id = o.patient_id
              WHERE o.id = ?1",
@@ -142,6 +143,7 @@ pub fn get_patient_by_order(conn: &Connection, order_id: i32) -> AppResult<Repor
                 Ok(ReportPatientInfo {
                     patient_name: row.get(0)?,
                     patient_code: row.get(1)?,
+                    order_number: row.get(9)?,
                     age_value,
                     age_unit,
                     gender,

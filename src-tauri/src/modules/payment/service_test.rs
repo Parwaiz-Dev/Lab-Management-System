@@ -38,6 +38,7 @@ mod tests {
                 previous_paid_paise INTEGER,
                 new_paid_paise INTEGER NOT NULL,
                 total_amount_paise INTEGER NOT NULL,
+                payment_method TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (order_id) REFERENCES orders(id)
             );
@@ -61,7 +62,7 @@ mod tests {
     fn update_payment_initial() {
         let mut conn = test_db();
 
-        service::update_payment(&mut conn, 1, 200.00).unwrap();
+        service::update_payment(&mut conn, 1, 200.00, None).unwrap();
 
         let paid: i64 = conn
             .query_row("SELECT paid_amount_paise FROM orders WHERE id = ?1", [1], |row| row.get(0))
@@ -78,7 +79,7 @@ mod tests {
         let mut conn = test_db();
 
         // Order 2 already has 30000 paise (₹300) paid
-        service::update_payment(&mut conn, 2, 600.00).unwrap();
+        service::update_payment(&mut conn, 2, 600.00, None).unwrap();
 
         let paid: i64 = conn
             .query_row("SELECT paid_amount_paise FROM orders WHERE id = ?1", [2], |row| row.get(0))
@@ -94,7 +95,7 @@ mod tests {
     fn update_payment_full() {
         let mut conn = test_db();
 
-        service::update_payment(&mut conn, 1, 500.00).unwrap();
+        service::update_payment(&mut conn, 1, 500.00, None).unwrap();
 
         let paid: i64 = conn
             .query_row("SELECT paid_amount_paise FROM orders WHERE id = ?1", [1], |row| row.get(0))
@@ -109,7 +110,7 @@ mod tests {
     #[test]
     fn update_payment_exceeds_total() {
         let mut conn = test_db();
-        let err = service::update_payment(&mut conn, 1, 600.00).unwrap_err();
+        let err = service::update_payment(&mut conn, 1, 600.00, None).unwrap_err();
         assert!(err.to_string().contains("cannot exceed"));
     }
 
@@ -121,7 +122,7 @@ mod tests {
     fn update_payment_cannot_decrease() {
         let mut conn = test_db();
         // Order 2 already has ₹300 paid
-        let err = service::update_payment(&mut conn, 2, 100.00).unwrap_err();
+        let err = service::update_payment(&mut conn, 2, 100.00, None).unwrap_err();
         assert!(err.to_string().contains("already recorded"));
     }
 
@@ -132,7 +133,7 @@ mod tests {
     #[test]
     fn update_payment_nonexistent_order() {
         let mut conn = test_db();
-        let err = service::update_payment(&mut conn, 999, 100.00).unwrap_err();
+        let err = service::update_payment(&mut conn, 999, 100.00, None).unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
 
@@ -148,7 +149,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM payment_history WHERE order_id = 1", [], |row| row.get(0))
             .unwrap();
 
-        service::update_payment(&mut conn, 1, 300.00).unwrap();
+        service::update_payment(&mut conn, 1, 300.00, None).unwrap();
 
         let after: i32 = conn
             .query_row("SELECT COUNT(*) FROM payment_history WHERE order_id = 1", [], |row| row.get(0))
@@ -164,7 +165,7 @@ mod tests {
     fn payment_history_has_correct_values() {
         let mut conn = test_db();
 
-        service::update_payment(&mut conn, 2, 800.00).unwrap();
+        service::update_payment(&mut conn, 2, 800.00, None).unwrap();
 
         let (previous, new, total): (i64, i64, i64) = conn
             .query_row(
@@ -219,8 +220,8 @@ mod tests {
     fn get_payment_history_returns_entries() {
         let mut conn = test_db();
 
-        service::update_payment(&mut conn, 1, 200.00).unwrap();
-        service::update_payment(&mut conn, 1, 400.00).unwrap();
+        service::update_payment(&mut conn, 1, 200.00, None).unwrap();
+        service::update_payment(&mut conn, 1, 400.00, None).unwrap();
 
         let history = service::get_payment_history(&conn, 1).unwrap();
         assert_eq!(history.len(), 2);
@@ -251,8 +252,46 @@ mod tests {
     #[test]
     fn update_payment_negative_amount() {
         let mut conn = test_db();
-        let err = service::update_payment(&mut conn, 1, -50.00).unwrap_err();
+        let err = service::update_payment(&mut conn, 1, -50.00, None).unwrap_err();
         // validate_amount returns "Amount cannot be negative"
         assert!(err.to_string().contains("negative"));
+    }
+
+    // ------------------------------------------------------------------
+    // 14. update_payment — payment methods persistence & validation
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn update_payment_with_method_cash_upi_card() {
+        let mut conn = test_db();
+
+        service::update_payment(&mut conn, 1, 100.00, Some("cash")).unwrap();
+        service::update_payment(&mut conn, 1, 200.00, Some("UPI")).unwrap();
+        service::update_payment(&mut conn, 1, 300.00, Some("card ")).unwrap();
+
+        let history = service::get_payment_history(&conn, 1).unwrap();
+        assert_eq!(history.len(), 3);
+
+        let methods: Vec<Option<String>> = history.iter().map(|h| h.payment_method.clone()).collect();
+        assert!(methods.contains(&Some("cash".to_string())));
+        assert!(methods.contains(&Some("upi".to_string())));
+        assert!(methods.contains(&Some("card".to_string())));
+    }
+
+    #[test]
+    fn update_payment_rejects_invalid_method() {
+        let mut conn = test_db();
+        let err = service::update_payment(&mut conn, 1, 100.00, Some("bitcoin")).unwrap_err();
+        assert!(err.to_string().contains("Invalid payment method"));
+    }
+
+    #[test]
+    fn update_payment_allows_none_method_for_legacy() {
+        let mut conn = test_db();
+        service::update_payment(&mut conn, 1, 100.00, None).unwrap();
+
+        let history = service::get_payment_history(&conn, 1).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].payment_method, None);
     }
 }

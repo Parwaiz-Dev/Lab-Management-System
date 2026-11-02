@@ -14,6 +14,7 @@ pub struct ReportRow {
 pub struct ReportPatientInfo {
     pub patient_name: String,
     pub patient_code: String,
+    pub order_number: String,
     pub age_value: i32,
     pub age_unit: String,
     pub gender: String,

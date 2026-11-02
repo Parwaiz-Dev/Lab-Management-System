@@ -6,6 +6,8 @@ import {
   AlertCircle,
   FileText,
   Calendar,
+  CreditCard,
+  QrCode,
 } from "lucide-react";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
@@ -26,6 +28,7 @@ export default function PaymentModal({
   onDone,
 }: PaymentModalProps) {
   const [amount, setAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "upi" | "card">("cash");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [history, setHistory] = useState<PaymentHistoryEntry[]>([]);
@@ -106,7 +109,7 @@ export default function PaymentModal({
       setSaving(true);
       setError("");
 
-      await testService.updatePayment(orderId, paid + pay);
+      await testService.updatePayment(orderId, paid + pay, paymentMethod);
 
       onDone();
       onClose();
@@ -266,6 +269,45 @@ export default function PaymentModal({
               </div>
             </div>
 
+            {/* Payment Method Selector */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Payment Method:
+              </div>
+              <div className="payment-method-tabs" role="group" aria-label="Payment Method">
+                <button
+                  type="button"
+                  className={`payment-method-tab ${paymentMethod === "cash" ? "payment-method-tab--active" : ""}`}
+                  onClick={() => setPaymentMethod("cash")}
+                  aria-pressed={paymentMethod === "cash"}
+                  disabled={saving}
+                >
+                  <Banknote size={13} />
+                  <span>Cash</span>
+                </button>
+                <button
+                  type="button"
+                  className={`payment-method-tab ${paymentMethod === "upi" ? "payment-method-tab--active" : ""}`}
+                  onClick={() => setPaymentMethod("upi")}
+                  aria-pressed={paymentMethod === "upi"}
+                  disabled={saving}
+                >
+                  <QrCode size={13} />
+                  <span>QR / UPI</span>
+                </button>
+                <button
+                  type="button"
+                  className={`payment-method-tab ${paymentMethod === "card" ? "payment-method-tab--active" : ""}`}
+                  onClick={() => setPaymentMethod("card")}
+                  aria-pressed={paymentMethod === "card"}
+                  disabled={saving}
+                >
+                  <CreditCard size={13} />
+                  <span>Card</span>
+                </button>
+              </div>
+            </div>
+
             <Input
               id="payment-amount"
               value={amount}
@@ -371,6 +413,7 @@ export default function PaymentModal({
                 <thead>
                   <tr>
                     <th>Date & Time</th>
+                    <th>Method</th>
                     <th style={{ textAlign: "right" }}>Previous</th>
                     <th style={{ textAlign: "right" }}>New Paid</th>
                     <th style={{ textAlign: "right" }}>Added</th>
@@ -379,6 +422,14 @@ export default function PaymentModal({
                 <tbody>
                   {history.map((entry) => {
                     const added = entry.new_paid - entry.previous_paid;
+                    const methodLabel =
+                      entry.payment_method === "upi"
+                        ? "QR / UPI"
+                        : entry.payment_method === "card"
+                          ? "Card"
+                          : entry.payment_method === "cash"
+                            ? "Cash"
+                            : "Not recorded";
                     return (
                       <tr key={entry.id}>
                         <td>
@@ -386,6 +437,11 @@ export default function PaymentModal({
                             <Calendar size={12} style={{ color: "var(--color-muted)" }} />
                             <span>{formatDateTime(entry.created_at)}</span>
                           </div>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text)" }}>
+                            {methodLabel}
+                          </span>
                         </td>
                         <td style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--color-muted)" }}>
                           {money(entry.previous_paid)}

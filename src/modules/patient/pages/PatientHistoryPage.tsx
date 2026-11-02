@@ -802,7 +802,7 @@ export default function PatientHistoryPage({
                             return (
                               <tr key={order.id}>
                                 <td style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>
-                                  #{order.id}
+                                  {order.order_number || `#${order.id}`}
                                 </td>
                                 <td>
                                   <div style={{ fontWeight: 600, color: "var(--color-text)", fontSize: 12 }}>
@@ -881,6 +881,7 @@ export default function PatientHistoryPage({
                         <tr>
                           <th style={{ width: 90 }}>Order #</th>
                           <th>Invoice Reference</th>
+                          <th style={{ width: 110 }}>Method</th>
                           <th style={{ width: 140 }}>Payment Date</th>
                           <th style={{ width: 130, textAlign: "right" }}>Total Bill (₹)</th>
                           <th style={{ width: 130, textAlign: "right" }}>Paid Amount (₹)</th>
@@ -890,7 +891,7 @@ export default function PatientHistoryPage({
                       <tbody>
                         {history.payments.length === 0 ? (
                           <tr>
-                            <td colSpan={6} style={{ padding: 24, textAlign: "center", color: "var(--color-muted)" }}>
+                            <td colSpan={7} style={{ padding: 24, textAlign: "center", color: "var(--color-muted)" }}>
                               No payment transactions recorded for this patient.
                             </td>
                           </tr>
@@ -899,15 +900,28 @@ export default function PatientHistoryPage({
                             const total = Number(payment.total_amount || 0);
                             const paid = Number(payment.new_paid || 0);
                             const due = Math.max(total - paid, 0);
+                            const methodLabel =
+                              payment.payment_method === "upi"
+                                ? "QR / UPI"
+                                : payment.payment_method === "card"
+                                  ? "Card"
+                                  : payment.payment_method === "cash"
+                                    ? "Cash"
+                                    : "Not recorded";
 
                             return (
                               <tr key={payment.id || idx}>
                                 <td style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>
-                                  #{payment.order_id}
+                                  {payment.order_number || `#${payment.order_id}`}
                                 </td>
                                 <td>
                                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
                                     {payment.invoice_no || `INV-${payment.order_id}`}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span style={{ fontSize: 11.5, fontWeight: 600 }}>
+                                    {methodLabel}
                                   </span>
                                 </td>
                                 <td style={{ fontSize: 11, color: "var(--color-muted)", whiteSpace: "nowrap" }}>
@@ -960,7 +974,7 @@ export default function PatientHistoryPage({
                             return (
                               <tr key={idx}>
                                 <td style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>
-                                  #{item.order_id}
+                                  {item.order_number || `#${item.order_id}`}
                                 </td>
                                 <td style={{ fontWeight: 600, fontSize: 12 }}>
                                   {item.test_name}

@@ -11,6 +11,9 @@ pub struct OrderSummary {
     pub status: String,
     pub report_status: String,
     pub created_at: String,
+    pub order_number: String,
+    pub patient_code: String,
+    pub invoice_no: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -75,4 +78,14 @@ pub struct UpdateOrderPayload {
     pub parameter_ids: Vec<i32>,
     pub total_amount: f64,
     pub discount_amount: f64,
+    #[serde(default)]
+    pub custom_prices: Option<std::collections::HashMap<i32, f64>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddTestsPayload {
+    #[serde(alias = "testIds")]
+    pub test_ids: Vec<i32>,
+    #[serde(default, alias = "customPrices")]
+    pub custom_prices: Option<std::collections::HashMap<i32, f64>>,
 }

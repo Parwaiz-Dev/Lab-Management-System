@@ -16,7 +16,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     fn test_db() -> rusqlite::Connection {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
         conn.execute_batch(
             "
@@ -58,6 +58,7 @@ mod tests {
                 invoice_no TEXT,
                 status TEXT DEFAULT 'Pending',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                order_number TEXT,
                 FOREIGN KEY (patient_id) REFERENCES patients(id)
             );
             CREATE TABLE IF NOT EXISTS order_tests (
@@ -102,7 +103,7 @@ mod tests {
         )
         .unwrap();
 
-        crate::db::migrations::run_migrations(&conn).unwrap();
+        crate::db::migrations::run_migrations(&mut conn).unwrap();
 
         // Seed data
         conn.execute("INSERT INTO patients (id, patient_code, name, referred_by) VALUES (1, 'P001', 'John Doe', 'Dr. Smith')", []).unwrap();
@@ -560,5 +561,320 @@ mod tests {
 
         let err = service::update_order(&mut conn, 700, vec![2], vec![], 800.00, 0.00).unwrap_err();
         assert!(err.to_string().contains("cancelled"));
+    }
+
+    // ------------------------------------------------------------------
+    // 22. create_order_with_prices - patient-specific custom price override
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn create_order_with_custom_price_patient_a_and_patient_b() {
+        let mut conn = test_db();
+
+        // Standard CBC price in test_db is 500.00
+        let master_price_before: f64 = conn
+            .query_row("SELECT price FROM tests WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(master_price_before, 500.00);
+
+        // Patient A receives CBC at custom Rs 250.00
+        let mut custom_prices = std::collections::HashMap::new();
+        custom_prices.insert(1, 250.00);
+
+        let order_a_id = service::create_order_with_prices(
+            &mut conn,
+            1, // patient_id
+            vec![1],
+            vec![],
+            250.00, // total_amount matches custom price
+            0.00,
+            Some(custom_prices),
+        )
+        .unwrap();
+
+        // Verify Patient A order has 25000 paise in order and order_tests
+        let total_a: i64 = conn
+            .query_row("SELECT total_amount_paise FROM orders WHERE id = ?1", [order_a_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total_a, 25000);
+
+        let test_price_a: i64 = conn
+            .query_row("SELECT price_paise FROM order_tests WHERE order_id = ?1 AND test_id = 1", [order_a_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(test_price_a, 25000);
+
+        // CRUCIAL: Verify master CBC price in tests table is STILL 500.00
+        let master_price_after: f64 = conn
+            .query_row("SELECT price FROM tests WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(master_price_after, 500.00);
+
+        // Patient B creates an order without custom price override -> gets standard Rs 500.00
+        let order_b_id = service::create_order(
+            &mut conn,
+            1, // patient_id
+            vec![1],
+            vec![],
+            500.00,
+            0.00,
+        )
+        .unwrap();
+
+        let total_b: i64 = conn
+            .query_row("SELECT total_amount_paise FROM orders WHERE id = ?1", [order_b_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total_b, 50000);
+
+        let test_price_b: i64 = conn
+            .query_row("SELECT price_paise FROM order_tests WHERE order_id = ?1 AND test_id = 1", [order_b_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(test_price_b, 50000);
+    }
+
+    // ------------------------------------------------------------------
+    // 23. create_order_with_prices - free test (Rs 0 price)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn create_order_with_zero_price_free_test() {
+        let mut conn = test_db();
+
+        let mut custom_prices = std::collections::HashMap::new();
+        custom_prices.insert(1, 0.0);
+
+        let order_id = service::create_order_with_prices(
+            &mut conn,
+            1,
+            vec![1],
+            vec![],
+            0.00,
+            0.00,
+            Some(custom_prices),
+        )
+        .unwrap();
+
+        let total: i64 = conn
+            .query_row("SELECT total_amount_paise FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total, 0);
+
+        let test_price: i64 = conn
+            .query_row("SELECT price_paise FROM order_tests WHERE order_id = ?1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(test_price, 0);
+
+        // Master price unchanged
+        let master_price: f64 = conn
+            .query_row("SELECT price FROM tests WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(master_price, 500.00);
+    }
+
+    // ------------------------------------------------------------------
+    // 24. create_order_with_prices - mixed custom and standard prices
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn create_order_with_mixed_prices() {
+        let mut conn = test_db();
+
+        // CBC (id 1, standard 500) overridden to 350
+        // Lipid (id 2, standard 800) kept at standard
+        let mut custom_prices = std::collections::HashMap::new();
+        custom_prices.insert(1, 350.00);
+
+        // Expected subtotal = 350 + 800 = 1150.00
+        let order_id = service::create_order_with_prices(
+            &mut conn,
+            1,
+            vec![1, 2],
+            vec![],
+            1150.00,
+            0.00,
+            Some(custom_prices),
+        )
+        .unwrap();
+
+        let total: i64 = conn
+            .query_row("SELECT total_amount_paise FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total, 115000);
+
+        let price_cbc: i64 = conn
+            .query_row("SELECT price_paise FROM order_tests WHERE order_id = ?1 AND test_id = 1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(price_cbc, 35000);
+
+        let price_lipid: i64 = conn
+            .query_row("SELECT price_paise FROM order_tests WHERE order_id = ?1 AND test_id = 2", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(price_lipid, 80000);
+    }
+
+    // ------------------------------------------------------------------
+    // 25. create_order_with_prices - negative price rejected
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn create_order_rejects_negative_custom_price() {
+        let mut conn = test_db();
+
+        let mut custom_prices = std::collections::HashMap::new();
+        custom_prices.insert(1, -50.00);
+
+        let err = service::create_order_with_prices(
+            &mut conn,
+            1,
+            vec![1],
+            vec![],
+            0.00,
+            0.00,
+            Some(custom_prices),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("positive") || err.to_string().contains("Amount") || err.to_string().contains("invalid"));
+    }
+
+    // ------------------------------------------------------------------
+    // 26. add_tests_to_order - happy path single test
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn add_test_to_order_success() {
+        let mut conn = test_db();
+
+        // Create order with test 1 (CBC, 500.00)
+        let order_id = service::create_order(&mut conn, 1, vec![1], vec![], 500.00, 0.00).unwrap();
+
+        // Add test 2 (Lipid Profile, 800.00)
+        service::add_tests_to_order(&mut conn, order_id, vec![2], None).unwrap();
+
+        // Total should now be 50000 + 80000 = 130000
+        let total: i64 = conn
+            .query_row("SELECT total_amount_paise FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total, 130000);
+
+        // Check order_tests count is 2
+        let count: i32 = conn
+            .query_row("SELECT COUNT(*) FROM order_tests WHERE order_id = ?1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+
+        // Check order_parameters has parameters for both tests
+        let param_count: i32 = conn
+            .query_row("SELECT COUNT(*) FROM order_parameters WHERE order_id = ?1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert!(param_count >= 2);
+    }
+
+    // ------------------------------------------------------------------
+    // 27. add_tests_to_order - multiple tests added together
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn add_multiple_tests_to_order() {
+        let mut conn = test_db();
+
+        // Add test 4 to test catalog for this test
+        conn.execute("INSERT INTO tests (id, name, price) VALUES (4, 'TSH', 300.00)", []).unwrap();
+        conn.execute("INSERT INTO test_parameters (id, test_id, name, unit, normal_range) VALUES (4, 4, 'TSH', 'uIU/mL', '0.4-4.5')", []).unwrap();
+
+        let order_id = service::create_order(&mut conn, 1, vec![1], vec![], 500.00, 0.00).unwrap();
+
+        // Add tests 2 and 4 together (800 + 300 = 1100.00)
+        service::add_tests_to_order(&mut conn, order_id, vec![2, 4], None).unwrap();
+
+        let total: i64 = conn
+            .query_row("SELECT total_amount_paise FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total, 160000); // 50000 + 80000 + 30000
+    }
+
+    // ------------------------------------------------------------------
+    // 28. add_tests_to_order - patient-specific custom pricing
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn add_test_with_custom_pricing() {
+        let mut conn = test_db();
+
+        let order_id = service::create_order(&mut conn, 1, vec![1], vec![], 500.00, 0.00).unwrap();
+
+        // Add test 2 (Lipid Profile, standard 800.00) at custom price 650.00
+        let mut custom = std::collections::HashMap::new();
+        custom.insert(2, 650.00);
+
+        service::add_tests_to_order(&mut conn, order_id, vec![2], Some(custom)).unwrap();
+
+        let total: i64 = conn
+            .query_row("SELECT total_amount_paise FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total, 115000); // 50000 + 65000
+
+        let lipid_price: i64 = conn
+            .query_row("SELECT price_paise FROM order_tests WHERE order_id = ?1 AND test_id = 2", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(lipid_price, 65000);
+
+        // Master catalog remains 800.00
+        let master_price: f64 = conn
+            .query_row("SELECT price FROM tests WHERE id = 2", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(master_price, 800.00);
+    }
+
+    // ------------------------------------------------------------------
+    // 29. add_tests_to_order - duplicate test rejected
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn add_test_rejects_duplicate_test() {
+        let mut conn = test_db();
+
+        let order_id = service::create_order(&mut conn, 1, vec![1], vec![], 500.00, 0.00).unwrap();
+
+        // Attempt to add test 1 again
+        let err = service::add_tests_to_order(&mut conn, order_id, vec![1], None).unwrap_err();
+        assert!(err.to_string().contains("already attached"));
+    }
+
+    // ------------------------------------------------------------------
+    // 30. add_tests_to_order - cancelled order rejected
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn add_test_rejects_cancelled_order() {
+        let mut conn = test_db();
+
+        let order_id = service::create_order(&mut conn, 1, vec![1], vec![], 500.00, 0.00).unwrap();
+        service::cancel_order(&mut conn, order_id).unwrap();
+
+        let err = service::add_tests_to_order(&mut conn, order_id, vec![2], None).unwrap_err();
+        assert!(err.to_string().contains("cancelled"));
+    }
+
+    // ------------------------------------------------------------------
+    // 31. add_tests_to_order - preserves existing clinical results
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn add_test_preserves_existing_results() {
+        let mut conn = test_db();
+
+        let order_id = service::create_order(&mut conn, 1, vec![1], vec![], 500.00, 0.00).unwrap();
+
+        // Enter result for parameter 1 on order
+        conn.execute("INSERT INTO results (order_id, parameter_id, value) VALUES (?1, 1, '14.2')", [order_id]).unwrap();
+
+        // Add test 2
+        service::add_tests_to_order(&mut conn, order_id, vec![2], None).unwrap();
+
+        // Check that existing result is STILL present and unchanged
+        let val: String = conn
+            .query_row("SELECT value FROM results WHERE order_id = ?1 AND parameter_id = 1", [order_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(val, "14.2");
     }
 }

@@ -3,7 +3,44 @@ use crate::modules::order::model::{DoctorRevenue, OrderSummary};
 use crate::utils::helpers::payment_status;
 use crate::utils::money::{from_paise, to_paise};
 use crate::utils::validation::{validate_amount, validate_positive_id, validate_test_ids};
+use chrono::Datelike;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
+
+fn next_order_number(tx: &Transaction<'_>) -> AppResult<String> {
+    let year = chrono::Local::now().year();
+    let prefix = format!("LAB-{}-", year);
+    let like_pattern = format!("{}%", prefix);
+
+    let next_number: i32 = tx
+        .query_row(
+            "SELECT IFNULL(MAX(CAST(SUBSTR(order_number, 10) AS INTEGER)), 0) + 1
+             FROM orders
+             WHERE order_number LIKE ?1",
+            [like_pattern],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
+
+    Ok(format!("{}{:04}", prefix, next_number))
+}
+
+fn next_invoice_number(tx: &Transaction<'_>) -> AppResult<String> {
+    let year = chrono::Local::now().year();
+    let prefix = format!("INV-{}-", year);
+    let like_pattern = format!("{}%", prefix);
+
+    let next_number: i32 = tx
+        .query_row(
+            "SELECT IFNULL(MAX(CAST(SUBSTR(invoice_no, 10) AS INTEGER)), 0) + 1
+             FROM orders
+             WHERE invoice_no LIKE ?1",
+            [like_pattern],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
+
+    Ok(format!("{}{:04}", prefix, next_number))
+}
 
 fn unique_ids(ids: &[i32]) -> Vec<i32> {
     let mut unique = Vec::new();
@@ -66,6 +103,19 @@ fn create_doctor_commission_snapshot(
         return Ok(());
     };
 
+    let has_table: bool = tx
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='doctor_commissions'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_table {
+        return Ok(());
+    }
+
     let doctor_id: Option<i32> = tx
         .query_row(
             "SELECT id FROM doctors WHERE name = ?1 COLLATE NOCASE LIMIT 1",
@@ -93,6 +143,19 @@ fn record_order_commission_adjustment(
     new_eligible_amount_paise: i64,
     reason: &str,
 ) -> AppResult<()> {
+    let has_table: bool = tx
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='doctor_commissions'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_table {
+        return Ok(());
+    }
+
     let snapshot: Option<(i32, i64, i64)> = tx
         .query_row(
             "SELECT dc.id, dc.share_rate_basis_points,
@@ -122,6 +185,7 @@ fn record_order_commission_adjustment(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn create_order(
     conn: &mut Connection,
     patient_id: i32,
@@ -129,6 +193,26 @@ pub fn create_order(
     parameter_ids: Vec<i32>,
     total_amount: f64,
     discount_amount: f64,
+) -> AppResult<i32> {
+    create_order_with_prices(
+        conn,
+        patient_id,
+        test_ids,
+        parameter_ids,
+        total_amount,
+        discount_amount,
+        None,
+    )
+}
+
+pub fn create_order_with_prices(
+    conn: &mut Connection,
+    patient_id: i32,
+    test_ids: Vec<i32>,
+    parameter_ids: Vec<i32>,
+    total_amount: f64,
+    discount_amount: f64,
+    custom_prices: Option<std::collections::HashMap<i32, f64>>,
 ) -> AppResult<i32> {
     validate_positive_id(patient_id, "patient_id")?;
     validate_test_ids(&test_ids)?;
@@ -182,7 +266,16 @@ pub fn create_order(
             )));
         };
 
-        let price_paise = to_paise(price)?;
+        let effective_price = match &custom_prices {
+            Some(map) if map.contains_key(test_id) => {
+                let cp = map[test_id];
+                validate_amount(cp)?;
+                cp
+            }
+            _ => price,
+        };
+
+        let price_paise = to_paise(effective_price)?;
         subtotal_paise += price_paise;
 
         test_snapshots.push((*test_id, test_name, price_paise));
@@ -202,32 +295,31 @@ pub fn create_order(
         ));
     }
 
+    let order_number = next_order_number(&tx)?;
+    let invoice_no = next_invoice_number(&tx)?;
+
     tx.execute(
         "INSERT INTO orders (
             patient_id,
             total_amount_paise,
             discount_amount_paise,
-            paid_amount_paise
+            paid_amount_paise,
+            invoice_no,
+            order_number,
+            status
          )
-         VALUES (?1, ?2, ?3, 0)",
+         VALUES (?1, ?2, ?3, 0, ?4, ?5, 'Pending')",
         params![
             patient_id,
             computed_total_paise,
             discount_amount_paise,
+            invoice_no,
+            order_number,
         ],
     )
     .map_err(AppError::from)?;
 
     let order_id = tx.last_insert_rowid() as i32;
-    let invoice_no = format!("INV-{}", order_id);
-
-    tx.execute(
-        "UPDATE orders
-         SET invoice_no = ?1
-         WHERE id = ?2",
-        params![invoice_no, order_id],
-    )
-    .map_err(AppError::from)?;
 
     for (test_id, test_name, price_paise) in &test_snapshots {
         tx.execute(
@@ -354,12 +446,15 @@ pub fn get_orders(conn: &Connection) -> AppResult<Vec<OrderSummary>> {
                                         WHEN (SELECT COUNT(*) FROM results WHERE order_id = o.id AND TRIM(value) <> '')
                                                  < (SELECT COUNT(*) FROM order_parameters WHERE order_id = o.id) THEN 'Partial'
                                         ELSE 'Completed'
-                                END
+                                END,
+                                COALESCE(NULLIF(o.order_number, ''), 'LAB-' || o.id),
+                                IFNULL(p.patient_code, ''),
+                                COALESCE(NULLIF(o.invoice_no, ''), 'INV-' || o.id)
                  FROM orders o
                  JOIN patients p ON p.id = o.patient_id
                  LEFT JOIN order_tests ot ON ot.order_id = o.id
                  LEFT JOIN tests t ON t.id = ot.test_id
-                 GROUP BY o.id, p.name, o.total_amount_paise, o.paid_amount_paise, o.created_at
+                 GROUP BY o.id, p.name, o.total_amount_paise, o.paid_amount_paise, o.created_at, o.order_number, p.patient_code, o.invoice_no
                  ORDER BY o.id DESC",
         ).map_err(AppError::from)?;
     let rows = stmt.query_map([], |row| {
@@ -375,6 +470,9 @@ pub fn get_orders(conn: &Connection) -> AppResult<Vec<OrderSummary>> {
             status: payment_status(total_paise, paid_paise),
             report_status: row.get(6)?,
             created_at: row.get(5)?,
+            order_number: row.get(7)?,
+            patient_code: row.get(8)?,
+            invoice_no: row.get(9)?,
         })
     }).map_err(AppError::from)?;
     rows.map(|row| row.map_err(AppError::from)).collect()
@@ -412,8 +510,10 @@ pub fn get_orders_by_date_range(
     date_from: &str,
     date_to: &str,
 ) -> AppResult<Vec<OrderSummary>> {
-    let mut stmt = conn.prepare(
-        "SELECT o.id, p.name,
+    let has_from = !date_from.trim().is_empty();
+    let has_to = !date_to.trim().is_empty();
+
+    let sql_base = "SELECT o.id, p.name,
                 COALESCE(GROUP_CONCAT(COALESCE(ot.test_name_snapshot, t.name), ', '), 'No tests'),
                 IFNULL(o.total_amount_paise, 0), IFNULL(o.paid_amount_paise, 0),
                 IFNULL(o.created_at, ''),
@@ -424,16 +524,39 @@ pub fn get_orders_by_date_range(
                     WHEN (SELECT COUNT(*) FROM results WHERE order_id = o.id AND TRIM(value) <> '')
                          < (SELECT COUNT(*) FROM order_parameters WHERE order_id = o.id) THEN 'Partial'
                     ELSE 'Completed'
-                END
+                END,
+                COALESCE(NULLIF(o.order_number, ''), 'LAB-' || o.id),
+                IFNULL(p.patient_code, ''),
+                COALESCE(NULLIF(o.invoice_no, ''), 'INV-' || o.id)
          FROM orders o
          JOIN patients p ON p.id = o.patient_id
          LEFT JOIN order_tests ot ON ot.order_id = o.id
-         LEFT JOIN tests t ON t.id = ot.test_id
-         WHERE DATE(o.created_at) >= DATE(?1) AND DATE(o.created_at) <= DATE(?2)
-         GROUP BY o.id, p.name, o.total_amount_paise, o.paid_amount_paise, o.created_at
-         ORDER BY o.id DESC",
-    ).map_err(AppError::from)?;
-    let rows = stmt.query_map(params![date_from, date_to], |row| {
+         LEFT JOIN tests t ON t.id = ot.test_id";
+
+    let sql_suffix = "GROUP BY o.id, p.name, o.total_amount_paise, o.paid_amount_paise, o.created_at, o.order_number, p.patient_code, o.invoice_no
+         ORDER BY o.id DESC";
+
+    let (query_sql, params_vec): (String, Vec<String>) = match (has_from, has_to) {
+        (true, true) => (
+            format!("{} WHERE o.created_at >= ?1 AND o.created_at < date(?2, '+1 day') {}", sql_base, sql_suffix),
+            vec![date_from.trim().to_string(), date_to.trim().to_string()],
+        ),
+        (true, false) => (
+            format!("{} WHERE o.created_at >= ?1 {}", sql_base, sql_suffix),
+            vec![date_from.trim().to_string()],
+        ),
+        (false, true) => (
+            format!("{} WHERE o.created_at < date(?1, '+1 day') {}", sql_base, sql_suffix),
+            vec![date_to.trim().to_string()],
+        ),
+        (false, false) => (
+            format!("{} {}", sql_base, sql_suffix),
+            vec![],
+        ),
+    };
+
+    let mut stmt = conn.prepare(&query_sql).map_err(AppError::from)?;
+    let map_row = |row: &rusqlite::Row| {
         let total_paise: i64 = row.get(3)?;
         let paid_paise: i64 = row.get(4)?;
         Ok(OrderSummary {
@@ -446,8 +569,18 @@ pub fn get_orders_by_date_range(
             status: payment_status(total_paise, paid_paise),
             report_status: row.get(6)?,
             created_at: row.get(5)?,
+            order_number: row.get(7)?,
+            patient_code: row.get(8)?,
+            invoice_no: row.get(9)?,
         })
-    }).map_err(AppError::from)?;
+    };
+
+    let rows = match params_vec.len() {
+        2 => stmt.query_map(params![params_vec[0], params_vec[1]], map_row).map_err(AppError::from)?,
+        1 => stmt.query_map(params![params_vec[0]], map_row).map_err(AppError::from)?,
+        _ => stmt.query_map([], map_row).map_err(AppError::from)?,
+    };
+
     rows.map(|row| row.map_err(AppError::from)).collect()
 }
 
@@ -457,7 +590,33 @@ pub fn get_doctor_revenue(
     date_to: &str,
 ) -> AppResult<Vec<DoctorRevenue>> {
     let rate_basis_points = doctor_share_basis_points(conn)?;
-    let mut stmt = conn.prepare(
+    let has_from = !date_from.trim().is_empty();
+    let has_to = !date_to.trim().is_empty();
+
+    let (co_date_clause, o_date_clause, params_vec): (String, String, Vec<String>) = match (has_from, has_to) {
+        (true, true) => (
+            "AND co.created_at >= ?1 AND co.created_at < date(?2, '+1 day')".to_string(),
+            "AND o.created_at >= ?1 AND o.created_at < date(?2, '+1 day')".to_string(),
+            vec![date_from.trim().to_string(), date_to.trim().to_string()],
+        ),
+        (true, false) => (
+            "AND co.created_at >= ?1".to_string(),
+            "AND o.created_at >= ?1".to_string(),
+            vec![date_from.trim().to_string()],
+        ),
+        (false, true) => (
+            "AND co.created_at < date(?1, '+1 day')".to_string(),
+            "AND o.created_at < date(?1, '+1 day')".to_string(),
+            vec![date_to.trim().to_string()],
+        ),
+        (false, false) => (
+            "".to_string(),
+            "".to_string(),
+            vec![],
+        ),
+    };
+
+    let sql = format!(
         "WITH doctor_roster AS (
             SELECT id AS doctor_id, name FROM doctors WHERE TRIM(name) <> ''
             UNION ALL
@@ -472,8 +631,7 @@ pub fn get_doctor_revenue(
                 FROM doctor_commissions dc JOIN orders co ON co.id = dc.order_id
                 WHERE ((d.doctor_id IS NOT NULL AND dc.doctor_id = d.doctor_id)
                     OR (d.doctor_id IS NULL AND dc.doctor_name_snapshot = d.name))
-                  AND (?1 = '' OR DATE(co.created_at) >= DATE(?1))
-                  AND (?2 = '' OR DATE(co.created_at) <= DATE(?2))), 0),
+                  {}), 0),
             IFNULL((SELECT SUM(amount_paise) FROM doctor_commission_settlements ds
                 WHERE d.doctor_id IS NOT NULL AND ds.doctor_id = d.doctor_id), 0),
             IFNULL((SELECT SUM(dc.commission_paise + IFNULL((SELECT SUM(amount_delta_paise)
@@ -489,11 +647,13 @@ pub fn get_doctor_revenue(
          FROM doctor_roster d
          LEFT JOIN patients p ON p.referred_by = d.name COLLATE NOCASE
          LEFT JOIN orders o ON o.patient_id = p.id AND IFNULL(o.status, '') <> 'Cancelled'
-             AND (?1 = '' OR DATE(o.created_at) >= DATE(?1))
-             AND (?2 = '' OR DATE(o.created_at) <= DATE(?2))
+             {}
          GROUP BY d.doctor_id, d.name ORDER BY 5 DESC, 3 DESC, d.name ASC",
-    ).map_err(AppError::from)?;
-    let rows = stmt.query_map(params![date_from, date_to], |row| {
+        co_date_clause, o_date_clause
+    );
+
+    let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
+    let map_doc = |row: &rusqlite::Row| {
         let referrals: i32 = row.get(2)?;
         let eligible = from_paise(row.get(3)?);
         let earned = from_paise(row.get(4)?);
@@ -516,7 +676,14 @@ pub fn get_doctor_revenue(
             last_referral: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
             legacy_order_count: row.get(8)?,
         })
-    }).map_err(AppError::from)?;
+    };
+
+    let rows = match params_vec.len() {
+        2 => stmt.query_map(params![params_vec[0], params_vec[1]], map_doc).map_err(AppError::from)?,
+        1 => stmt.query_map(params![params_vec[0]], map_doc).map_err(AppError::from)?,
+        _ => stmt.query_map([], map_doc).map_err(AppError::from)?,
+    };
+
     rows.map(|row| row.map_err(AppError::from)).collect()
 }
 
@@ -552,6 +719,7 @@ pub fn cancel_order(conn: &mut Connection, order_id: i32) -> AppResult<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn update_order(
     conn: &mut Connection,
     order_id: i32,
@@ -559,6 +727,26 @@ pub fn update_order(
     parameter_ids: Vec<i32>,
     total_amount: f64,
     discount_amount: f64,
+) -> AppResult<()> {
+    update_order_with_prices(
+        conn,
+        order_id,
+        test_ids,
+        parameter_ids,
+        total_amount,
+        discount_amount,
+        None,
+    )
+}
+
+pub fn update_order_with_prices(
+    conn: &mut Connection,
+    order_id: i32,
+    test_ids: Vec<i32>,
+    parameter_ids: Vec<i32>,
+    total_amount: f64,
+    discount_amount: f64,
+    custom_prices: Option<std::collections::HashMap<i32, f64>>,
 ) -> AppResult<()> {
     validate_positive_id(order_id, "order_id")?;
     validate_test_ids(&test_ids)?;
@@ -620,7 +808,16 @@ pub fn update_order(
             )));
         };
 
-        let price_paise = to_paise(price)?;
+        let effective_price = match &custom_prices {
+            Some(map) if map.contains_key(test_id) => {
+                let cp = map[test_id];
+                validate_amount(cp)?;
+                cp
+            }
+            _ => price,
+        };
+
+        let price_paise = to_paise(effective_price)?;
         subtotal_paise += price_paise;
         test_snapshots.push((*test_id, test_name, price_paise));
     }
@@ -771,6 +968,326 @@ pub fn update_order(
 
     Ok(())
 }
+
+pub fn add_tests_to_order(
+
+    conn: &mut Connection,
+
+    order_id: i32,
+
+    test_ids: Vec<i32>,
+
+    custom_prices: Option<std::collections::HashMap<i32, f64>>,
+
+) -> AppResult<()> {
+
+    validate_positive_id(order_id, "order_id")?;
+
+    validate_test_ids(&test_ids)?;
+
+
+
+    let test_ids = unique_ids(&test_ids);
+
+
+
+    let tx = conn
+
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+
+        .map_err(AppError::from)?;
+
+
+
+    let current_order: Option<(String, i64)> = tx
+
+        .query_row(
+
+            "SELECT IFNULL(status, 'Pending'), IFNULL(total_amount_paise, 0)
+
+             FROM orders WHERE id = ?1",
+
+            [order_id],
+
+            |row| Ok((row.get(0)?, row.get(1)?)),
+
+        )
+
+        .optional()
+
+        .map_err(AppError::from)?;
+
+
+
+    let Some((current_status, current_total_paise)) = current_order else {
+
+        return Err(AppError::NotFound(format!("Order {} not found", order_id)));
+
+    };
+
+
+
+    if current_status == "Cancelled" {
+
+        return Err(AppError::BusinessLogicError(
+
+            "Cannot add tests to a cancelled order".to_string(),
+
+        ));
+
+    }
+
+
+
+    // Check for tests already present on this order
+
+    {
+
+        let mut existing_test_ids_stmt = tx
+
+            .prepare("SELECT test_id FROM order_tests WHERE order_id = ?1")
+
+            .map_err(AppError::from)?;
+
+        let existing_test_ids_iter = existing_test_ids_stmt
+
+            .query_map([order_id], |row| row.get::<_, i32>(0))
+
+            .map_err(AppError::from)?;
+
+        let mut existing_test_ids = std::collections::HashSet::new();
+
+        for id in existing_test_ids_iter {
+
+            existing_test_ids.insert(id.map_err(AppError::from)?);
+
+        }
+
+
+
+        for test_id in &test_ids {
+
+            if existing_test_ids.contains(test_id) {
+
+                let test_name: String = tx
+
+                    .query_row("SELECT name FROM tests WHERE id = ?1", [test_id], |row| row.get(0))
+
+                    .unwrap_or_else(|_| format!("#{}", test_id));
+
+                return Err(AppError::BusinessLogicError(format!(
+
+                    "Test '{}' is already attached to this order",
+
+                    test_name
+
+                )));
+
+            }
+
+        }
+
+    }
+
+
+
+    let mut added_paise: i64 = 0;
+
+    let mut test_snapshots: Vec<(i32, String, i64)> = Vec::new();
+
+
+
+    for test_id in &test_ids {
+
+        let test_row: Option<(String, f64)> = tx
+
+            .query_row(
+
+                "SELECT name, price
+
+                 FROM tests
+
+                 WHERE id = ?1
+
+                   AND IFNULL(is_active, 1) = 1",
+
+                [test_id],
+
+                |row| Ok((row.get(0)?, row.get(1)?)),
+
+            )
+
+            .optional()
+
+            .map_err(AppError::from)?;
+
+
+
+        let Some((test_name, price)) = test_row else {
+
+            return Err(AppError::NotFound(format!(
+
+                "Test {} not found or inactive",
+
+                test_id
+
+            )));
+
+        };
+
+
+
+        let effective_price = match &custom_prices {
+
+            Some(map) if map.contains_key(test_id) => {
+
+                let cp = map[test_id];
+
+                validate_amount(cp)?;
+
+                cp
+
+            }
+
+            _ => price,
+
+        };
+
+
+
+        let price_paise = to_paise(effective_price)?;
+
+        added_paise += price_paise;
+
+        test_snapshots.push((*test_id, test_name, price_paise));
+
+    }
+
+
+
+    for (test_id, test_name, price_paise) in &test_snapshots {
+
+        tx.execute(
+
+            "INSERT INTO order_tests (
+
+                order_id, test_id, test_name_snapshot, price_paise
+
+             )
+
+             VALUES (?1, ?2, ?3, ?4)",
+
+            params![order_id, test_id, test_name, price_paise],
+
+        )
+
+        .map_err(AppError::from)?;
+
+
+
+        let mut param_stmt = tx
+
+            .prepare(
+
+                "SELECT id, name, IFNULL(unit, ''), IFNULL(normal_range, '')
+
+                 FROM test_parameters
+
+                 WHERE test_id = ?1
+
+                   AND IFNULL(is_active, 1) = 1
+
+                 ORDER BY id ASC",
+
+            )
+
+            .map_err(AppError::from)?;
+
+
+
+        let param_rows = param_stmt
+
+            .query_map([test_id], |row| {
+
+                Ok((
+
+                    row.get::<_, i32>(0)?,
+
+                    row.get::<_, String>(1)?,
+
+                    row.get::<_, String>(2)?,
+
+                    row.get::<_, String>(3)?,
+
+                ))
+
+            })
+
+            .map_err(AppError::from)?;
+
+
+
+        for p in param_rows {
+
+            let (param_id, param_name, unit, normal_range) = p.map_err(AppError::from)?;
+
+            tx.execute(
+
+                "INSERT INTO order_parameters (
+
+                    order_id, parameter_id, parameter_name_snapshot, unit_snapshot, normal_range_snapshot
+
+                 )
+
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+
+                params![order_id, param_id, param_name, unit, normal_range],
+
+            )
+
+            .map_err(AppError::from)?;
+
+        }
+
+    }
+
+
+
+    let new_total_paise = current_total_paise + added_paise;
+
+
+
+    tx.execute(
+
+        "UPDATE orders
+
+         SET total_amount_paise = ?1,
+
+             status = CASE WHEN status = 'Completed' THEN 'Pending' ELSE status END
+
+         WHERE id = ?2",
+
+        params![new_total_paise, order_id],
+
+    )
+
+    .map_err(AppError::from)?;
+
+
+
+    record_order_commission_adjustment(&tx, order_id, new_total_paise, "Tests added to order")?;
+
+
+
+    tx.commit().map_err(AppError::from)?;
+
+
+
+    Ok(())
+
+}
+
+
 
 pub fn update_order_status(
     conn: &mut Connection,

@@ -10,6 +10,7 @@ pub struct ReceiptLine {
 #[derive(Debug, Serialize)]
 pub struct ReceiptData {
     pub order_id: i32,
+    pub order_number: String,
     pub invoice_no: String,
 
     pub patient_name: String,
@@ -26,6 +27,7 @@ pub struct ReceiptData {
     pub paid_amount: f64,
     pub pending_amount: f64,
     pub payment_status: String,
+    pub payment_method: Option<String>,
 
     pub order_date: String,
     pub tests: Vec<ReceiptLine>,

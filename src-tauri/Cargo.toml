@@ -19,7 +19,7 @@ tauri-build = { version = "2.5.6", features = [] }
 tauri = { version = "2.10.3", features = ["protocol-asset"] }
 log = "0.4"
 tauri-plugin-dialog = "2"
-tauri-plugin-updater = "2"
+tauri-plugin-updater = "2.14.1"
 dotenvy = "0.15"
 dirs = "5.0"
 regex = "1"
