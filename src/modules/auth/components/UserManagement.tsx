@@ -433,7 +433,7 @@ export default function UserManagement({ showToast, currentSession }: UserManage
           </div>
         }
       >
-        <form onSubmit={handleResetPasswordSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <form onSubmit={handleResetPasswordSubmit} autoComplete="off" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {resetError && (
             <div style={{ padding: "8px 12px", background: "var(--color-danger-soft, #fee2e2)", color: "var(--color-danger, #ef4444)", borderRadius: "6px", fontSize: "12px" }}>
               {resetError}
@@ -458,6 +458,7 @@ export default function UserManagement({ showToast, currentSession }: UserManage
               onChange={(e) => setResetPassword(e.target.value)}
               placeholder="Minimum 8 characters"
               disabled={resetLoading}
+              autoComplete="new-password"
               autoFocus
             />
           </div>
@@ -480,6 +481,7 @@ export default function UserManagement({ showToast, currentSession }: UserManage
               onChange={(e) => setResetConfirmPassword(e.target.value)}
               placeholder="Re-enter new password"
               disabled={resetLoading}
+              autoComplete="new-password"
             />
           </div>
 

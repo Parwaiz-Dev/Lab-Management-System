@@ -526,6 +526,8 @@ export default function ResultPage({
                                       onKeyDown={(e) => handleKeyDown(e, param.id)}
                                       placeholder={config.placeholder || "Value..."}
                                       disabled={saving}
+                                      autoComplete="off"
+                                      spellCheck={false}
                                       className={`result-input-field ${inputModifier}`}
                                     />
                                     {hasValue && (
@@ -594,6 +596,8 @@ export default function ResultPage({
                                     onKeyDown={(e) => handleKeyDown(e, param.id)}
                                     placeholder={config.placeholder || "Value..."}
                                     disabled={saving}
+                                    autoComplete="off"
+                                    spellCheck={false}
                                     className={`result-input-field ${inputModifier}`}
                                   />
                                 )}

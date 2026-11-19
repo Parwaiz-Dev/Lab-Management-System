@@ -489,7 +489,7 @@ export default function DoctorManager({ showToast }: DoctorManagerProps) {
           </div>
         }
       >
-        <form onSubmit={handleAddDoctor} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <form onSubmit={handleAddDoctor} autoComplete="off" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
             <label className="form-label" style={{ fontSize: 12, marginBottom: 4 }}>
               Doctor Name &amp; Degrees *
@@ -562,7 +562,7 @@ export default function DoctorManager({ showToast }: DoctorManagerProps) {
           </div>
         }
       >
-        <form onSubmit={handleEditDoctor} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <form onSubmit={handleEditDoctor} autoComplete="off" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
             <label className="form-label" style={{ fontSize: 12, marginBottom: 4 }}>
               Doctor Name &amp; Degrees *

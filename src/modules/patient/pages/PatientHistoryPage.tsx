@@ -1118,7 +1118,7 @@ export default function PatientHistoryPage({
           subtitle={`Editing demographics for ${editingPatient.patient_code || `PID-${editingPatient.id}`}`}
           maxWidth="md"
         >
-          <form onSubmit={handleSaveEdit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <form onSubmit={handleSaveEdit} autoComplete="off" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div>
               <label className="form-label" htmlFor="edit-patient-name">
                 Full Name *

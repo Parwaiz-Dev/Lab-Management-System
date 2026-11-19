@@ -547,6 +547,7 @@ export default function AddTestModal({
                             type="number"
                             step="any"
                             min="0"
+                            autoComplete="off"
                             value={customPrice}
                             onChange={(e) => handlePriceChange(test.id, e.target.value)}
                             onBlur={() => handlePriceBlur(test.id)}

@@ -786,6 +786,8 @@ export default function TestSelector({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search test name or parameter (e.g. CBC, Lipid, Thyroid, Sugar)..."
             disabled={saving || loadingTests || Boolean(lastOrder)}
+            autoComplete="off"
+            spellCheck={false}
             className="test-selector__search-input"
           />
           {search && (
@@ -1257,6 +1259,8 @@ export default function TestSelector({
                   }}
                   placeholder={autoRefNo}
                   maxLength={20}
+                  autoComplete="off"
+                  spellCheck={false}
                   className={`test-selector__ref-input ${refNoError ? "test-selector__ref-input--error" : ""}`}
                   autoFocus
                 />
@@ -1513,6 +1517,8 @@ export default function TestSelector({
                   value={paramSearch}
                   onChange={(e) => setParamSearch(e.target.value)}
                   placeholder="Filter parameters (e.g. Hemoglobin, Platelet)..."
+                  autoComplete="off"
+                  spellCheck={false}
                   className="subtest-modal__search-input"
                 />
                 {paramSearch && (

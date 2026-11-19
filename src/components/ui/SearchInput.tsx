@@ -28,6 +28,8 @@ export function SearchInput({
         onChange={(e) => onChangeValue(e.target.value)}
         placeholder={placeholder}
         className="search-input-field"
+        autoComplete="off"
+        spellCheck={false}
         {...props}
       />
       {value && onClear && (

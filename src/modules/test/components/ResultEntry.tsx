@@ -205,6 +205,8 @@ export default function ResultEntry({ orderId, parameters }: ResultEntryProps) {
                       value={value}
                       placeholder="Enter value"
                       disabled={saving}
+                      autoComplete="off"
+                      spellCheck={false}
                       onChange={(e) => handleChange(param.id, e.target.value)}
                     />
 

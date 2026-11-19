@@ -22,6 +22,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     hint,
     error,
     id,
+    autoComplete = "off",
     ...props
   },
   ref
@@ -35,6 +36,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       ref={ref}
       id={id}
       size={htmlSize}
+      autoComplete={autoComplete}
       {...props}
       aria-invalid={isInvalid}
       className={[
