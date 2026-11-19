@@ -43,10 +43,8 @@ mod tests {
     #[test]
     fn get_setting_doctor_share_default() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);",
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);")
+            .unwrap();
         // get_setting returns "" for missing keys (unwrap_or_default)
         let value = get_setting(&conn, "doctor_share".into()).unwrap();
         assert_eq!(value, "");
@@ -55,10 +53,8 @@ mod tests {
     #[test]
     fn get_setting_lab_name_default() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);",
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);")
+            .unwrap();
         let value = get_setting(&conn, "lab_name".into()).unwrap();
         assert_eq!(value, "");
     }
@@ -133,10 +129,8 @@ mod tests {
     #[test]
     fn get_all_settings_empty_db_returns_defaults() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);",
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);")
+            .unwrap();
         let settings = get_all_settings(&conn).unwrap();
         // get_all_settings uses get_setting_or_default with these defaults:
         // lab_name="Your Lab", lab_address="Your Address", doctor_share="0.4", lab_logo=""

@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CreateOrderResult {
+    pub order_id: i32,
+    pub order_number: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct OrderSummary {
     pub id: i32,
@@ -36,6 +42,7 @@ pub struct DoctorRevenue {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct DoctorRevenueDetails {
     pub doctor_name: String,
     pub referrals: Vec<DoctorReferralOrder>,
@@ -44,6 +51,7 @@ pub struct DoctorRevenueDetails {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct DoctorReferralOrder {
     pub order_id: i32,
     pub patient_name: String,
@@ -56,6 +64,7 @@ pub struct DoctorReferralOrder {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct DoctorCommissionAdjustment {
     pub id: i32,
     pub order_id: i32,
@@ -65,6 +74,7 @@ pub struct DoctorCommissionAdjustment {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct DoctorCommissionSettlement {
     pub id: i32,
     pub amount: f64,

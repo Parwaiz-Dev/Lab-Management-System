@@ -23,14 +23,7 @@ pub fn create_audit_log(
     let result = conn.execute(
         "INSERT INTO audit_logs (user_id, action, table_name, record_id, old_data, new_data)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            user_id,
-            action,
-            table_name,
-            record_id,
-            old_data,
-            new_data,
-        ],
+        params![user_id, action, table_name, record_id, old_data, new_data,],
     );
 
     // Intentionally swallow errors — auditing must never break primary flows.
@@ -113,13 +106,16 @@ pub fn get_audit_logs(
     all_params.push(Box::new(limit_val));
     all_params.push(Box::new(offset_val));
 
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|b| b.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        all_params.iter().map(|b| b.as_ref()).collect();
 
     let rows = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(AuditLogEntry {
             id: row.get(0)?,
             user_id: row.get(1)?,
-            username: row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "unknown".into()),
+            username: row
+                .get::<_, Option<String>>(2)?
+                .unwrap_or_else(|| "unknown".into()),
             action: row.get(3)?,
             table_name: row.get(4)?,
             record_id: row.get(5)?,
@@ -143,7 +139,14 @@ pub fn get_record_history(
     table_name: &str,
     record_id: i64,
 ) -> AppResult<Vec<AuditLogEntry>> {
-    get_audit_logs(conn, Some(table_name), Some(record_id), None, Some(200), None)
+    get_audit_logs(
+        conn,
+        Some(table_name),
+        Some(record_id),
+        None,
+        Some(200),
+        None,
+    )
 }
 
 /// Get recent activity for a specific user.
@@ -184,14 +187,11 @@ pub fn snapshot_row(
                     rusqlite::types::ValueRef::Null => "null".to_string(),
                     rusqlite::types::ValueRef::Integer(n) => n.to_string(),
                     rusqlite::types::ValueRef::Real(f) => f.to_string(),
-                    rusqlite::types::ValueRef::Text(s) => {
-                        String::from_utf8_lossy(s).to_string()
-                    }
+                    rusqlite::types::ValueRef::Text(s) => String::from_utf8_lossy(s).to_string(),
                     rusqlite::types::ValueRef::Blob(_) => "<blob>".to_string(),
                 });
-                val.ok().map(|v| {
-                    (col.to_string(), serde_json::Value::String(v))
-                })
+                val.ok()
+                    .map(|v| (col.to_string(), serde_json::Value::String(v)))
             })
             .collect();
         Ok(serde_json::Value::Object(
@@ -214,9 +214,8 @@ pub fn snapshot_result(
     order_id: i64,
     parameter_id: i64,
 ) -> AppResult<Option<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT value FROM results WHERE order_id = ?1 AND parameter_id = ?2",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT value FROM results WHERE order_id = ?1 AND parameter_id = ?2")?;
     let mut rows = stmt.query_map(params![order_id, parameter_id], |row| {
         let val: String = row.get(0)?;
         Ok(serde_json::json!({"value": val}))
@@ -232,10 +231,7 @@ pub fn snapshot_result(
 
 /// Snapshot a setting value identified by its TEXT key.
 /// Used before updating a setting to capture the previous value for audit.
-pub fn snapshot_setting(
-    conn: &Connection,
-    key: &str,
-) -> AppResult<Option<String>> {
+pub fn snapshot_setting(conn: &Connection, key: &str) -> AppResult<Option<String>> {
     let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
     let mut rows = stmt.query_map(params![key], |row| {
         let val: String = row.get(0)?;

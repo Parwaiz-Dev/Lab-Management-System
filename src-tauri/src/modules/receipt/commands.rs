@@ -15,6 +15,8 @@ pub fn get_receipt(
     order_id: i32,
 ) -> Result<ReceiptData, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_receipt(&conn, order_id)?)
 }

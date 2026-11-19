@@ -146,6 +146,40 @@ export const QUALITATIVE_OPTIONS = {
 
 // ── Parameter Matchers ────────────────────────────────────────────────────────
 
+export function isHbA1cTest(testName: string | undefined | null): boolean {
+  if (!testName) return false;
+  const lower = testName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return (
+    lower.includes("hba1c") ||
+    lower.includes("glycated") ||
+    lower.includes("glycohemoglobin") ||
+    lower === "a1c"
+  );
+}
+
+export function isHbA1cParam(paramName: string | undefined | null): boolean {
+  if (!paramName) return false;
+  const lower = paramName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return (
+    lower.includes("hba1c") ||
+    lower.includes("glycated") ||
+    lower.includes("glycohemoglobin") ||
+    lower === "a1c"
+  );
+}
+
+export function isEagParam(paramName: string | undefined | null): boolean {
+  if (!paramName) return false;
+  const lower = paramName.toLowerCase();
+  return lower.includes("eag") || lower.includes("estimated average glucose");
+}
+
+export function calculateEag(hba1c: number | string | null | undefined): number | null {
+  const val = parseClinicalNumber(hba1c);
+  if (val === null || val <= 0 || val > 25) return null;
+  return Math.round(28.7 * val - 46.7);
+}
+
 export function isLipidTest(testName: string): boolean {
   return (testName || "").toLowerCase().includes("lipid");
 }

@@ -178,17 +178,17 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
           <div className="receipt-document__meta">
             <div className="receipt-document__badge-wrap">
               <Badge tone={receipt.status === "Paid" ? "success" : receipt.status === "Partial" ? "warning" : "neutral"}>
-                {receipt.status === "Paid" ? "FULL PAYMENT" : receipt.status === "Partial" ? "PARTIAL PAYMENT" : "PAYMENT PENDING"}
+                {receipt.status === "Paid" ? "PAID" : receipt.status === "Partial" ? "PARTIAL" : "UNPAID"}
               </Badge>
             </div>
 
             <div className="receipt-document__meta-row">
-              <span>Invoice No:</span>
+              <span>Receipt No:</span>
               <strong>{invoiceNumber}</strong>
             </div>
 
             <div className="receipt-document__meta-row">
-              <span>Order ID:</span>
+              <span>Lab Ref No:</span>
               <strong>{orderNumber}</strong>
             </div>
 
@@ -199,36 +199,36 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
           </div>
         </header>
 
-        {/* Patient Details Grid (Compact 4-column block) */}
+        {/* Patient Details (4-Column Equal-Width Grid) */}
         <section className="receipt-document__patient-grid">
-          <div className="receipt-document__patient-item">
+          <div className="receipt-document__patient-col">
             <span className="receipt-document__patient-label">Patient Name</span>
             <strong className="receipt-document__patient-value">{displayPatientName}</strong>
           </div>
 
-          <div className="receipt-document__patient-item">
-            <span className="receipt-document__patient-label">Patient ID</span>
+          <div className="receipt-document__patient-col">
+            <span className="receipt-document__patient-label">PID</span>
             <strong className="receipt-document__patient-value">{displayPatientCode}</strong>
           </div>
 
-          <div className="receipt-document__patient-item">
-            <span className="receipt-document__patient-label">Age / Gender</span>
+          <div className="receipt-document__patient-col">
+            <span className="receipt-document__patient-label">Age / Sex</span>
             <strong className="receipt-document__patient-value">{displayAgeSex}</strong>
           </div>
 
-          <div className="receipt-document__patient-item">
+          <div className="receipt-document__patient-col receipt-document__patient-col--last">
             <span className="receipt-document__patient-label">Referred By</span>
             <strong className="receipt-document__patient-value">{displayReferredBy}</strong>
           </div>
         </section>
 
-        {/* Billed Tests Table */}
+        {/* Billed Tests Table (3 Columns: #, Investigation / Test Name, Amount) */}
         <section className="receipt-document__section">
           <table className="receipt-document__table">
             <thead>
               <tr>
                 <th style={{ width: "32px", textAlign: "center" }}>#</th>
-                <th>Investigation / Test Description</th>
+                <th style={{ textAlign: "left" }}>Investigation / Test Name</th>
                 <th style={{ width: "110px", textAlign: "right" }}>Amount (₹)</th>
               </tr>
             </thead>
@@ -243,17 +243,12 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
               ) : (
                 receipt.tests.map((test: ReceiptLine, index: number) => (
                   <tr key={`${test.test_name}-${index}`}>
-                    <td style={{ textAlign: "center", color: "var(--color-muted)", fontSize: "11px" }}>
+                    <td className="receipt-document__col-num">
                       {index + 1}
                     </td>
 
-                    <td>
-                      <div className="receipt-document__test-name">{test.test_name}</div>
-                      {test.parameter_names && test.parameter_names.length > 0 && (
-                        <div className="receipt-document__test-params">
-                          {test.parameter_names.join(", ")}
-                        </div>
-                      )}
+                    <td className="receipt-document__col-name">
+                      {test.test_name}
                     </td>
 
                     <td className="receipt-document__amount">
@@ -272,7 +267,14 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
             <div className="receipt-document__mode-block">
               <span className="receipt-document__mode-label">Payment Mode:</span>
               <strong className="receipt-document__mode-value">
-                {receipt.paid > 0 ? (receipt.paymentMethod || "Not recorded") : "Unpaid / Pay Later"}
+                {receipt.paid > 0 ? (receipt.paymentMethod || "Cash / UPI") : "Unpaid"}
+              </strong>
+            </div>
+
+            <div className="receipt-document__mode-block">
+              <span className="receipt-document__mode-label">Payment Status:</span>
+              <strong className="receipt-document__mode-value">
+                {receipt.status === "Paid" ? "Paid in Full" : receipt.status === "Partial" ? "Partially Paid" : "Payment Pending"}
               </strong>
             </div>
 
@@ -291,7 +293,7 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
             <ReceiptRow label="Net Amount" value={receipt.total} strong />
             <ReceiptRow label="Amount Paid" value={receipt.paid} />
             <ReceiptRow
-              label={receipt.pending > 0 ? "Balance Due" : "Balance Due"}
+              label="Balance Due"
               value={receipt.pending}
               danger={receipt.pending > 0}
               strong
@@ -314,7 +316,7 @@ export default function ReceiptPage({ orderId, onBack }: ReceiptPageProps) {
 
       {/* Screen-only blank lower-half indicator */}
       <div className="receipt-view__half-hint no-print">
-        <span>Printed receipt occupies the upper half of standard A4 paper. Lower half is left blank for tear-off or lab documentation.</span>
+        <span>Printed receipt occupies approximately the upper half of standard A4 paper. Lower half remains blank.</span>
       </div>
     </div>
   );
@@ -346,7 +348,7 @@ function ReceiptRow({
     >
       <span>{label}</span>
       <strong>
-        {discount ? `-${money(value)}` : value === 0 && danger ? "NIL (₹0.00)" : money(value)}
+        {discount ? `-${money(value)}` : money(value)}
       </strong>
     </div>
   );
@@ -398,14 +400,14 @@ const compactInvoicePrintCss = `
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
 
   .receipt-view__half-hint {
     width: 100%;
     max-width: 720px;
-    margin-top: 14px;
-    padding: 8px 14px;
+    margin-top: 12px;
+    padding: 6px 12px;
     background: rgba(79, 70, 229, 0.06);
     border: 1px dashed rgba(79, 70, 229, 0.25);
     border-radius: 6px;
@@ -419,12 +421,12 @@ const compactInvoicePrintCss = `
     width: 100%;
     max-width: 720px;
     background: #ffffff;
-    border: 1px solid var(--color-border, #e2e8f0);
-    border-radius: 8px;
+    border: 1px solid var(--color-border, #cbd5e1);
+    border-radius: 6px;
     box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.05);
-    padding: 18px 24px 14px;
+    padding: 16px 20px 12px;
     box-sizing: border-box;
-    font-family: inherit;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     color: #0f172a;
   }
 
@@ -433,25 +435,25 @@ const compactInvoicePrintCss = `
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    padding-bottom: 12px;
-    border-bottom: 2px solid #4f46e5;
-    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1.5px solid #0f172a;
+    margin-bottom: 8px;
   }
 
   .receipt-document__brand {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     align-items: center;
   }
 
   .receipt-document__logo-img {
-    height: 42px;
-    max-width: 110px;
+    height: 38px;
+    max-width: 95px;
     object-fit: contain;
   }
 
   .receipt-document__eyebrow {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -460,19 +462,19 @@ const compactInvoicePrintCss = `
   }
 
   .receipt-document__brand h1 {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 800;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
     color: #0f172a;
-    margin: 0 0 1px 0;
-    line-height: 1.2;
+    margin: 0;
+    line-height: 1.15;
   }
 
   .receipt-document__brand p {
-    font-size: 11px;
-    color: #64748b;
-    margin: 0;
-    line-height: 1.3;
+    font-size: 10.5px;
+    color: #475569;
+    margin: 1px 0 0;
+    line-height: 1.25;
   }
 
   .receipt-document__meta {
@@ -480,15 +482,15 @@ const compactInvoicePrintCss = `
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 4px;
+    gap: 3px;
   }
 
   .receipt-document__badge-wrap {
-    margin-bottom: 2px;
+    margin-bottom: 1px;
   }
 
   .receipt-document__meta-row {
-    font-size: 11.5px;
+    font-size: 11px;
     display: flex;
     gap: 6px;
     align-items: baseline;
@@ -496,57 +498,75 @@ const compactInvoicePrintCss = `
 
   .receipt-document__meta-row span {
     color: #64748b;
-    font-size: 10.5px;
+    font-size: 9.5px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    font-weight: 600;
   }
 
   .receipt-document__meta-row strong {
     color: #0f172a;
-    font-family: var(--font-mono, monospace);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: 700;
   }
 
-  /* Patient Details Grid */
+  /* Patient Details (4-Column Equal-Width Grid) */
   .receipt-document__patient-grid {
     display: grid;
-    grid-template-columns: 1.5fr 1fr 1fr 1.2fr;
-    gap: 8px 12px;
-    padding: 8px 12px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    margin-bottom: 10px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
-  .receipt-document__patient-item {
+  .receipt-document__patient-col {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    justify-content: flex-start;
+    padding: 6px 10px;
+    border-right: 1px solid #e2e8f0;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .receipt-document__patient-col:last-child,
+  .receipt-document__patient-col--last {
+    border-right: none;
   }
 
   .receipt-document__patient-label {
-    font-size: 9.5px;
-    font-weight: 700;
+    font-size: 8.5px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
     color: #64748b;
-  }
-
-  .receipt-document__patient-value {
-    font-size: 12px;
-    font-weight: 700;
-    color: #0f172a;
+    margin-bottom: 2px;
+    line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
+  .receipt-document__patient-value {
+    font-size: 11px;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.3;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    min-width: 0;
+  }
+
   /* Table */
   .receipt-document__section {
-    margin-bottom: 10px;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
+    margin-bottom: 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
     overflow: hidden;
   }
 
@@ -557,19 +577,19 @@ const compactInvoicePrintCss = `
   }
 
   .receipt-document__table th {
-    background: #f8fafc;
-    padding: 6px 10px;
+    background: #f1f5f9;
+    padding: 5px 8px;
     text-align: left;
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #475569;
-    border-bottom: 1px solid #e2e8f0;
+    color: #334155;
+    border-bottom: 1.5px solid #0f172a;
   }
 
   .receipt-document__table td {
-    padding: 5px 10px;
+    padding: 5px 8px;
     border-bottom: 1px solid #f1f5f9;
     vertical-align: middle;
   }
@@ -578,21 +598,25 @@ const compactInvoicePrintCss = `
     border-bottom: none;
   }
 
-  .receipt-document__test-name {
+  .receipt-document__col-num {
+    width: 28px;
+    text-align: center;
+    color: #64748b;
+    font-size: 10.5px;
+    font-family: ui-monospace, monospace;
+  }
+
+  .receipt-document__col-name {
+    text-align: left;
     font-weight: 600;
-    color: #1e293b;
+    color: #0f172a;
     font-size: 11.5px;
   }
 
-  .receipt-document__test-params {
-    color: #64748b;
-    font-size: 10px;
-    line-height: 1.25;
-  }
-
   .receipt-document__amount {
+    width: 100px;
     text-align: right;
-    font-family: var(--font-mono, monospace);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: 700;
     color: #0f172a;
     font-size: 11.5px;
@@ -601,17 +625,17 @@ const compactInvoicePrintCss = `
   .receipt-document__empty-cell {
     text-align: center;
     color: #94a3b8;
-    padding: 14px !important;
+    padding: 12px !important;
   }
 
   /* Bottom Billing Strip */
   .receipt-document__bottom {
     display: grid;
-    grid-template-columns: 1fr 220px;
-    gap: 16px;
+    grid-template-columns: 1fr 200px;
+    gap: 14px;
     align-items: start;
-    padding-top: 8px;
-    margin-bottom: 8px;
+    padding-top: 6px;
+    margin-bottom: 6px;
     border-top: 1px solid #e2e8f0;
   }
 
@@ -633,44 +657,45 @@ const compactInvoicePrintCss = `
     font-weight: 600;
     text-transform: uppercase;
     font-size: 9.5px;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
   }
 
   .receipt-document__mode-value {
     color: #0f172a;
     font-weight: 700;
     background: #f1f5f9;
-    padding: 1px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    text-transform: capitalize;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10.5px;
   }
 
   .receipt-document__terms-note {
     font-size: 9.5px;
     color: #94a3b8;
     line-height: 1.35;
-    margin: 4px 0 0 0;
+    margin: 3px 0 0 0;
   }
 
   .receipt-document__totals {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
   }
 
   .receipt-document__total-row {
     display: flex;
     justify-content: space-between;
-    font-size: 11.5px;
+    align-items: baseline;
+    font-size: 11px;
     color: #475569;
     padding: 1px 0;
   }
 
   .receipt-document__total-row strong {
-    font-family: var(--font-mono, monospace);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: 600;
     color: #1e293b;
+    font-size: 11px;
   }
 
   .receipt-document__total-row--discount strong {
@@ -678,15 +703,17 @@ const compactInvoicePrintCss = `
   }
 
   .receipt-document__total-row--strong {
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 700;
     color: #0f172a;
-    padding-top: 3px;
+    padding: 3px 0;
     border-top: 1px dashed #cbd5e1;
+    border-bottom: 1px dashed #cbd5e1;
+    margin: 1px 0;
   }
 
   .receipt-document__total-row--strong strong {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 800;
   }
 
@@ -704,7 +731,7 @@ const compactInvoicePrintCss = `
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    padding-top: 10px;
+    padding-top: 6px;
     border-top: 1px solid #e2e8f0;
   }
 
@@ -716,13 +743,13 @@ const compactInvoicePrintCss = `
 
   .receipt-document__signature {
     text-align: center;
-    width: 140px;
+    width: 130px;
   }
 
   .receipt-document__signature-line {
     border-bottom: 1px solid #94a3b8;
-    margin-bottom: 4px;
-    height: 24px;
+    margin-bottom: 3px;
+    height: 18px;
   }
 
   .receipt-document__signature span {
@@ -753,7 +780,7 @@ const compactInvoicePrintCss = `
 
   /* ═══════════════════════════════════════════════════════
      A4 PORTRAIT COMPACT PRINT STYLES
-     Upper half contains the invoice; lower half remains blank.
+     Upper half contains the receipt; lower half remains blank.
      ═══════════════════════════════════════════════════════ */
   @media print {
     .no-print,
@@ -770,10 +797,12 @@ const compactInvoicePrintCss = `
     body,
     #root {
       width: 100% !important;
-      height: 100% !important;
+      height: auto !important;
+      min-height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
       overflow: visible !important;
       background: #ffffff !important;
-      font-size: 11pt !important;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
@@ -796,44 +825,35 @@ const compactInvoicePrintCss = `
       width: 100% !important;
       max-width: 100% !important;
       box-shadow: none !important;
-      border: 1px solid #cbd5e1 !important;
-      border-radius: 4px !important;
-      padding: 12mm 14mm 8mm !important;
+      border: 1px solid #94a3b8 !important;
+      border-radius: 3px !important;
+      padding: 5mm 7mm 4mm !important;
       box-sizing: border-box !important;
       page-break-after: avoid !important;
       break-after: avoid !important;
     }
 
-    /* Prevent orphan table rows if test list is longer */
     .receipt-document__table tr {
       page-break-inside: avoid !important;
       break-inside: avoid !important;
     }
 
-    .receipt-document__header {
-      border-bottom: 2px solid #4f46e5 !important;
-      padding-bottom: 8px !important;
-      margin-bottom: 8px !important;
-    }
-
     .receipt-document__patient-grid {
+      display: grid !important;
+      grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
       background: #f8fafc !important;
-      border: 1px solid #e2e8f0 !important;
-      padding: 6px 10px !important;
-      margin-bottom: 8px !important;
+      border: 1px solid #cbd5e1 !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
 
-    .receipt-document__section {
-      margin-bottom: 8px !important;
+    .receipt-document__patient-col {
+      border-right: 1px solid #cbd5e1 !important;
     }
 
-    .receipt-document__bottom {
-      padding-top: 6px !important;
-      margin-bottom: 6px !important;
-    }
-
-    .receipt-document__footer {
-      padding-top: 6px !important;
+    .receipt-document__patient-col:last-child,
+    .receipt-document__patient-col--last {
+      border-right: none !important;
     }
   }
 `;

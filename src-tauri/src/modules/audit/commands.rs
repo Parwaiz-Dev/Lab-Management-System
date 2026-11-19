@@ -30,7 +30,9 @@ pub fn get_audit_logs(
         ));
     }
 
-    let conn = db.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = db
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::get_audit_logs(
         &conn,
         table_name.as_deref(),
@@ -55,7 +57,9 @@ pub fn get_record_history(
         ));
     }
 
-    let conn = db.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = db
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::get_record_history(&conn, &table_name, record_id)
 }
 
@@ -72,6 +76,8 @@ pub fn get_user_activity(
         ));
     }
 
-    let conn = db.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = db
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::get_user_activity(&conn, user_id, None)
 }

@@ -186,10 +186,10 @@ export function setupDevMock() {
       // Mock router for Tauri commands
       switch (cmd) {
         case "get_current_session":
-          return { user_id: 1, username: "admin", role: "admin" };
+          return { user_id: 1, username: "admin", role: "admin", must_change_password: false };
 
         case "login":
-          return { user_id: 1, username: args.username || "admin", role: "admin" };
+          return { user_id: 1, username: args.username || "admin", role: "admin", must_change_password: false };
 
         case "logout":
           return "Logged out";
@@ -267,6 +267,9 @@ export function setupDevMock() {
         case "get_orders_by_date_range":
           return sampleOrders;
 
+        case "get_collections_by_date_range":
+          return 2550.0;
+
         case "get_daily_summary":
           return { total_sales: 385000, collected: 255000, pending: 130000 };
 
@@ -324,6 +327,22 @@ export function setupDevMock() {
             { id: 2, patient_code: "PID-QA-0043", name: "QA Patient Two", age_value: 35, age_unit: "Years", gender: "Female", phone: "0000000000", referred_by: "Dr. QA Two" },
             { id: 3, patient_code: "PID-QA-0044", name: "QA Patient Three", age_value: 62, age_unit: "Years", gender: "Male", phone: "0000000000", referred_by: "Self" },
           ];
+
+        case "get_patients_paginated": {
+          const mockList = [
+            { id: 1, patient_code: "PID-QA-0042", name: "QA Patient One", age_value: 48, age_unit: "Years", gender: "Male", phone: "0000000000", referred_by: "Dr. QA One", created_at: "2026-02-01 10:00:00" },
+            { id: 2, patient_code: "PID-QA-0043", name: "QA Patient Two", age_value: 35, age_unit: "Years", gender: "Female", phone: "0000000000", referred_by: "Dr. QA Two", created_at: "2026-02-01 11:00:00" },
+            { id: 3, patient_code: "PID-QA-0044", name: "QA Patient Three", age_value: 62, age_unit: "Years", gender: "Male", phone: "0000000000", referred_by: "Self", created_at: "2026-02-01 12:00:00" },
+          ];
+          return {
+            items: mockList,
+            total: mockList.length,
+            page: 1,
+            page_size: 20,
+            total_pages: 1,
+            has_next_page: false,
+          };
+        }
 
         case "get_parameters_by_order":
           return sampleTests[0].parameters.map((p) => ({

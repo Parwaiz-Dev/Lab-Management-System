@@ -18,7 +18,9 @@ pub fn save_result(
     value: String,
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
 
     // Snapshot existing result before mutation, identified by (order_id, parameter_id)
     let old_data = crate::modules::audit::service::snapshot_result(
@@ -57,7 +59,9 @@ pub fn save_results(
     results: Vec<ResultInput>,
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     let count = service::save_results(&mut *conn, order_id, results)?;
 
     // Audit: batch results saved
@@ -85,7 +89,9 @@ pub fn get_parameters_by_order(
     order_id: i32,
 ) -> Result<Vec<OrderParameterDto>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_parameters_by_order(&conn, order_id)?)
 }
 
@@ -96,6 +102,8 @@ pub fn get_results_by_order(
     order_id: i32,
 ) -> Result<Vec<(i32, String)>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_results_by_order(&conn, order_id)?)
 }

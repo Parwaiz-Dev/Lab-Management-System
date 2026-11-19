@@ -138,7 +138,9 @@ pub fn get_patient_by_order(conn: &Connection, order_id: i32) -> AppResult<Repor
 
                 let raw_order_date: String = row.get(8)?;
                 let collection_time = format_indian_datetime(&raw_order_date);
-                let reporting_time = chrono::Local::now().format("%d-%m-%Y %I:%M:%S %p").to_string();
+                let reporting_time = chrono::Local::now()
+                    .format("%d-%m-%Y %I:%M:%S %p")
+                    .to_string();
 
                 Ok(ReportPatientInfo {
                     patient_name: row.get(0)?,

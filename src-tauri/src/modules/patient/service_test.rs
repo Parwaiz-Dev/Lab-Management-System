@@ -3,7 +3,8 @@
 mod tests {
     use crate::modules::patient::service::{
         add_doctor, create_patient, get_all_doctors, get_default_doctor, get_doctors,
-        search_patients, set_default_doctor, set_doctor_active, update_doctor,
+        get_patients_paginated, search_patients, set_default_doctor, set_doctor_active,
+        update_doctor,
     };
     use rusqlite::Connection;
 
@@ -89,15 +90,7 @@ mod tests {
     #[test]
     fn create_patient_rejects_empty_name() {
         let mut conn = test_db();
-        let result = create_patient(
-            &mut conn,
-            "".into(),
-            Some(28),
-            None,
-            None,
-            None,
-            None,
-        );
+        let result = create_patient(&mut conn, "".into(), Some(28), None, None, None, None);
         assert!(result.is_err());
     }
 
@@ -308,14 +301,18 @@ mod tests {
 
         // Set Alpha as default
         set_default_doctor(&mut conn, id_alpha).unwrap();
-        let default_doc = get_default_doctor(&conn).unwrap().expect("Should have default");
+        let default_doc = get_default_doctor(&conn)
+            .unwrap()
+            .expect("Should have default");
         assert_eq!(default_doc.id, id_alpha);
         assert_eq!(default_doc.name, "Dr. Alpha");
         assert!(default_doc.is_default);
 
         // Switch default to Beta
         set_default_doctor(&mut conn, id_beta).unwrap();
-        let default_doc = get_default_doctor(&conn).unwrap().expect("Should have default");
+        let default_doc = get_default_doctor(&conn)
+            .unwrap()
+            .expect("Should have default");
         assert_eq!(default_doc.id, id_beta);
         assert_eq!(default_doc.name, "Dr. Beta");
 
@@ -334,11 +331,21 @@ mod tests {
         let id_beta = add_doctor(&conn, "Dr. Beta".into()).unwrap();
 
         // Set Alpha as default via SQL
-        conn.execute("UPDATE doctors SET is_default = 1 WHERE id = ?1", rusqlite::params![id_alpha]).unwrap();
+        conn.execute(
+            "UPDATE doctors SET is_default = 1 WHERE id = ?1",
+            rusqlite::params![id_alpha],
+        )
+        .unwrap();
 
         // Attempting to set Beta as default directly in SQL without clearing Alpha MUST fail due to idx_doctors_single_default
-        let err = conn.execute("UPDATE doctors SET is_default = 1 WHERE id = ?1", rusqlite::params![id_beta]);
-        assert!(err.is_err(), "Partial unique index must prevent two default doctors");
+        let err = conn.execute(
+            "UPDATE doctors SET is_default = 1 WHERE id = ?1",
+            rusqlite::params![id_beta],
+        );
+        assert!(
+            err.is_err(),
+            "Partial unique index must prevent two default doctors"
+        );
     }
 
     #[test]
@@ -459,21 +466,313 @@ mod tests {
         // Now execute run_migrations, which should apply migration 17
         crate::db::migrations::run_migrations(&mut conn).unwrap();
 
-        // Verify user_version is updated to 17
-        let v: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(v, 17, "Migration 17 must be applied and user_version set to 17");
+        // Verify user_version is updated to at least 17
+        let v: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert!(
+            v >= 17,
+            "Migration 17 must be applied and user_version set to at least 17"
+        );
 
         // Verify columns exist on legacy doctors table with correct defaults
         let docs = get_all_doctors(&conn).unwrap();
         assert_eq!(docs.len(), 2);
         for d in docs {
-            assert!(d.is_active, "Existing legacy doctor must be active by default");
-            assert!(!d.is_default, "Existing legacy doctor must not be default by default");
+            assert!(
+                d.is_active,
+                "Existing legacy doctor must be active by default"
+            );
+            assert!(
+                !d.is_default,
+                "Existing legacy doctor must not be default by default"
+            );
         }
 
         // Verify partial unique index is enforced on migrated DB
-        conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 1", []).unwrap();
+        conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 1", [])
+            .unwrap();
         let conflict = conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 2", []);
-        assert!(conflict.is_err(), "Partial unique index must prevent two default doctors");
+        assert!(
+            conflict.is_err(),
+            "Partial unique index must prevent two default doctors"
+        );
+    }
+
+    // ── get_patients_paginated tests ──
+
+    #[test]
+    fn get_patients_paginated_default_page_size_20() {
+        let conn = test_db();
+        // Insert 25 additional patients (total 27 with 2 seed patients)
+        for i in 1..=25 {
+            conn.execute(
+                "INSERT INTO patients (patient_code, name, phone, referred_by) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![
+                    format!("PID-2026-{:04}", i + 10),
+                    format!("Extra Patient {}", i),
+                    format!("98000000{:02}", i),
+                    "Dr. Smith"
+                ],
+            ).unwrap();
+        }
+
+        let res = get_patients_paginated(&conn, None, None, None).unwrap();
+        assert_eq!(res.items.len(), 20, "Default page size must be 20");
+        assert_eq!(res.total, 27, "Total must reflect all 27 records");
+        assert_eq!(res.page, 1);
+        assert_eq!(res.page_size, 20);
+        assert_eq!(res.total_pages, 2);
+        assert!(res.has_next_page, "Must indicate next page exists");
+    }
+
+    #[test]
+    fn get_patients_paginated_empty_database() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE patients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_code TEXT UNIQUE,
+                name TEXT NOT NULL,
+                age_value INTEGER,
+                age_unit TEXT,
+                gender TEXT,
+                phone TEXT,
+                referred_by TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .unwrap();
+
+        let res = get_patients_paginated(&conn, None, None, None).unwrap();
+        assert!(res.items.is_empty());
+        assert_eq!(res.total, 0);
+        assert_eq!(res.page, 1);
+        assert_eq!(res.total_pages, 1);
+        assert!(!res.has_next_page);
+    }
+
+    #[test]
+    fn get_patients_paginated_second_page_and_boundaries() {
+        let conn = test_db();
+        for i in 1..=25 {
+            conn.execute(
+                "INSERT INTO patients (patient_code, name, phone) VALUES (?1, ?2, ?3)",
+                rusqlite::params![
+                    format!("PID-2026-{:04}", i + 10),
+                    format!("Batch Patient {}", i),
+                    format!("98111111{:02}", i),
+                ],
+            )
+            .unwrap();
+        }
+
+        // Page 2
+        let res_p2 = get_patients_paginated(&conn, None, Some(2), Some(20)).unwrap();
+        assert_eq!(
+            res_p2.items.len(),
+            7,
+            "Page 2 should contain the remaining 7 records"
+        );
+        assert_eq!(res_p2.page, 2);
+        assert_eq!(res_p2.total_pages, 2);
+        assert!(!res_p2.has_next_page, "Page 2 is the last page");
+
+        // Page 3 (out of bounds)
+        let res_p3 = get_patients_paginated(&conn, None, Some(3), Some(20)).unwrap();
+        assert!(res_p3.items.is_empty(), "Page 3 should be empty");
+        assert_eq!(res_p3.total, 27);
+        assert!(!res_p3.has_next_page);
+    }
+
+    #[test]
+    fn get_patients_paginated_search_by_name() {
+        let conn = test_db();
+        let res = get_patients_paginated(&conn, Some("Jane".into()), Some(1), Some(20)).unwrap();
+        assert_eq!(res.items.len(), 1);
+        assert_eq!(res.items[0].name, "Jane Doe");
+        assert_eq!(res.total, 1);
+        assert_eq!(res.total_pages, 1);
+    }
+
+    #[test]
+    fn get_patients_paginated_search_by_phone() {
+        let conn = test_db();
+        let res = get_patients_paginated(&conn, Some("9876543210".into()), None, None).unwrap();
+        assert_eq!(res.items.len(), 1);
+        assert_eq!(res.items[0].name, "John Doe");
+        assert_eq!(res.total, 1);
+    }
+
+    #[test]
+    fn get_patients_paginated_search_by_code() {
+        let conn = test_db();
+        let res = get_patients_paginated(&conn, Some("P001".into()), None, None).unwrap();
+        assert_eq!(res.items.len(), 1);
+        assert_eq!(res.items[0].patient_code, "P001");
+        assert_eq!(res.total, 1);
+    }
+
+    #[test]
+    fn get_patients_paginated_search_by_doctor() {
+        let conn = test_db();
+        let res = get_patients_paginated(&conn, Some("Smith".into()), None, None).unwrap();
+        assert_eq!(res.items.len(), 1);
+        assert_eq!(res.items[0].name, "John Doe");
+        assert_eq!(res.total, 1);
+    }
+
+    #[test]
+    fn get_patients_paginated_search_case_insensitive() {
+        let conn = test_db();
+        let res_lower = get_patients_paginated(&conn, Some("john doe".into()), None, None).unwrap();
+        let res_upper = get_patients_paginated(&conn, Some("JOHN DOE".into()), None, None).unwrap();
+        assert_eq!(res_lower.items.len(), 1);
+        assert_eq!(res_upper.items.len(), 1);
+        assert_eq!(res_lower.items[0].id, res_upper.items[0].id);
+    }
+
+    #[test]
+    fn get_patients_paginated_search_no_match() {
+        let conn = test_db();
+        let res = get_patients_paginated(&conn, Some("UnknownNonExistent404".into()), None, None)
+            .unwrap();
+        assert!(res.items.is_empty());
+        assert_eq!(res.total, 0);
+        assert_eq!(res.total_pages, 1);
+        assert!(!res.has_next_page);
+    }
+
+    #[test]
+    fn get_patients_paginated_empty_query_restores_all() {
+        let conn = test_db();
+        let res_none = get_patients_paginated(&conn, None, None, None).unwrap();
+        let res_spaces = get_patients_paginated(&conn, Some("   ".into()), None, None).unwrap();
+        assert_eq!(res_none.total, res_spaces.total);
+        assert_eq!(res_none.items.len(), res_spaces.items.len());
+    }
+
+    #[test]
+    fn get_patients_paginated_query_plan_uses_index() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::schema::init_db_on_connection(&mut conn).unwrap();
+
+        // Check EXPLAIN QUERY PLAN for directory listing
+        let mut stmt = conn
+            .prepare(
+                "EXPLAIN QUERY PLAN
+             SELECT id, IFNULL(patient_code, ''), name, age_value, age_unit,
+                    gender, phone, referred_by, IFNULL(created_at, '')
+             FROM patients
+             ORDER BY created_at DESC, id DESC
+             LIMIT 20 OFFSET 0",
+            )
+            .unwrap();
+
+        let plan_lines: Vec<String> = stmt
+            .query_map([], |row| {
+                let detail: String = row.get(3)?;
+                Ok(detail)
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+
+        let plan_text = plan_lines.join(" | ");
+        assert!(
+            plan_text.contains("idx_patients_created_id"),
+            "Query plan must use idx_patients_created_id for sorting: {}",
+            plan_text
+        );
+        assert!(
+            !plan_text.contains("USE TEMP B-TREE FOR ORDER BY"),
+            "Query plan must not require a temp b-tree sort: {}",
+            plan_text
+        );
+    }
+
+    #[test]
+    fn benchmark_patients_50k_synthetic() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::schema::init_db_on_connection(&mut conn).unwrap();
+
+        // Populate 50,000 synthetic patient records inside a single transaction
+        {
+            let tx = conn.transaction().unwrap();
+            {
+                let mut insert_stmt = tx.prepare(
+                    "INSERT INTO patients (patient_code, name, age_value, age_unit, gender, phone, referred_by, created_at)
+                     VALUES (?1, ?2, ?3, 'Years', 'Male', ?4, ?5, ?6)",
+                ).unwrap();
+
+                for i in 1..=50_000 {
+                    let code = format!("PID-2026-{:05}", i);
+                    let name = format!("Patient {:05}", i);
+                    let phone = format!("98{:08}", i);
+                    let doctor = if i % 2 == 0 {
+                        "Dr. Chavan"
+                    } else {
+                        "Dr. Sharma"
+                    };
+                    let created = format!("2026-01-{:02} 10:{:02}:00", (i % 28) + 1, i % 60);
+
+                    insert_stmt
+                        .execute(rusqlite::params![
+                            code,
+                            name,
+                            (i % 80) + 1,
+                            phone,
+                            doctor,
+                            created
+                        ])
+                        .unwrap();
+                }
+            }
+            tx.commit().unwrap();
+        }
+
+        // 1. Initial Page Load Benchmark (Page 1, 20 items)
+        let t0 = std::time::Instant::now();
+        let page1 = get_patients_paginated(&conn, None, Some(1), Some(20)).unwrap();
+        let page1_duration = t0.elapsed();
+
+        assert_eq!(page1.items.len(), 20);
+        assert_eq!(page1.total, 50_000);
+        assert_eq!(page1.total_pages, 2500);
+        assert!(page1.has_next_page);
+        println!("50k benchmark: Page 1 fetch took {:?}", page1_duration);
+        assert!(
+            page1_duration.as_millis() < 50,
+            "Page 1 on 50,000 records must execute in < 50ms (took {:?})",
+            page1_duration
+        );
+
+        // 2. Deep Pagination Benchmark (Page 100, 20 items)
+        let t1 = std::time::Instant::now();
+        let page100 = get_patients_paginated(&conn, None, Some(100), Some(20)).unwrap();
+        let page100_duration = t1.elapsed();
+
+        assert_eq!(page100.items.len(), 20);
+        println!("50k benchmark: Page 100 fetch took {:?}", page100_duration);
+        assert!(
+            page100_duration.as_millis() < 50,
+            "Page 100 on 50,000 records must execute in < 50ms (took {:?})",
+            page100_duration
+        );
+
+        // 3. Search Benchmark (querying by name)
+        let t2 = std::time::Instant::now();
+        let search_res =
+            get_patients_paginated(&conn, Some("Patient 25000".into()), Some(1), Some(20)).unwrap();
+        let search_duration = t2.elapsed();
+
+        assert_eq!(search_res.items.len(), 1);
+        assert_eq!(search_res.items[0].name, "Patient 25000");
+        println!("50k benchmark: Search took {:?}", search_duration);
+        assert!(
+            search_duration.as_millis() < 250,
+            "Search on 50,000 records must execute in < 250ms (took {:?})",
+            search_duration
+        );
     }
 }

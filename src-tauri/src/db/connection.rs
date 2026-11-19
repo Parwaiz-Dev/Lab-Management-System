@@ -17,12 +17,11 @@ pub fn get_db_dir() -> Result<PathBuf, String> {
         }
     }
 
-    let mut path = dirs::data_dir()
-        .ok_or_else(|| "Failed to determine OS data directory".to_string())?;
+    let mut path =
+        dirs::data_dir().ok_or_else(|| "Failed to determine OS data directory".to_string())?;
     path.push("lab-management-system");
 
-    fs::create_dir_all(&path)
-        .map_err(|e| format!("Failed to create app data folder: {}", e))?;
+    fs::create_dir_all(&path).map_err(|e| format!("Failed to create app data folder: {}", e))?;
 
     Ok(path)
 }
@@ -45,8 +44,7 @@ pub fn get_db_path() -> Result<PathBuf, String> {
 }
 
 pub fn get_connection() -> Result<Connection, rusqlite::Error> {
-    let db_path = get_db_path()
-        .map_err(|e| rusqlite::Error::InvalidParameterName(e))?;
+    let db_path = get_db_path().map_err(|e| rusqlite::Error::InvalidParameterName(e))?;
     let conn = Connection::open(db_path)?;
 
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -113,8 +111,7 @@ fn prune_old_backups(backup_dir: &Path) -> Result<(), String> {
 pub fn export_backup(
     auth: tauri::State<'_, crate::modules::auth::commands::AuthState>,
 ) -> Result<String, String> {
-    let session = crate::modules::auth::commands::require_auth(&auth)
-        .map_err(|e| e.to_string())?;
+    let session = crate::modules::auth::commands::require_auth(&auth).map_err(|e| e.to_string())?;
     if !session.role.can_manage_settings() {
         return Err("Only admins can export backups".to_string());
     }
@@ -155,8 +152,7 @@ pub fn export_backup(
 pub fn restore_backup(
     auth: tauri::State<'_, crate::modules::auth::commands::AuthState>,
 ) -> Result<String, String> {
-    let session = crate::modules::auth::commands::require_auth(&auth)
-        .map_err(|e| e.to_string())?;
+    let session = crate::modules::auth::commands::require_auth(&auth).map_err(|e| e.to_string())?;
     if !session.role.can_manage_settings() {
         return Err("Only admins can restore backups".to_string());
     }
@@ -196,7 +192,10 @@ pub fn restore_backup(
             "system",
             None,
             None,
-            Some(&format!("restored_from: {}", latest_backup.to_string_lossy())),
+            Some(&format!(
+                "restored_from: {}",
+                latest_backup.to_string_lossy()
+            )),
         );
     }
 

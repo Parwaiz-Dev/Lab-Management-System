@@ -16,9 +16,9 @@ pub fn init_db_on_connection(conn: &mut rusqlite::Connection) -> Result<()> {
     )?;
 
     if table_count == 0 {
-        // Fresh database: create all tables and indexes in latest schema, then mark user_version at 17
+        // Fresh database: create all tables and indexes in latest schema, then mark user_version at 21
         create_tables(conn)?;
-        conn.pragma_update(None, "user_version", 17)?;
+        conn.pragma_update(None, "user_version", 21)?;
     } else {
         // Existing database: run migrations first so that new columns exist before create_tables index verification
         run_migrations(conn)?;
@@ -75,6 +75,8 @@ fn create_tables(conn: &rusqlite::Connection) -> Result<()> {
             status TEXT DEFAULT 'Pending',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             order_number TEXT,
+            order_date TEXT,
+            daily_sequence INTEGER,
             FOREIGN KEY (patient_id) REFERENCES patients(id)
         );
 
@@ -140,6 +142,7 @@ fn create_tables(conn: &rusqlite::Connection) -> Result<()> {
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'staff',
             is_active INTEGER DEFAULT 1,
+            must_change_password INTEGER NOT NULL DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -196,8 +199,14 @@ fn create_tables(conn: &rusqlite::Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_doctor_commission_settlements_doctor
         ON doctor_commission_settlements(doctor_id, created_at);
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_number
+        CREATE INDEX IF NOT EXISTS idx_orders_order_number
         ON orders(order_number);
+
+        CREATE INDEX IF NOT EXISTS idx_orders_order_date_order_number
+        ON orders(order_date, order_number);
+
+        CREATE INDEX IF NOT EXISTS idx_orders_order_date_seq
+        ON orders(order_date, daily_sequence);
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_invoice_no
         ON orders(invoice_no);
@@ -207,6 +216,12 @@ fn create_tables(conn: &rusqlite::Connection) -> Result<()> {
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_doctors_single_default
         ON doctors(is_default) WHERE is_default = 1;
+
+        CREATE INDEX IF NOT EXISTS idx_patients_created_id
+        ON patients(created_at DESC, id DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_patients_phone
+        ON patients(phone);
         ",
     )?;
 
@@ -224,26 +239,92 @@ mod tests {
         // Fresh database initialization
         init_db_on_connection(&mut conn).unwrap();
 
-        // Verify schema version is 17
-        let version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 17, "Fresh database must be initialized to version 17");
+        // Verify schema version is 21
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            version, 21,
+            "Fresh database must be initialized to version 21"
+        );
+
+        // Verify orders table has order_date and daily_sequence
+        let has_order_date: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'order_date'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0;
+        assert!(has_order_date, "orders table must have order_date column");
+
+        let has_daily_seq: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name = 'daily_sequence'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0;
+        assert!(
+            has_daily_seq,
+            "orders table must have daily_sequence column"
+        );
+
+        // Verify users table has must_change_password
+        let has_must_change: bool = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'must_change_password'",
+            [],
+            |row| row.get::<_, i64>(0),
+        ).unwrap() > 0;
+        assert!(
+            has_must_change,
+            "users table must have must_change_password column"
+        );
 
         // Verify doctors table has is_active and is_default
-        let has_active: bool = conn.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('doctors') WHERE name = 'is_active'",
-            [],
-            |row| row.get::<_, i64>(0),
-        ).unwrap() > 0;
+        let has_active: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('doctors') WHERE name = 'is_active'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0;
         assert!(has_active, "doctors table must have is_active column");
 
-        let has_default: bool = conn.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('doctors') WHERE name = 'is_default'",
-            [],
-            |row| row.get::<_, i64>(0),
-        ).unwrap() > 0;
+        let has_default: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('doctors') WHERE name = 'is_default'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0;
         assert!(has_default, "doctors table must have is_default column");
 
         // Verify indexes exist
+        let idx_orders_non_unique: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_orders_order_date_order_number'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(
+            idx_orders_non_unique, 1,
+            "idx_orders_order_date_order_number must exist"
+        );
+
+        let idx_orders_unique: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_orders_date_order_number'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(
+            idx_orders_unique, 0,
+            "idx_orders_date_order_number must be dropped"
+        );
+
         let idx_active: i64 = conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_doctors_active'",
             [],
@@ -258,10 +339,29 @@ mod tests {
         ).unwrap();
         assert_eq!(idx_default, 1);
 
+        let idx_patients_created: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_patients_created_id'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(
+            idx_patients_created, 1,
+            "idx_patients_created_id must exist"
+        );
+
+        let idx_patients_phone: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_patients_phone'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(idx_patients_phone, 1, "idx_patients_phone must exist");
+
         // Verify idempotence: second run succeeds with no errors
         init_db_on_connection(&mut conn).unwrap();
-        let version2: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version2, 17);
+        let version2: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version2, 21);
     }
 
     #[test]
@@ -299,6 +399,17 @@ mod tests {
                 name TEXT UNIQUE NOT NULL
             );
 
+            -- Version 16 users table without must_change_password
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'staff',
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO users (id, username, password_hash, role, is_active) VALUES (1, 'legacyadmin', 'hash123', 'admin', 1);
             INSERT INTO doctors (id, name) VALUES (1, 'Dr. Legacy One');
             INSERT INTO doctors (id, name) VALUES (2, 'Dr. Legacy Two');
             INSERT INTO patients (id, name, referred_by) VALUES (1, 'John Patient', 'Dr. Legacy One');
@@ -308,9 +419,27 @@ mod tests {
         // Initialize database: MUST succeed without crashing on missing is_active column
         init_db_on_connection(&mut conn).unwrap();
 
-        // Verify schema version advanced to 17
-        let version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 17, "Existing database must be upgraded to version 17");
+        // Verify schema version advanced to 21
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            version, 21,
+            "Existing database must be upgraded to version 21"
+        );
+
+        // Verify users table gained must_change_password column and legacy user defaulted to 0
+        let must_change: i32 = conn
+            .query_row(
+                "SELECT must_change_password FROM users WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            must_change, 0,
+            "Existing user must default to must_change_password = 0"
+        );
 
         // Verify existing doctor records were preserved with is_active = 1 and is_default = 0
         let doc_one_preserved: bool = conn.query_row(
@@ -318,37 +447,55 @@ mod tests {
             [],
             |row| row.get(0),
         ).unwrap();
-        assert!(doc_one_preserved, "Dr. Legacy One must be preserved with is_active = 1 and is_default = 0");
+        assert!(
+            doc_one_preserved,
+            "Dr. Legacy One must be preserved with is_active = 1 and is_default = 0"
+        );
 
         let doc_two_preserved: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM doctors WHERE id = 2 AND name = 'Dr. Legacy Two' AND is_active = 1 AND is_default = 0)",
             [],
             |row| row.get(0),
         ).unwrap();
-        assert!(doc_two_preserved, "Dr. Legacy Two must be preserved with is_active = 1 and is_default = 0");
+        assert!(
+            doc_two_preserved,
+            "Dr. Legacy Two must be preserved with is_active = 1 and is_default = 0"
+        );
 
         // Verify historical patient referral is preserved
-        let ref_by: String = conn.query_row(
-            "SELECT referred_by FROM patients WHERE id = 1",
-            [],
-            |row| row.get(0),
-        ).unwrap();
+        let ref_by: String = conn
+            .query_row("SELECT referred_by FROM patients WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
         assert_eq!(ref_by, "Dr. Legacy One");
 
         // Verify single default doctor constraint is active and enforced
-        conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 1", []).unwrap();
+        conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 1", [])
+            .unwrap();
         let duplicate_default = conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 2", []);
-        assert!(duplicate_default.is_err(), "Partial unique index must enforce single default doctor");
+        assert!(
+            duplicate_default.is_err(),
+            "Partial unique index must enforce single default doctor"
+        );
 
         // Verify idempotence: second run succeeds with no errors
         init_db_on_connection(&mut conn).unwrap();
-        let version2: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version2, 17);
+        let version2: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version2, 21);
     }
 
     #[test]
     fn test_init_db_file_based_fresh_and_v16() {
-        let temp_dir = std::env::temp_dir().join(format!("localims_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "localims_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         // 1. Fresh file-based database
@@ -361,21 +508,29 @@ mod tests {
         // Verify fresh database state
         {
             let conn = Connection::open(&fresh_db_path).unwrap();
-            let v: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-            assert_eq!(v, 17, "Fresh database version must be 17");
+            let v: i32 = conn
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(v, 21, "Fresh database version must be 21");
 
-            let has_active: bool = conn.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('doctors') WHERE name = 'is_active'",
-                [],
-                |row| row.get::<_, i64>(0),
-            ).unwrap() > 0;
+            let has_active: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('doctors') WHERE name = 'is_active'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                > 0;
             assert!(has_active);
 
-            let has_default: bool = conn.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('doctors') WHERE name = 'is_default'",
-                [],
-                |row| row.get::<_, i64>(0),
-            ).unwrap() > 0;
+            let has_default: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('doctors') WHERE name = 'is_default'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                > 0;
             assert!(has_default);
         }
 
@@ -427,8 +582,18 @@ mod tests {
         // Verify upgraded database state
         {
             let conn = Connection::open(&v16_db_path).unwrap();
-            let v: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-            assert_eq!(v, 17, "Upgraded database version must be 17");
+            let v: i32 = conn
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(v, 21, "Upgraded database version must be 21");
+
+            // Verify must_change_password column added
+            let has_must_change: bool = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'must_change_password'",
+                [],
+                |row| row.get::<_, i64>(0),
+            ).unwrap() > 0;
+            assert!(has_must_change);
 
             // Verify both existing doctors preserved
             let doc_one: bool = conn.query_row(
@@ -446,11 +611,16 @@ mod tests {
             assert!(doc_two);
 
             // Verify patient referral preserved
-            let ref_by: String = conn.query_row("SELECT referred_by FROM patients WHERE id = 1", [], |row| row.get(0)).unwrap();
+            let ref_by: String = conn
+                .query_row("SELECT referred_by FROM patients WHERE id = 1", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
             assert_eq!(ref_by, "Dr. Production Senior");
 
             // Verify single default enforced
-            conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 1", []).unwrap();
+            conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 1", [])
+                .unwrap();
             let dup = conn.execute("UPDATE doctors SET is_default = 1 WHERE id = 2", []);
             assert!(dup.is_err());
         }

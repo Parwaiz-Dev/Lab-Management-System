@@ -40,6 +40,20 @@ Thumbs.db
 # Tauri build
 src-tauri/target/
 
+# SQLite databases, WAL, SHM & backups
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.db.backup*
+backups/
+
 # IDE
 .vscode/
 .idea/

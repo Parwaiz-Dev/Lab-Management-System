@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Patient {
     pub id: i32,
     pub patient_code: String,
@@ -11,6 +11,16 @@ pub struct Patient {
     pub phone: Option<String>,
     pub referred_by: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PaginatedPatients {
+    pub items: Vec<Patient>,
+    pub total: i64,
+    pub page: i32,
+    pub page_size: i32,
+    pub total_pages: i32,
+    pub has_next_page: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

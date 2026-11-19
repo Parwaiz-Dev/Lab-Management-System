@@ -16,13 +16,9 @@ fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool
 }
 
 fn ensure_column(conn: &Connection, table: &str, column_def: &str) -> Result<()> {
-    let column_name = column_def
-        .split_whitespace()
-        .next()
-        .ok_or_else(|| rusqlite::Error::InvalidColumnName(format!(
-            "invalid column definition: '{}'",
-            column_def
-        )))?;
+    let column_name = column_def.split_whitespace().next().ok_or_else(|| {
+        rusqlite::Error::InvalidColumnName(format!("invalid column definition: '{}'", column_def))
+    })?;
 
     if !table_has_column(conn, table, column_name)? {
         conn.execute(
@@ -467,8 +463,10 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             .collect::<Result<Vec<_>, _>>()?;
 
         let current_year = chrono::Local::now().year();
-        let mut yearly_order_seq: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
-        let mut yearly_invoice_seq: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+        let mut yearly_order_seq: std::collections::HashMap<i32, i32> =
+            std::collections::HashMap::new();
+        let mut yearly_invoice_seq: std::collections::HashMap<i32, i32> =
+            std::collections::HashMap::new();
 
         // 1. Scan existing valid order_number and invoice_no to find max seq per year
         for (order_id, created_at) in &orders {
@@ -479,29 +477,47 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             };
 
             let existing_order_number: Option<String> = conn
-                .query_row("SELECT order_number FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+                .query_row(
+                    "SELECT order_number FROM orders WHERE id = ?1",
+                    [order_id],
+                    |row| row.get(0),
+                )
                 .unwrap_or(None);
 
-            if let Some(on) = existing_order_number.as_deref().filter(|s| !s.trim().is_empty()) {
+            if let Some(on) = existing_order_number
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
                 let prefix = format!("LAB-{}-", year);
                 if on.starts_with(&prefix) && on.len() >= 10 {
                     if let Ok(seq) = on[prefix.len()..].parse::<i32>() {
                         let cur = yearly_order_seq.entry(year).or_insert(0);
-                        if seq > *cur { *cur = seq; }
+                        if seq > *cur {
+                            *cur = seq;
+                        }
                     }
                 }
             }
 
             let existing_invoice_no: Option<String> = conn
-                .query_row("SELECT invoice_no FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+                .query_row(
+                    "SELECT invoice_no FROM orders WHERE id = ?1",
+                    [order_id],
+                    |row| row.get(0),
+                )
                 .unwrap_or(None);
 
-            if let Some(inv) = existing_invoice_no.as_deref().filter(|s| !s.trim().is_empty()) {
+            if let Some(inv) = existing_invoice_no
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
                 let prefix = format!("INV-{}-", year);
                 if inv.starts_with(&prefix) && inv.len() >= 10 {
                     if let Ok(seq) = inv[prefix.len()..].parse::<i32>() {
                         let cur = yearly_invoice_seq.entry(year).or_insert(0);
-                        if seq > *cur { *cur = seq; }
+                        if seq > *cur {
+                            *cur = seq;
+                        }
                     }
                 }
             }
@@ -516,10 +532,18 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             };
 
             let existing_order_number: Option<String> = conn
-                .query_row("SELECT order_number FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+                .query_row(
+                    "SELECT order_number FROM orders WHERE id = ?1",
+                    [order_id],
+                    |row| row.get(0),
+                )
                 .unwrap_or(None);
 
-            if existing_order_number.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+            if existing_order_number
+                .as_deref()
+                .map(|s| s.trim().is_empty())
+                .unwrap_or(true)
+            {
                 let seq = yearly_order_seq.entry(year).or_insert(0);
                 *seq += 1;
                 let new_order_number = format!("LAB-{}-{:04}", year, *seq);
@@ -530,7 +554,11 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             }
 
             let existing_invoice_no: Option<String> = conn
-                .query_row("SELECT invoice_no FROM orders WHERE id = ?1", [order_id], |row| row.get(0))
+                .query_row(
+                    "SELECT invoice_no FROM orders WHERE id = ?1",
+                    [order_id],
+                    |row| row.get(0),
+                )
                 .unwrap_or(None);
 
             let needs_invoice_migration = match existing_invoice_no.as_deref() {
@@ -581,8 +609,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             )?;
             let ot_rows: Vec<String> = stmt_ot
                 .query_map([], |row| {
-                    Ok(format!("(order_id: {}, test_id: {} [count: {}])", 
-                        row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+                    Ok(format!(
+                        "(order_id: {}, test_id: {} [count: {}])",
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?
+                    ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -595,8 +627,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             )?;
             let op_rows: Vec<String> = stmt_op
                 .query_map([], |row| {
-                    Ok(format!("(order_id: {}, parameter_id: {} [count: {}])", 
-                        row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+                    Ok(format!(
+                        "(order_id: {}, parameter_id: {} [count: {}])",
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?
+                    ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -609,8 +645,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             )?;
             let res_rows: Vec<String> = stmt_res
                 .query_map([], |row| {
-                    Ok(format!("(order_id: {}, parameter_id: {} [count: {}])", 
-                        row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+                    Ok(format!(
+                        "(order_id: {}, parameter_id: {} [count: {}])",
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?
+                    ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -659,11 +699,13 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         ensure_column(&tx, "doctors", "is_active INTEGER NOT NULL DEFAULT 1")?;
         ensure_column(&tx, "doctors", "is_default INTEGER NOT NULL DEFAULT 0")?;
 
-        let default_count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM doctors WHERE is_default = 1",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
+        let default_count: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM doctors WHERE is_default = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
         if default_count > 1 {
             tx.execute(
@@ -684,6 +726,154 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 17)?;
         tx.commit()?;
         version = 17;
+        let _ = version;
+    }
+
+    if version < 18 {
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'staff',
+                is_active INTEGER DEFAULT 1,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            ",
+        )?;
+        ensure_column(
+            conn,
+            "users",
+            "must_change_password INTEGER NOT NULL DEFAULT 0",
+        )?;
+        conn.pragma_update(None, "user_version", 18)?;
+        version = 18;
+    }
+
+    if version < 19 {
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                total_amount_paise INTEGER DEFAULT 0,
+                discount_amount_paise INTEGER DEFAULT 0,
+                paid_amount_paise INTEGER DEFAULT 0,
+                invoice_no TEXT,
+                status TEXT DEFAULT 'Pending',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                order_number TEXT,
+                order_date TEXT,
+                daily_sequence INTEGER,
+                FOREIGN KEY (patient_id) REFERENCES patients(id)
+            );
+            ",
+        )?;
+        ensure_column(conn, "orders", "created_at TEXT DEFAULT CURRENT_TIMESTAMP")?;
+        ensure_column(conn, "orders", "order_number TEXT")?;
+        ensure_column(conn, "orders", "order_date TEXT")?;
+        ensure_column(conn, "orders", "daily_sequence INTEGER")?;
+
+        // Backfill order_date for historical orders from created_at or default to current date
+        conn.execute(
+            "UPDATE orders
+             SET order_date = SUBSTR(created_at, 1, 10)
+             WHERE (order_date IS NULL OR TRIM(order_date) = '')
+               AND created_at IS NOT NULL
+               AND LENGTH(created_at) >= 10",
+            [],
+        )?;
+
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        conn.execute(
+            "UPDATE orders
+             SET order_date = ?1
+             WHERE order_date IS NULL OR TRIM(order_date) = ''",
+            [&today],
+        )?;
+
+        // Drop the old global unique index on order_number
+        conn.execute("DROP INDEX IF EXISTS idx_orders_order_number", [])?;
+
+        // Recreate idx_orders_order_number as non-unique for fast search/lookup
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number)",
+            [],
+        )?;
+
+        // Create date-scoped unique index ensuring reference number uniqueness per date
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_date_order_number ON orders(order_date, order_number)",
+            [],
+        )?;
+
+        // Create index on (order_date, daily_sequence) for fast sequence lookups
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orders_order_date_seq ON orders(order_date, daily_sequence)",
+            [],
+        )?;
+
+        conn.pragma_update(None, "user_version", 19)?;
+        version = 19;
+        let _ = version;
+    }
+
+    // Migration 20: Performance indexes for patient directory pagination and phone search
+    if version < 20 {
+        log::info!("Applying migration 20: patient directory performance indexes");
+
+        let has_patients: bool = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'patients'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )? > 0;
+
+        if has_patients {
+            ensure_column(conn, "patients", "phone TEXT")?;
+            ensure_column(
+                conn,
+                "patients",
+                "created_at TEXT DEFAULT CURRENT_TIMESTAMP",
+            )?;
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_patients_created_id ON patients(created_at DESC, id DESC)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_patients_phone ON patients(phone)",
+                [],
+            )?;
+        }
+
+        conn.pragma_update(None, "user_version", 20)?;
+        version = 20;
+        let _ = version;
+    }
+
+    // Migration 21: Flexible Lab Reference Number - allow duplicate reference numbers across orders
+    if version < 21 {
+        log::info!("Applying migration 21: drop date-scoped unique constraint on order_number and ensure lookup index");
+
+        // Safely drop the date-scoped unique index that prevented duplicate reference numbers
+        conn.execute("DROP INDEX IF EXISTS idx_orders_date_order_number", [])?;
+
+        // Ensure non-unique composite index on (order_date, order_number) for fast lookups
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orders_order_date_order_number ON orders(order_date, order_number)",
+            [],
+        )?;
+
+        // Ensure non-unique single-column index on order_number exists for general queries
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number)",
+            [],
+        )?;
+
+        conn.pragma_update(None, "user_version", 21)?;
+        version = 21;
         let _ = version;
     }
 

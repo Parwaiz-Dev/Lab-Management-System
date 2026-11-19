@@ -75,11 +75,23 @@ mod tests {
         .unwrap();
         conn.execute("INSERT INTO users (id, username, password_hash, role) VALUES (1, 'admin', '$2b$12$hash', 'admin')", []).unwrap();
         conn.execute("INSERT INTO users (id, username, password_hash, role) VALUES (2, 'staff1', '$2b$12$hash', 'staff')", []).unwrap();
-        conn.execute("INSERT INTO patients (id, patient_code, name) VALUES (1, 'P001', 'Test Patient')", []).unwrap();
-        conn.execute("INSERT INTO patients (id, patient_code, name) VALUES (2, 'P002', 'John Doe')", []).unwrap();
+        conn.execute(
+            "INSERT INTO patients (id, patient_code, name) VALUES (1, 'P001', 'Test Patient')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO patients (id, patient_code, name) VALUES (2, 'P002', 'John Doe')",
+            [],
+        )
+        .unwrap();
         conn.execute("INSERT INTO orders (id, patient_id, total_amount_paise, paid_amount_paise) VALUES (1, 1, 50000, 0)", []).unwrap();
         conn.execute("INSERT INTO orders (id, patient_id, total_amount_paise, paid_amount_paise) VALUES (2, 2, 100000, 20000)", []).unwrap();
-        conn.execute("INSERT INTO settings (key, value) VALUES ('lab_name', 'Old Lab')", []).unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('lab_name', 'Old Lab')",
+            [],
+        )
+        .unwrap();
         conn
     }
 
@@ -105,7 +117,7 @@ mod tests {
 
         service::create_audit_log(
             &conn,
-            1,          // admin user_id
+            1, // admin user_id
             "create",
             "patients",
             Some(1),
@@ -162,7 +174,8 @@ mod tests {
             Some(r#"{"username":"newuser","role":"staff"}"#),
         );
 
-        let logs = service::get_audit_logs(&conn, Some("users"), Some(3), None, None, None).unwrap();
+        let logs =
+            service::get_audit_logs(&conn, Some("users"), Some(3), None, None, None).unwrap();
         assert_eq!(logs.len(), 1);
 
         let entry = &logs[0];
@@ -220,8 +233,24 @@ mod tests {
 
         // Write two audit entries for order 1, one for order 2
         service::create_audit_log(&conn, 1, "create", "orders", Some(1), None, Some(r#"{}"#));
-        service::create_audit_log(&conn, 1, "update", "orders", Some(1), Some(r#"{}"#), Some(r#"{}"#));
-        service::create_audit_log(&conn, 2, "update", "orders", Some(2), Some(r#"{}"#), Some(r#"{}"#));
+        service::create_audit_log(
+            &conn,
+            1,
+            "update",
+            "orders",
+            Some(1),
+            Some(r#"{}"#),
+            Some(r#"{}"#),
+        );
+        service::create_audit_log(
+            &conn,
+            2,
+            "update",
+            "orders",
+            Some(2),
+            Some(r#"{}"#),
+            Some(r#"{}"#),
+        );
 
         let history = service::get_record_history(&conn, "orders", 1).unwrap();
         assert_eq!(history.len(), 2, "should return only order 1 entries");
@@ -237,7 +266,15 @@ mod tests {
 
         service::create_audit_log(&conn, 1, "create", "patients", Some(1), None, Some(r#"{}"#));
         service::create_audit_log(&conn, 2, "create", "patients", Some(2), None, Some(r#"{}"#));
-        service::create_audit_log(&conn, 1, "update", "patients", Some(1), Some(r#"{}"#), Some(r#"{}"#));
+        service::create_audit_log(
+            &conn,
+            1,
+            "update",
+            "patients",
+            Some(1),
+            Some(r#"{}"#),
+            Some(r#"{}"#),
+        );
 
         let user1 = service::get_user_activity(&conn, 1, None).unwrap();
         assert_eq!(user1.len(), 2);
@@ -250,19 +287,28 @@ mod tests {
     fn get_audit_logs_with_all_filters() {
         let conn = test_db();
 
-        service::create_audit_log(&conn, 1, "update", "orders", Some(1), Some(r#"{}"#), Some(r#"{}"#));
-        service::create_audit_log(&conn, 1, "update", "orders", Some(2), Some(r#"{}"#), Some(r#"{}"#));
+        service::create_audit_log(
+            &conn,
+            1,
+            "update",
+            "orders",
+            Some(1),
+            Some(r#"{}"#),
+            Some(r#"{}"#),
+        );
+        service::create_audit_log(
+            &conn,
+            1,
+            "update",
+            "orders",
+            Some(2),
+            Some(r#"{}"#),
+            Some(r#"{}"#),
+        );
         service::create_audit_log(&conn, 2, "create", "patients", Some(1), None, Some(r#"{}"#));
 
-        let result = service::get_audit_logs(
-            &conn,
-            Some("orders"),
-            Some(1),
-            Some(1),
-            None,
-            None,
-        )
-        .unwrap();
+        let result =
+            service::get_audit_logs(&conn, Some("orders"), Some(1), Some(1), None, None).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].user_id, 1);
         assert_eq!(result[0].table_name, "orders");
@@ -278,9 +324,15 @@ mod tests {
         let conn = test_db();
 
         // Only use columns that exist in the orders table (paid_amount was dropped in v10)
-        let snap = service::snapshot_row(&conn, "orders", "id", 1, &["paid_amount_paise", "total_amount_paise"])
-            .unwrap()
-            .expect("should capture existing row");
+        let snap = service::snapshot_row(
+            &conn,
+            "orders",
+            "id",
+            1,
+            &["paid_amount_paise", "total_amount_paise"],
+        )
+        .unwrap()
+        .expect("should capture existing row");
 
         assert!(snap.contains("paid_amount_paise"), "snapshot: {}", snap);
     }
@@ -288,7 +340,8 @@ mod tests {
     #[test]
     fn snapshot_row_returns_none_for_missing() {
         let conn = test_db();
-        let snap = service::snapshot_row(&conn, "orders", "id", 999, &["paid_amount_paise"]).unwrap();
+        let snap =
+            service::snapshot_row(&conn, "orders", "id", 999, &["paid_amount_paise"]).unwrap();
         assert!(snap.is_none());
     }
 

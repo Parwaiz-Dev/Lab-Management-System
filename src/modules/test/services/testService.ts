@@ -385,6 +385,54 @@ const MOCK_TESTS: Test[] = [
       { id: 2002, name: "Widal H Antigen", unit: "titre", normal_range: "<1:80" },
     ],
   },
+  {
+    id: 7,
+    name: "Random Blood Sugar",
+    price: 100,
+    parameters: [
+      { id: 701, name: "Glucose Random", unit: "mg/dL", normal_range: "70-140" },
+    ],
+  },
+  {
+    id: 32,
+    name: "Creatinine",
+    price: 220,
+    parameters: [
+      { id: 3201, name: "Creatinine", unit: "mg/dL", normal_range: "0.6-1.3" },
+    ],
+  },
+  {
+    id: 24,
+    name: "Calcium",
+    price: 220,
+    parameters: [
+      { id: 2401, name: "Calcium", unit: "mg/dL", normal_range: "8.5-10.5" },
+    ],
+  },
+  {
+    id: 3,
+    name: "ESR",
+    price: 120,
+    parameters: [
+      { id: 301, name: "ESR", unit: "mm/hr", normal_range: "0-20" },
+    ],
+  },
+  {
+    id: 22,
+    name: "RA Factor",
+    price: 450,
+    parameters: [
+      { id: 2201, name: "RA Factor", unit: "IU/mL", normal_range: "<14" },
+    ],
+  },
+  {
+    id: 23,
+    name: "Uric Acid",
+    price: 220,
+    parameters: [
+      { id: 2301, name: "Uric Acid", unit: "mg/dL", normal_range: "3.5-7.2" },
+    ],
+  },
 ];
 
 export const testService = {
@@ -402,11 +450,57 @@ export const testService = {
     totalAmount: number;
     discountAmount: number;
     customPrices?: Record<number, number>;
-  }): Promise<number> {
+    manualOrderNumber?: string | null;
+  }): Promise<{ order_id: number; order_number: string }> {
     if (!hasDesktopBridge()) {
-      return Promise.resolve(Math.floor(Date.now() / 1000) % 1000 || 1);
+      const mockId = Math.floor(Date.now() / 1000) % 1000 || 1;
+      const refNum = payload.manualOrderNumber?.trim() || String(mockId).padStart(3, "0");
+      return Promise.resolve({ order_id: mockId, order_number: refNum });
     }
-    return invoke<number>("create_order", payload);
+    return invoke<{ order_id: number; order_number: string }>("create_order", {
+      patientId: payload.patientId,
+      testIds: payload.testIds,
+      parameterIds: payload.parameterIds,
+      totalAmount: payload.totalAmount,
+      discountAmount: payload.discountAmount,
+      customPrices: payload.customPrices,
+      manualOrderNumber: payload.manualOrderNumber?.trim() || null,
+    });
+  },
+
+  async getNextLabReferenceNumber(date?: string): Promise<string> {
+    if (!hasDesktopBridge()) {
+      return "001";
+    }
+    try {
+      return await invoke<string>("get_next_lab_reference_number", { date });
+    } catch {
+      return "001";
+    }
+  },
+
+  async checkLabReferenceNumber(referenceNumber: string, date?: string): Promise<boolean> {
+    if (!hasDesktopBridge()) {
+      return true;
+    }
+    try {
+      return await invoke<boolean>("check_lab_reference_number", {
+        referenceNumber: referenceNumber.trim(),
+        date,
+      });
+    } catch {
+      return false;
+    }
+  },
+
+  async updateOrderReferenceNumber(orderId: number, newReferenceNumber: string): Promise<string> {
+    if (!hasDesktopBridge()) {
+      return Promise.resolve(newReferenceNumber.trim());
+    }
+    return await invoke<string>("update_order_reference_number", {
+      orderId,
+      newReferenceNumber: newReferenceNumber.trim(),
+    });
   },
 
   async getOrders(): Promise<DashboardOrderRow[]> {
@@ -426,6 +520,17 @@ export const testService = {
     });
     const list = Array.isArray(rows) ? rows : [];
     return list.map(normalizeDashboardOrder).filter((row) => row.id > 0);
+  },
+
+  async getCollectionsByDateRange(
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<number> {
+    const amount = await invoke<number>("get_collections_by_date_range", {
+      dateFrom,
+      dateTo,
+    });
+    return typeof amount === "number" && !isNaN(amount) ? amount : 0;
   },
 
   async getDoctorRevenue(

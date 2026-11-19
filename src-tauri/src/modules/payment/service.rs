@@ -28,7 +28,9 @@ pub fn update_payment(
 
     let paid_amount_paise = to_paise(paid_amount)?;
 
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(AppError::from)?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(AppError::from)?;
 
     let order_amounts: Option<(i64, i64)> = tx
         .query_row(
@@ -129,7 +131,10 @@ pub fn get_overall_summary(conn: &Connection) -> AppResult<(f64, f64, f64)> {
     ))
 }
 
-pub fn get_payment_history(conn: &Connection, order_id: i32) -> AppResult<Vec<PaymentHistoryEntry>> {
+pub fn get_payment_history(
+    conn: &Connection,
+    order_id: i32,
+) -> AppResult<Vec<PaymentHistoryEntry>> {
     let mut stmt = conn
         .prepare(
             "SELECT id, order_id, IFNULL(previous_paid_paise, 0), new_paid_paise, total_amount_paise, payment_method, created_at
@@ -154,4 +159,47 @@ pub fn get_payment_history(conn: &Connection, order_id: i32) -> AppResult<Vec<Pa
         .map_err(AppError::from)?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+}
+
+pub fn get_collections_by_date_range(
+    conn: &Connection,
+    date_from: &str,
+    date_to: &str,
+) -> AppResult<f64> {
+    let has_from = !date_from.trim().is_empty();
+    let has_to = !date_to.trim().is_empty();
+
+    let sql_base = "SELECT IFNULL(SUM(new_paid_paise - IFNULL(previous_paid_paise, 0)), 0)
+                    FROM payment_history";
+
+    let (query_sql, params_vec): (String, Vec<String>) = match (has_from, has_to) {
+        (true, true) => {
+            let start = crate::modules::order::service::ist_date_to_utc_start(date_from)
+                .unwrap_or_else(|| date_from.trim().to_string());
+            let end = crate::modules::order::service::ist_date_to_utc_end(date_to)
+                .unwrap_or_else(|| date_to.trim().to_string());
+            (
+                format!("{} WHERE created_at >= ?1 AND created_at < ?2", sql_base),
+                vec![start, end],
+            )
+        }
+        (true, false) => {
+            let start = crate::modules::order::service::ist_date_to_utc_start(date_from)
+                .unwrap_or_else(|| date_from.trim().to_string());
+            (format!("{} WHERE created_at >= ?1", sql_base), vec![start])
+        }
+        (false, true) => {
+            let end = crate::modules::order::service::ist_date_to_utc_end(date_to)
+                .unwrap_or_else(|| date_to.trim().to_string());
+            (format!("{} WHERE created_at < ?1", sql_base), vec![end])
+        }
+        (false, false) => (sql_base.to_string(), vec![]),
+    };
+
+    let mut stmt = conn.prepare(&query_sql).map_err(AppError::from)?;
+    let total_paise: i64 = stmt
+        .query_row(rusqlite::params_from_iter(params_vec), |row| row.get(0))
+        .map_err(AppError::from)?;
+
+    Ok(from_paise(total_paise))
 }

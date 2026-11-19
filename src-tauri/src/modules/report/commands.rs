@@ -15,7 +15,9 @@ pub fn get_report(
     order_id: i32,
 ) -> Result<Vec<ReportRow>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_report(&conn, order_id)?)
 }
 
@@ -26,7 +28,9 @@ pub fn get_patient_by_order(
     order_id: i32,
 ) -> Result<ReportPatientInfo, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_patient_by_order(&conn, order_id)?)
 }
 
@@ -54,7 +58,8 @@ pub fn save_export_file(
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create folder: {}", e))?;
     }
 
-    fs::write(&file_path, content).map_err(|e| format!("Failed to write file to {}: {}", file_path.display(), e))?;
+    fs::write(&file_path, content)
+        .map_err(|e| format!("Failed to write file to {}: {}", file_path.display(), e))?;
 
     Ok(file_path.to_string_lossy().to_string())
 }

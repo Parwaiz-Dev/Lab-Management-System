@@ -6,6 +6,7 @@ export interface LoginResponse {
   user_id: number;
   username: string;
   role: string;
+  must_change_password: boolean;
 }
 
 // ── Audit ───────────────────────────────────────────
@@ -32,6 +33,7 @@ export interface SessionInfo {
   user_id: number;
   username: string;
   role: string;
+  must_change_password: boolean;
 }
 
 export interface User {
@@ -39,6 +41,7 @@ export interface User {
   username: string;
   role: string;
   is_active: boolean;
+  must_change_password: boolean;
   created_at: string;
 }
 
@@ -61,6 +64,15 @@ export interface Patient {
   created_at?: string;
 }
 
+export interface PaginatedPatientsResult {
+  items: Patient[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  has_next_page: boolean;
+}
+
 export interface TestParameter {
   id: number;
   name: string;
@@ -74,6 +86,12 @@ export interface Test {
   price: number;
   parameters: TestParameter[];
   is_active?: boolean;
+}
+
+export interface FastTestPreset {
+  testId: number;
+  label: string;
+  fullName: string;
 }
 
 export interface OrderParameter extends TestParameter {

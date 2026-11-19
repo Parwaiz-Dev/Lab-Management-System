@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ClipboardList,
   FileText,
@@ -9,10 +10,12 @@ import {
   Filter,
   Users,
   Eye,
+  EyeOff,
   Receipt,
   MoreVertical,
   Ban,
   Plus,
+  Pencil,
 } from "lucide-react";
 import {
   exportOrdersToPdf,
@@ -40,6 +43,41 @@ type LabDashboardProps = {
   userRole?: string;
 };
 
+export type QuickFilterMode = "today" | "yesterday" | "last3" | "last7" | "custom";
+
+const formatLocalDate = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getFilterRange = (mode: "today" | "yesterday" | "last3" | "last7"): { from: string; to: string } => {
+  const now = new Date();
+  const today = formatLocalDate(now);
+
+  if (mode === "today") {
+    return { from: today, to: today };
+  }
+  if (mode === "yesterday") {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    const yStr = formatLocalDate(y);
+    return { from: yStr, to: yStr };
+  }
+  if (mode === "last3") {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 2); // Today and the previous two calendar days = 3 days
+    return { from: formatLocalDate(d), to: today };
+  }
+  if (mode === "last7") {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 6); // Today and the previous six calendar days = 7 days
+    return { from: formatLocalDate(d), to: today };
+  }
+  return { from: today, to: today };
+};
+
 export default function LabDashboard({
   onSelectOrder,
   onOpenReceipt,
@@ -47,13 +85,16 @@ export default function LabDashboard({
   onEditOrder: _onEditOrder,
   userRole,
 }: LabDashboardProps) {
+  const initialToday = useMemo(() => getFilterRange("today").from, []);
+  const [filterMode, setFilterMode] = useState<QuickFilterMode>("today");
   const [orders, setOrders] = useState<DashboardOrderRow[]>([]);
+  const [totalCollectedAmount, setTotalCollectedAmount] = useState<number>(0);
   const [paymentModal, setPaymentModal] = useState<DashboardOrderRow | null>(null);
   const [addTestOrder, setAddTestOrder] = useState<DashboardOrderRow | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(initialToday);
+  const [dateTo, setDateTo] = useState(initialToday);
   const [doctorRevenue, setDoctorRevenue] = useState<DoctorRevenueRow[]>([]);
   const [showRevenue, setShowRevenue] = useState(false);
   const [cancelDialogOrderId, setCancelDialogOrderId] = useState<number | null>(null);
@@ -62,12 +103,46 @@ export default function LabDashboard({
     newStatus: string;
     label: string;
   } | null>(null);
+
+  // Edit Lab Reference Number Dialog State
+  const [editRefOrder, setEditRefOrder] = useState<{
+    id: number;
+    currentRef: string;
+  } | null>(null);
+  const [newRefInput, setNewRefInput] = useState("");
+  const [editRefError, setEditRefError] = useState<string | null>(null);
+  const [savingRef, setSavingRef] = useState(false);
+
   const [toast, setToast] = useState<{
     message: string;
     tone: "success" | "error";
   } | null>(null);
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{
+    top?: number;
+    bottom?: number;
+    right: number;
+  } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const activeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const [hideFinancials, setHideFinancials] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("localims_hide_financials") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleHideFinancials = useCallback(() => {
+    setHideFinancials((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("localims_hide_financials", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Pagination
   const PAGE_SIZE = 20;
@@ -75,52 +150,100 @@ export default function LabDashboard({
 
   useEffect(() => {
     if (menuOpen === null) return;
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+
+    const handleClose = (e?: Event) => {
+      if (e && e.type === "mousedown") {
+        const target = e.target as Node;
+        if (menuRef.current?.contains(target)) return;
+        if (activeButtonRef.current?.contains(target)) return;
+      }
+      setMenuOpen(null);
+      setMenuPosition(null);
+      activeButtonRef.current = null;
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
         setMenuOpen(null);
+        setMenuPosition(null);
+        activeButtonRef.current = null;
       }
     };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+
+    document.addEventListener("mousedown", handleClose);
+    window.addEventListener("scroll", handleClose, true);
+    window.addEventListener("resize", handleClose);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClose);
+      window.removeEventListener("scroll", handleClose, true);
+      window.removeEventListener("resize", handleClose);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [menuOpen]);
 
-  const loadOrders = useCallback(async () => {
-    const data = await testService.getOrders();
-    setOrders(data);
+  // Reset three-dot menu when page, query, or date filter changes
+  useEffect(() => {
+    setMenuOpen(null);
+    setMenuPosition(null);
+    activeButtonRef.current = null;
+  }, [currentPage, query, filterMode, dateFrom, dateTo]);
+
+  const loadDashboardData = useCallback(async (from: string, to: string) => {
+    const fromVal = from || to;
+    const toVal = to || from;
+    const [ordersData, collections] = await Promise.all([
+      testService.getOrdersByDateRange(fromVal, toVal),
+      testService.getCollectionsByDateRange(fromVal, toVal),
+    ]);
+    setOrders(ordersData);
+    setTotalCollectedAmount(collections);
   }, []);
 
   const loadAll = useCallback(async () => {
     try {
       setLoading(true);
-      await loadOrders();
+      await loadDashboardData(dateFrom, dateTo);
     } finally {
       setLoading(false);
     }
-  }, [loadOrders]);
+  }, [loadDashboardData, dateFrom, dateTo]);
 
   useEffect(() => {
     void loadAll();
-  }, [loadAll]);
+  }, []); // Defaults to today's orders on mount
 
-  const applyDateFilter = useCallback(async () => {
-    if (!dateFrom || !dateTo) {
-      await loadOrders();
-      return;
-    }
+  const handleSelectQuickFilter = useCallback(async (mode: "today" | "yesterday" | "last3" | "last7") => {
+    const { from, to } = getFilterRange(mode);
+    setFilterMode(mode);
+    setDateFrom(from);
+    setDateTo(to);
+    setLoading(true);
     try {
-      setLoading(true);
-      const data = await testService.getOrdersByDateRange(dateFrom, dateTo);
-      setOrders(data);
+      await loadDashboardData(from, to);
+      setCurrentPage(1);
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, loadOrders]);
+  }, [loadDashboardData]);
 
-  const handleClearDateFilter = useCallback(async () => {
-    setDateFrom("");
-    setDateTo("");
-    await loadOrders();
-  }, [loadOrders]);
+  const handleSelectCustomMode = useCallback(() => {
+    setFilterMode("custom");
+  }, []);
+
+  const applyCustomFilter = useCallback(async () => {
+    if (!dateFrom && !dateTo) return;
+    const from = dateFrom || dateTo;
+    const to = dateTo || dateFrom;
+    setLoading(true);
+    try {
+      await loadDashboardData(from, to);
+      setCurrentPage(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [dateFrom, dateTo, loadDashboardData]);
 
   const loadDoctorRevenue = useCallback(async () => {
     const from = dateFrom || "";
@@ -156,7 +279,7 @@ export default function LabDashboard({
     try {
       await testService.cancelOrder(cancelDialogOrderId);
       setToast({ message: "Order cancelled successfully.", tone: "success" });
-      await loadOrders();
+      await loadDashboardData(dateFrom, dateTo);
     } catch (err) {
       setToast({
         message: getErrorMessage(err, "Failed to cancel order."),
@@ -165,7 +288,7 @@ export default function LabDashboard({
     } finally {
       setCancelDialogOrderId(null);
     }
-  }, [cancelDialogOrderId, loadOrders]);
+  }, [cancelDialogOrderId, loadDashboardData, dateFrom, dateTo]);
 
   const handleConfirmStatusChange = useCallback(async () => {
     if (!statusDialog) return;
@@ -178,7 +301,7 @@ export default function LabDashboard({
         message: `Order marked as ${statusDialog.newStatus}.`,
         tone: "success",
       });
-      await loadOrders();
+      await loadDashboardData(dateFrom, dateTo);
     } catch (err) {
       setToast({
         message: getErrorMessage(err, "Failed to update status."),
@@ -187,7 +310,63 @@ export default function LabDashboard({
     } finally {
       setStatusDialog(null);
     }
-  }, [statusDialog, loadOrders]);
+  }, [statusDialog, loadDashboardData, dateFrom, dateTo]);
+
+  const handleOpenEditRef = useCallback((order: DashboardOrderRow) => {
+    setMenuOpen(null);
+    setMenuPosition(null);
+    activeButtonRef.current = null;
+    const currentRef = order.orderNumber || `#${order.id}`;
+    setEditRefOrder({ id: order.id, currentRef });
+    setNewRefInput(order.orderNumber || "");
+    setEditRefError(null);
+  }, []);
+
+  const handleSaveEditRef = useCallback(async () => {
+    if (!editRefOrder) return;
+    const clean = newRefInput.trim();
+    if (!clean) {
+      setEditRefError("Lab Reference Number cannot be empty");
+      return;
+    }
+    if (clean.length > 20) {
+      setEditRefError("Lab Reference Number cannot exceed 20 characters");
+      return;
+    }
+    if (!/^[a-zA-Z0-9\-_/.]+$/.test(clean)) {
+      setEditRefError("Only letters, numbers, hyphens, underscores, slashes, or dots are allowed");
+      return;
+    }
+
+    // If unchanged, simply close without modifying or logging
+    if (clean === editRefOrder.currentRef) {
+      setEditRefOrder(null);
+      setEditRefError(null);
+      return;
+    }
+
+    try {
+      setSavingRef(true);
+      setEditRefError(null);
+      await testService.updateOrderReferenceNumber(editRefOrder.id, clean);
+
+      // Immediately refresh the displayed reference in local state without navigating away
+      setOrders((prev) =>
+        prev.map((o) => (o.id === editRefOrder.id ? { ...o, orderNumber: clean } : o))
+      );
+
+      setToast({
+        message: `Lab Reference Number updated to "${clean}".`,
+        tone: "success",
+      });
+      setEditRefOrder(null);
+      setEditRefError(null);
+    } catch (err) {
+      setEditRefError(getErrorMessage(err, "Failed to update Lab Reference Number"));
+    } finally {
+      setSavingRef(false);
+    }
+  }, [editRefOrder, newRefInput]);
 
   const filteredOrders = useMemo(() => {
     const text = query.trim().toLowerCase();
@@ -215,11 +394,16 @@ export default function LabDashboard({
   }, [filteredOrders, safePage, PAGE_SIZE]);
 
   const dateRangeLabel = useMemo(() => {
+    if (filterMode === "today") return `Today (${dateFrom})`;
+    if (filterMode === "yesterday") return `Yesterday (${dateFrom})`;
+    if (filterMode === "last3") return `Last 3 Days (${dateFrom} to ${dateTo})`;
+    if (filterMode === "last7") return `Last 7 Days (${dateFrom} to ${dateTo})`;
+    if (dateFrom && dateTo && dateFrom === dateTo) return dateFrom;
     if (dateFrom && dateTo) return `${dateFrom} to ${dateTo}`;
     if (dateFrom) return `From ${dateFrom}`;
     if (dateTo) return `Up to ${dateTo}`;
-    return "All Time";
-  }, [dateFrom, dateTo]);
+    return dateFrom || "Custom Range";
+  }, [filterMode, dateFrom, dateTo]);
 
   const handleExportOrdersPdf = useCallback(async () => {
     try {
@@ -255,69 +439,109 @@ export default function LabDashboard({
     }
   }, [doctorRevenue, dateRangeLabel]);
 
-  // Derived KPI calculations
-  const pendingCollectionsCount = useMemo(() => {
+  // Derived KPI calculations (excluding cancelled orders from pending reports and due calculations)
+  const activeOrders = useMemo(() => {
     return orders.filter(
-      (order) => String(order.paymentStatus).toLowerCase() !== "completed"
-    ).length;
+      (order) => String(order.reportStatus || "").toLowerCase() !== "cancelled"
+    );
   }, [orders]);
 
+  const pendingCollectionsCount = useMemo(() => {
+    return activeOrders.filter(
+      (order) => String(order.paymentStatus).toLowerCase() !== "completed"
+    ).length;
+  }, [activeOrders]);
+
   const pendingReportsCount = useMemo(() => {
-    return orders.filter(
+    return activeOrders.filter(
       (order) =>
         String(order.reportStatus || "Pending").toLowerCase() !== "completed"
     ).length;
-  }, [orders]);
+  }, [activeOrders]);
 
   const totalRevenue = useMemo(() => {
-    return orders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
-  }, [orders]);
-
-  const totalCollected = useMemo(() => {
-    return orders.reduce((sum, o) => sum + Number(o.paidAmount || 0), 0);
-  }, [orders]);
+    return activeOrders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+  }, [activeOrders]);
 
   const totalDue = useMemo(() => {
-    return Math.max(totalRevenue - totalCollected, 0);
-  }, [totalRevenue, totalCollected]);
+    return activeOrders.reduce((sum, o) => {
+      const total = Number(o.totalAmount || 0);
+      const paid = Number(o.paidAmount || 0);
+      return sum + Math.max(total - paid, 0);
+    }, 0);
+  }, [activeOrders]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* 4 Primary KPI Cards (Chavan Saree Center compact stat cards) - Admin only */}
       {userRole === "admin" && (
-        <div className="dashboard-kpi-grid">
-        <StatCard
-          title="Total Orders"
-          value={orders.length}
-          subtext={`Filtered: ${filteredOrders.length} records`}
-          icon={<ClipboardList size={18} />}
-          tone="indigo"
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={toggleHideFinancials}
+              title={hideFinancials ? "Show financial amounts" : "Hide financial amounts"}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--color-muted)",
+                background: "transparent",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-sm)",
+                padding: "3px 8px",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--color-text)";
+                e.currentTarget.style.borderColor = "var(--color-border-strong)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--color-muted)";
+                e.currentTarget.style.borderColor = "var(--color-border)";
+              }}
+            >
+              {hideFinancials ? <Eye size={13} /> : <EyeOff size={13} />}
+              <span>{hideFinancials ? "Show Amounts" : "Hide Amounts"}</span>
+            </button>
+          </div>
+          <div className="dashboard-kpi-grid">
+            <StatCard
+              title="Total Orders"
+              value={orders.length}
+              subtext={`Filtered: ${filteredOrders.length} records`}
+              icon={<ClipboardList size={18} />}
+              tone="indigo"
+            />
 
-        <StatCard
-          title="Pending Reports"
-          value={pendingReportsCount}
-          subtext="Awaiting result entry"
-          icon={<FileText size={18} />}
-          tone="amber"
-        />
+            <StatCard
+              title="Pending Reports"
+              value={pendingReportsCount}
+              subtext="Awaiting result entry"
+              icon={<FileText size={18} />}
+              tone="amber"
+            />
 
-        <StatCard
-          title="Due Collections"
-          value={money(totalDue)}
-          subtext={`${pendingCollectionsCount} pending bills`}
-          icon={<CreditCard size={18} />}
-          tone="rose"
-        />
+            <StatCard
+              title="Due Collections"
+              value={hideFinancials ? "••••••" : money(totalDue)}
+              subtext={hideFinancials ? "••••••" : `${pendingCollectionsCount} pending bills`}
+              icon={<CreditCard size={18} />}
+              tone="rose"
+            />
 
-        <StatCard
-          title="Total Collected"
-          value={money(totalCollected)}
-          subtext={`Billed: ${money(totalRevenue)}`}
-          icon={<Wallet size={18} />}
-          tone="emerald"
-        />
-      </div>
+            <StatCard
+              title="Total Collected"
+              value={hideFinancials ? "••••••" : money(totalCollectedAmount)}
+              subtext={hideFinancials ? "••••••" : `Orders Billed: ${money(totalRevenue)}`}
+              icon={<Wallet size={18} />}
+              tone="emerald"
+            />
+          </div>
+        </div>
       )}
 
       {/* Filter and Toolbar Bar (Matching Chavan Saree Center filter bar) */}
@@ -346,45 +570,85 @@ export default function LabDashboard({
           />
         </div>
 
-        {/* Date Range & Action Buttons */}
+        {/* Quick Date Filters & Action Buttons */}
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--color-muted)" }}>
-            <span style={{ fontWeight: 600 }}>Date:</span>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="ui-input ui-input--sm"
-              style={{ width: 130 }}
-            />
-            <span>to</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="ui-input ui-input--sm"
-              style={{ width: 130 }}
-            />
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
             <Button
               type="button"
-              onClick={applyDateFilter}
-              variant="secondary"
+              onClick={() => void handleSelectQuickFilter("today")}
+              variant={filterMode === "today" ? "primary" : "secondary"}
               size="sm"
-              disabled={loading || !dateFrom || !dateTo}
-              icon={<Filter size={12} />}
+              disabled={loading}
             >
-              Filter
+              Today
             </Button>
-            {(dateFrom || dateTo) && (
-              <button
-                type="button"
-                onClick={handleClearDateFilter}
-                style={{ fontSize: 11, color: "var(--color-danger)", fontWeight: 600, padding: "2px 6px" }}
-              >
-                Clear
-              </button>
-            )}
+            <Button
+              type="button"
+              onClick={() => void handleSelectQuickFilter("yesterday")}
+              variant={filterMode === "yesterday" ? "primary" : "secondary"}
+              size="sm"
+              disabled={loading}
+            >
+              Yesterday
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleSelectQuickFilter("last3")}
+              variant={filterMode === "last3" ? "primary" : "secondary"}
+              size="sm"
+              disabled={loading}
+            >
+              Last 3 Days
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleSelectQuickFilter("last7")}
+              variant={filterMode === "last7" ? "primary" : "secondary"}
+              size="sm"
+              disabled={loading}
+            >
+              Last 7 Days
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSelectCustomMode}
+              variant={filterMode === "custom" ? "primary" : "secondary"}
+              size="sm"
+              disabled={loading}
+            >
+              Custom Range
+            </Button>
           </div>
+
+          {filterMode === "custom" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--color-muted)" }}>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="ui-input ui-input--sm"
+                style={{ width: 130 }}
+              />
+              <span>to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="ui-input ui-input--sm"
+                style={{ width: 130 }}
+              />
+              <Button
+                type="button"
+                onClick={applyCustomFilter}
+                variant="secondary"
+                size="sm"
+                disabled={loading || (!dateFrom && !dateTo)}
+                icon={<Filter size={12} />}
+              >
+                Filter
+              </Button>
+            </div>
+          )}
 
           <span style={{ width: 1, height: 20, background: "var(--color-border)" }} />
 
@@ -436,17 +700,17 @@ export default function LabDashboard({
           </Badge>
         }
       >
-        <div className="data-table-wrap">
+        <div className="data-table-wrap" style={{ minHeight: 240 }}>
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: 90 }}>Order #</th>
+                <th style={{ width: 100 }}>LAB REF #</th>
                 <th>Patient Details</th>
                 <th>Tests Ordered</th>
                 <th style={{ width: 110, textAlign: "center" }}>Report</th>
                 <th style={{ width: 150, textAlign: "right" }}>Billing (Total / Due)</th>
                 <th style={{ width: 100, textAlign: "center" }}>Payment</th>
-                <th style={{ width: 170, textAlign: "right" }}>Actions</th>
+                <th className="col-actions" style={{ width: 280, minWidth: 280, textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -544,7 +808,7 @@ export default function LabDashboard({
                       </td>
 
                       {/* Actions */}
-                      <td style={{ textAlign: "right" }}>
+                      <td className="col-actions" style={{ textAlign: "right", minWidth: 280, whiteSpace: "nowrap" }}>
                         <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                           {!isCompletedPayment && (
                             <button
@@ -591,63 +855,76 @@ export default function LabDashboard({
                           </button>
 
                           {/* Context Menu for Cancel / Reopen / Edit */}
-                          <div
-                            style={{ position: "relative" }}
-                            ref={menuOpen === orderId ? menuRef : undefined}
-                          >
+                          <div style={{ position: "relative" }}>
                             <button
                               type="button"
-                              onClick={() => setMenuOpen((prev) => (prev === orderId ? null : orderId))}
+                              onClick={(e) => {
+                                if (menuOpen === orderId) {
+                                  setMenuOpen(null);
+                                  setMenuPosition(null);
+                                  activeButtonRef.current = null;
+                                } else {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const spaceBelow = window.innerHeight - rect.bottom;
+                                  const spaceAbove = rect.top;
+                                  const openUpward = spaceBelow < 110 && spaceAbove > spaceBelow;
+                                  setMenuPosition({
+                                    top: openUpward ? undefined : rect.bottom + 4,
+                                    bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
+                                    right: Math.max(8, window.innerWidth - rect.right),
+                                  });
+                                  setMenuOpen(orderId);
+                                  activeButtonRef.current = e.currentTarget;
+                                }
+                              }}
                               style={{
-                                width: 24,
-                                height: 24,
+                                width: 26,
+                                height: 26,
+                                minWidth: 26,
+                                flexShrink: 0,
                                 borderRadius: "var(--radius-sm)",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
                                 color: "var(--color-muted)",
                                 border: "1px solid var(--color-border)",
+                                cursor: "pointer",
+                                background: menuOpen === orderId ? "var(--color-surface-hover)" : "var(--color-surface)",
                               }}
                               aria-label="More order actions"
+                              title="More actions"
                             >
-                              <MoreVertical size={12} />
+                              <MoreVertical size={13} />
                             </button>
 
-                            {menuOpen === orderId && (
+                            {menuOpen === orderId && menuPosition && createPortal(
                               <div
+                                ref={menuRef}
+                                className="order-actions-dropdown"
                                 style={{
-                                  position: "absolute",
-                                  right: 0,
-                                  top: "100%",
-                                  marginTop: 4,
-                                  zIndex: 40,
-                                  background: "var(--color-surface)",
-                                  border: "1px solid var(--color-border)",
-                                  borderRadius: "var(--radius-md)",
-                                  boxShadow: "var(--shadow-md)",
-                                  padding: 4,
-                                  minWidth: 120,
+                                  top: menuPosition.top,
+                                  bottom: menuPosition.bottom,
+                                  right: menuPosition.right,
                                 }}
                               >
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditRef(order)}
+                                  className="order-actions-dropdown__item"
+                                >
+                                  <Pencil size={12} />
+                                  <span>Edit Lab Ref</span>
+                                </button>
                                 {reportStatus !== "Cancelled" && (
                                   <button
                                     type="button"
                                     onClick={() => {
                                       setMenuOpen(null);
+                                      setMenuPosition(null);
+                                      activeButtonRef.current = null;
                                       setCancelDialogOrderId(orderId);
                                     }}
-                                    style={{
-                                      width: "100%",
-                                      textAlign: "left",
-                                      padding: "6px 8px",
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      color: "var(--color-danger)",
-                                      borderRadius: "var(--radius-sm)",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: 6,
-                                    }}
+                                    className="order-actions-dropdown__item order-actions-dropdown__item--danger"
                                   >
                                     <Ban size={12} />
                                     <span>Cancel Order</span>
@@ -658,20 +935,11 @@ export default function LabDashboard({
                                     type="button"
                                     onClick={() => {
                                       setMenuOpen(null);
+                                      setMenuPosition(null);
+                                      activeButtonRef.current = null;
                                       setAddTestOrder(order);
                                     }}
-                                    style={{
-                                      width: "100%",
-                                      textAlign: "left",
-                                      padding: "6px 8px",
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      color: "var(--color-primary)",
-                                      borderRadius: "var(--radius-sm)",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: 6,
-                                    }}
+                                    className="order-actions-dropdown__item order-actions-dropdown__item--primary"
                                   >
                                     <Plus size={12} />
                                     <span>Add Test</span>
@@ -682,26 +950,21 @@ export default function LabDashboard({
                                     type="button"
                                     onClick={() => {
                                       setMenuOpen(null);
+                                      setMenuPosition(null);
+                                      activeButtonRef.current = null;
                                       setStatusDialog({
                                         orderId,
                                         newStatus: "Pending",
                                         label: "Reopen",
                                       });
                                     }}
-                                    style={{
-                                      width: "100%",
-                                      textAlign: "left",
-                                      padding: "6px 8px",
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      color: "var(--color-primary)",
-                                      borderRadius: "var(--radius-sm)",
-                                    }}
+                                    className="order-actions-dropdown__item order-actions-dropdown__item--primary"
                                   >
                                     Reopen
                                   </button>
                                 )}
-                              </div>
+                              </div>,
+                              document.body
                             )}
                           </div>
                         </div>
@@ -872,7 +1135,7 @@ export default function LabDashboard({
               subtitle="No registered doctors or orders recorded for the selected period."
             />
           ) : (
-            <div className="data-table-wrap">
+            <div className="data-table-wrap" style={{ minHeight: 240 }}>
               <table className="data-table doctor-revenue-table">
                 <thead>
                   <tr>
@@ -1009,6 +1272,108 @@ export default function LabDashboard({
         onConfirm={handleConfirmStatusChange}
         onCancel={() => setStatusDialog(null)}
       />
+
+      {/* Edit Lab Reference Number Dialog */}
+      <Modal
+        isOpen={editRefOrder !== null}
+        onClose={() => {
+          if (!savingRef) {
+            setEditRefOrder(null);
+            setEditRefError(null);
+          }
+        }}
+        title="Edit Lab Reference Number"
+        maxWidth="sm"
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setEditRefOrder(null);
+                setEditRefError(null);
+              }}
+              disabled={savingRef}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSaveEditRef}
+              loading={savingRef}
+              disabled={savingRef}
+            >
+              Save
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "4px 0" }}>
+          <div>
+            <span style={{ fontSize: 12, color: "var(--color-muted)", display: "block", marginBottom: 4 }}>
+              Current Lab Reference Number
+            </span>
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: "var(--color-text)",
+                background: "var(--color-surface-soft)",
+                padding: "4px 8px",
+                borderRadius: "var(--radius-sm)",
+                display: "inline-block",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {editRefOrder?.currentRef || "—"}
+            </span>
+          </div>
+
+          <div>
+            <label
+              htmlFor="new-lab-ref-input"
+              style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", display: "block", marginBottom: 6 }}
+            >
+              New Lab Reference Number
+            </label>
+            <input
+              id="new-lab-ref-input"
+              type="text"
+              value={newRefInput}
+              onChange={(e) => {
+                setNewRefInput(e.target.value);
+                if (editRefError) setEditRefError(null);
+              }}
+              placeholder="Enter new reference..."
+              maxLength={20}
+              disabled={savingRef}
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                fontSize: 13,
+                fontFamily: "var(--font-mono)",
+                borderRadius: "var(--radius-sm)",
+                border: editRefError ? "1px solid var(--color-danger)" : "1px solid var(--color-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                outline: "none",
+              }}
+            />
+            {editRefError ? (
+              <span style={{ fontSize: 11.5, color: "var(--color-danger)", display: "block", marginTop: 4 }}>
+                {editRefError}
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, color: "var(--color-muted)", display: "block", marginTop: 4 }}>
+                Duplicate numbers are allowed. Allowed characters: letters, numbers, hyphens, underscores, slashes, or dots.
+              </span>
+            )}
+          </div>
+        </div>
+      </Modal>
 
       {toast && (
         <Toast

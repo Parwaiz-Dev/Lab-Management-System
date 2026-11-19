@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, Check, FileText, FlaskConical, RotateCcw } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Button from "../../../components/ui/Button";
@@ -10,8 +10,11 @@ import type { OrderParameter, ToastMessage } from "../../../types";
 import { getErrorMessage, testService } from "../services/testService";
 import { getFlagStatus } from "../../../utils/clinicalRange";
 import {
+  calculateEag,
   calculateLipidProfile,
   getParameterConfig,
+  isEagParam,
+  isHbA1cParam,
   isHdlParam,
   isLdlParam,
   isLipidTest,
@@ -496,126 +499,222 @@ export default function ResultPage({
                         if (flag === "High") inputModifier = "result-input-field--high";
                         else if (flag === "Low") inputModifier = "result-input-field--low";
 
-                        return (
-                          <tr key={param.id}>
-                            <td>
-                              <div style={{ fontWeight: 600, color: "var(--color-text)", fontSize: 11.5, lineHeight: 1.2 }}>
-                                {param.name}
-                              </div>
-                              <span style={{ fontSize: 9.5, color: "var(--color-muted)", fontFamily: "var(--font-mono)" }}>
-                                #{param.id}
-                              </span>
-                            </td>
+                        const isHbA1c = isHbA1cParam(param.name);
+                        const hasExplicitEag = group.parameters.some((p) => isEagParam(p.name));
+                        const eagVal = isHbA1c ? calculateEag(value) : null;
+                        const eagFlag = eagVal !== null ? getFlagStatus(String(eagVal), "90 - 120") : "";
 
-                            <td>
-                              {config.type === "calculated" ? (
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        return (
+                          <Fragment key={param.id}>
+                            <tr>
+                              <td>
+                                <div style={{ fontWeight: 600, color: "var(--color-text)", fontSize: 11.5, lineHeight: 1.2 }}>
+                                  {param.name}
+                                </div>
+                                <span style={{ fontSize: 9.5, color: "var(--color-muted)", fontFamily: "var(--font-mono)" }}>
+                                  #{param.id}
+                                </span>
+                              </td>
+
+                              <td>
+                                {config.type === "calculated" ? (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <input
+                                      id={`result-param-${param.id}`}
+                                      value={value}
+                                      onChange={(e) => handleCalculatedChange(param.id, e.target.value)}
+                                      onKeyDown={(e) => handleKeyDown(e, param.id)}
+                                      placeholder={config.placeholder || "Value..."}
+                                      disabled={saving}
+                                      className={`result-input-field ${inputModifier}`}
+                                    />
+                                    {hasValue && (
+                                      overriddenParams[param.id] ? (
+                                        <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                                          <Badge tone="neutral" size="sm" title="Manually entered or overridden">
+                                            Manual
+                                          </Badge>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleResetCalculated(param.id)}
+                                            title="Reset to calculated formula value"
+                                            style={{
+                                              background: "none",
+                                              border: "none",
+                                              padding: "2px 4px",
+                                              cursor: "pointer",
+                                              color: "var(--color-primary, #4f46e5)",
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              borderRadius: "var(--radius-sm)",
+                                            }}
+                                          >
+                                            <RotateCcw size={12} />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div style={{ flexShrink: 0 }}>
+                                          <Badge tone="info" size="sm" title="Automatically calculated from source values">
+                                            Calculated
+                                          </Badge>
+                                        </div>
+                                      )
+                                    )}
+                                  </div>
+                                ) : config.type === "qualitative" || config.type === "semi_quantitative" || (config.type === "text" && config.options) ? (
+                                  (() => {
+                                    const selectOptions = config.options ? [...config.options] : [];
+                                    if (value && !selectOptions.includes(value)) {
+                                      selectOptions.unshift(value);
+                                    }
+                                    return (
+                                      <select
+                                        id={`result-param-${param.id}`}
+                                        value={value}
+                                        onChange={(e) => handleChange(param.id, e.target.value)}
+                                        onKeyDown={(e) => handleKeyDown(e, param.id)}
+                                        disabled={saving}
+                                        className={`result-input-field ${inputModifier}`}
+                                      >
+                                        <option value="">Select...</option>
+                                        {selectOptions.map((opt) => (
+                                          <option key={opt} value={opt}>
+                                            {opt}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    );
+                                  })()
+                                ) : (
                                   <input
                                     id={`result-param-${param.id}`}
                                     value={value}
-                                    onChange={(e) => handleCalculatedChange(param.id, e.target.value)}
+                                    onChange={(e) => handleChange(param.id, e.target.value)}
                                     onKeyDown={(e) => handleKeyDown(e, param.id)}
                                     placeholder={config.placeholder || "Value..."}
                                     disabled={saving}
                                     className={`result-input-field ${inputModifier}`}
                                   />
-                                  {hasValue && (
-                                    overriddenParams[param.id] ? (
-                                      <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                                        <Badge tone="neutral" size="sm" title="Manually entered or overridden">
-                                          Manual
-                                        </Badge>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleResetCalculated(param.id)}
-                                          title="Reset to calculated formula value"
-                                          style={{
-                                            background: "none",
-                                            border: "none",
-                                            padding: "2px 4px",
-                                            cursor: "pointer",
-                                            color: "var(--color-primary, #4f46e5)",
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            borderRadius: "var(--radius-sm)",
-                                          }}
-                                        >
-                                          <RotateCcw size={12} />
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div style={{ flexShrink: 0 }}>
-                                        <Badge tone="info" size="sm" title="Automatically calculated from source values">
-                                          Calculated
-                                        </Badge>
-                                      </div>
-                                    )
-                                  )}
-                                </div>
-                              ) : config.type === "qualitative" || config.type === "semi_quantitative" || (config.type === "text" && config.options) ? (
-                                (() => {
-                                  const selectOptions = config.options ? [...config.options] : [];
-                                  if (value && !selectOptions.includes(value)) {
-                                    selectOptions.unshift(value);
-                                  }
-                                  return (
-                                    <select
-                                      id={`result-param-${param.id}`}
-                                      value={value}
-                                      onChange={(e) => handleChange(param.id, e.target.value)}
-                                      onKeyDown={(e) => handleKeyDown(e, param.id)}
-                                      disabled={saving}
-                                      className={`result-input-field ${inputModifier}`}
+                                )}
+                              </td>
+
+                              <td style={{ fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                                {param.unit || "—"}
+                              </td>
+
+                              <td style={{ fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                                {param.normal_range || "—"}
+                              </td>
+
+                              <td style={{ textAlign: "center" }}>
+                                {flag === "High" ? (
+                                  <span className="result-flag-badge result-flag-badge--high">
+                                    High
+                                  </span>
+                                ) : flag === "Low" ? (
+                                  <span className="result-flag-badge result-flag-badge--low">
+                                    Low
+                                  </span>
+                                ) : flag === "Normal" ? (
+                                  <span className="result-flag-badge result-flag-badge--normal">
+                                    Normal
+                                  </span>
+                                ) : (
+                                  <span style={{ color: "var(--color-muted)", fontSize: 11 }}>—</span>
+                                )}
+                              </td>
+                            </tr>
+
+                            {/* HbA1c Distinct Calculated eAG Row */}
+                            {isHbA1c && !hasExplicitEag && (
+                              <tr
+                                key={`${param.id}-eag-preview`}
+                                className="result-eag-calculated-row"
+                                style={{
+                                  background: "var(--color-bg-secondary, #f8fafc)",
+                                  borderTop: "1px solid var(--color-border, #e2e8f0)",
+                                }}
+                              >
+                                <td style={{ verticalAlign: "middle", padding: "6px 8px" }}>
+                                  <div style={{ fontWeight: 600, color: "var(--color-text, #0f172a)", fontSize: 11.5, lineHeight: 1.2 }}>
+                                    Estimated Average Glucose (eAG)
+                                  </div>
+                                  <div style={{ marginTop: 3 }}>
+                                    <span
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        padding: "1px 6px",
+                                        fontSize: 9.5,
+                                        fontWeight: 600,
+                                        borderRadius: 4,
+                                        background: "#e0f2fe",
+                                        color: "#0369a1",
+                                        border: "1px solid #bae6fd",
+                                        letterSpacing: "0.01em",
+                                      }}
                                     >
-                                      <option value="">Select...</option>
-                                      {selectOptions.map((opt) => (
-                                        <option key={opt} value={opt}>
-                                          {opt}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  );
-                                })()
-                              ) : (
-                                <input
-                                  id={`result-param-${param.id}`}
-                                  value={value}
-                                  onChange={(e) => handleChange(param.id, e.target.value)}
-                                  onKeyDown={(e) => handleKeyDown(e, param.id)}
-                                  placeholder={config.placeholder || "Value..."}
-                                  disabled={saving}
-                                  className={`result-input-field ${inputModifier}`}
-                                />
-                              )}
-                            </td>
+                                      Automatically calculated
+                                    </span>
+                                  </div>
+                                </td>
 
-                            <td style={{ fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
-                              {param.unit || "—"}
-                            </td>
+                                <td style={{ verticalAlign: "middle", padding: "6px 8px" }}>
+                                  <div
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "baseline",
+                                      gap: 6,
+                                      padding: "5px 10px",
+                                      background: eagVal !== null ? "#f0fdf4" : "var(--color-bg-tertiary, #f1f5f9)",
+                                      border: eagVal !== null ? "1px solid #86efac" : "1px dashed var(--color-border, #cbd5e1)",
+                                      borderRadius: 4,
+                                      minWidth: 84,
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        fontSize: 13.5,
+                                        fontWeight: 700,
+                                        color: eagVal !== null ? "#15803d" : "var(--color-muted, #94a3b8)",
+                                        fontFamily: "var(--font-mono)",
+                                        fontVariantNumeric: "tabular-nums",
+                                      }}
+                                    >
+                                      {eagVal !== null ? `${eagVal} mg/dL` : "—"}
+                                    </span>
+                                  </div>
+                                </td>
 
-                            <td style={{ fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
-                              {param.normal_range || "—"}
-                            </td>
+                                <td style={{ verticalAlign: "middle", fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap", padding: "6px 8px" }}>
+                                  mg/dL
+                                </td>
 
-                            <td style={{ textAlign: "center" }}>
-                              {flag === "High" ? (
-                                <span className="result-flag-badge result-flag-badge--high">
-                                  High
-                                </span>
-                              ) : flag === "Low" ? (
-                                <span className="result-flag-badge result-flag-badge--low">
-                                  Low
-                                </span>
-                              ) : flag === "Normal" ? (
-                                <span className="result-flag-badge result-flag-badge--normal">
-                                  Normal
-                                </span>
-                              ) : (
-                                <span style={{ color: "var(--color-muted)", fontSize: 11 }}>—</span>
-                              )}
-                            </td>
-                          </tr>
+                                <td style={{ verticalAlign: "middle", fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap", padding: "6px 8px" }}>
+                                  90 – 120
+                                </td>
+
+                                <td style={{ verticalAlign: "middle", textAlign: "center", padding: "6px 8px" }}>
+                                  {eagFlag === "High" ? (
+                                    <span className="result-flag-badge result-flag-badge--high">
+                                      High
+                                    </span>
+                                  ) : eagFlag === "Low" ? (
+                                    <span className="result-flag-badge result-flag-badge--low">
+                                      Low
+                                    </span>
+                                  ) : eagFlag === "Normal" ? (
+                                    <span className="result-flag-badge result-flag-badge--normal">
+                                      Normal
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: "var(--color-muted)", fontSize: 11 }}>—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
                         );
                       })}
                     </tbody>

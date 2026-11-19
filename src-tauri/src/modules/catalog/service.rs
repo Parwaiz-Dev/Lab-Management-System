@@ -213,7 +213,6 @@ pub fn add_test_parameter(
     validate_short_text(&unit, "Unit", 50)?;
     validate_short_text(&normal_range, "Reference range", 120)?;
 
-
     let test_active: i32 = conn
         .query_row(
             "SELECT COUNT(*)
@@ -281,7 +280,6 @@ pub fn update_test_parameter(
     validate_short_text(&unit, "Unit", 50)?;
     validate_short_text(&normal_range, "Reference range", 120)?;
 
-
     let cleaned_name = name.trim();
     let cleaned_unit = unit.trim();
     let cleaned_range = normal_range.trim();
@@ -320,7 +318,6 @@ pub fn update_test_parameter(
 
 pub fn delete_test_parameter(conn: &Connection, parameter_id: i32) -> AppResult<()> {
     validate_positive_id(parameter_id, "parameter_id")?;
-
 
     let updated = conn
         .execute(

@@ -21,6 +21,7 @@ import ReceiptPage from "./modules/test/pages/ReceiptPage";
 import AuditPage from "./modules/audit/pages/AuditPage";
 import PatientHistoryPage from "./modules/patient/pages/PatientHistoryPage";
 import LoginPage from "./modules/auth/pages/LoginPage";
+import ForceChangePasswordPage from "./modules/auth/pages/ForceChangePasswordPage";
 import { authService } from "./modules/auth/services/authService";
 import type { SessionInfo } from "./types";
 
@@ -133,14 +134,14 @@ function App() {
       .getCurrentSession()
       .then((s) => {
         if (!s && mockParam) {
-          setSession({ user_id: 1, username: "admin", role: "admin" });
+          setSession({ user_id: 1, username: "admin", role: "admin", must_change_password: false });
         } else {
           setSession(s);
         }
       })
       .catch(() => {
         if (mockParam) {
-          setSession({ user_id: 1, username: "admin", role: "admin" });
+          setSession({ user_id: 1, username: "admin", role: "admin", must_change_password: false });
         } else {
           setSession(null);
         }
@@ -251,6 +252,17 @@ function App() {
   // ── Not logged in ──
   if (session === null) {
     return <LoginPage onLoginSuccess={handleLogin} />;
+  }
+
+  // ── Forced password change after Admin reset ──
+  if (session.must_change_password) {
+    return (
+      <ForceChangePasswordPage
+        session={session}
+        onPasswordChanged={handleLogin}
+        onLogout={handleLogout}
+      />
+    );
   }
 
   // ── Logged in ──

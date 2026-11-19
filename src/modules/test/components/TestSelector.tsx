@@ -15,6 +15,8 @@ import {
   QrCode,
   Calendar,
   AlertCircle,
+  Pencil,
+  RotateCcw,
 } from "lucide-react";
 import Card from "../../../components/ui/Card";
 import Input from "../../../components/ui/Input";
@@ -24,7 +26,7 @@ import Badge from "../../../components/ui/Badge";
 import EmptyState from "../../../components/ui/EmptyState";
 import ConfirmationDialog from "../../../components/ui/ConfirmationDialog";
 import Modal from "../../../components/ui/Modal";
-import type { Patient, Test, ToastMessage } from "../../../types";
+import type { Patient, Test, ToastMessage, FastTestPreset } from "../../../types";
 import { getErrorMessage, money, testService } from "../services/testService";
 
 type SelectedTest = Test & {
@@ -54,6 +56,7 @@ const getPaymentMethodLabel = (method?: "cash" | "upi" | "card"): string => {
 
 type LastOrder = {
   id: number;
+  order_number?: string;
   total: number;
   paid: number;
   subtotal: number;
@@ -66,7 +69,7 @@ type TestSelectorProps = {
   patient: Patient | null;
   layout?: "inline" | "visitGrid";
   onOpenReceipt?: (orderId: number) => void;
-  presetToAdd?: string | null;
+  presetToAdd?: FastTestPreset | string | null;
   onClearPreset?: () => void;
   onResetPatient?: () => void;
 };
@@ -79,6 +82,153 @@ const TEST_CATEGORIES = [
   { id: "urine", label: "Urine/Fluid" },
   { id: "serology", label: "Serology" },
 ];
+
+/**
+ * Canonical clinical aliases, common abbreviations, and synonyms.
+ * Indexed by normalized test name (spaces and punctuation stripped, lowercase).
+ * Ensures alias matching works regardless of database auto-increment ID variations.
+ */
+const CLINICAL_ALIASES_BY_NAME: Record<string, string[]> = {
+  // Hematology
+  cbc: ["cbc", "complete blood count", "hemogram", "cbc test", "full blood count", "fbc"],
+  completebloodcount: ["cbc", "complete blood count", "hemogram", "cbc test"],
+  esr: ["esr", "erythrocyte sedimentation rate", "sed rate"],
+  hemoglobin: ["hb", "hgb", "hemoglobin", "haemoglobin"],
+  bloodgrouprh: ["blood group", "rh factor", "blood type", "abo"],
+
+  // Diabetes / Blood Sugar
+  fastingbloodsugar: ["fbs", "fasting blood sugar", "fasting glucose", "sugar fasting", "glucose fasting"],
+  postprandialbloodsugar: ["ppbs", "post prandial blood sugar", "pp blood sugar", "pp sugar", "glucose pp"],
+  randombloodsugar: ["rbs", "random blood sugar", "random glucose", "sugar random", "glucose random", "blood sugar random"],
+  hba1c: ["hba1c", "glycated hemoglobin", "glycohemoglobin", "a1c", "diabetes test"],
+
+  // Panels
+  lipidprofile: ["lipid", "lipid profile", "cholesterol", "lipid panel", "cholesterol test"],
+  liverfunctiontest: ["lft", "liver function test", "liver profile", "liver panel", "hepatic function"],
+  kidneyfunctiontest: ["kft", "rft", "kidney function test", "renal function test", "kidney profile", "renal profile"],
+  thyroidprofilet3t4tsh: ["tft", "thyroid", "thyroid profile", "thyroid function test", "t3 t4 tsh", "tsh profile"],
+  tsh: ["tsh", "thyroid stimulating hormone", "tsh ultra"],
+
+  // Urine / Serology / Infections
+  urineroutine: ["urine routine", "urine r/m", "urinalysis", "urine test", "routine urine"],
+  denguens1: ["dengue", "dengue ns1", "ns1", "dengue antigen"],
+  dengueiggigm: ["dengue antibody", "dengue serology", "dengue igg", "dengue igm"],
+  widaltest: ["widal", "widal test", "typhoid test", "enteric fever"],
+  malariaparasite: ["malaria", "mp", "malaria parasite", "smear for mp"],
+
+  // Single Analytes & Autoimmune
+  rafactor: [
+    "ra",
+    "ra factor",
+    "rheumatoid",
+    "rheumatoid factor",
+    "rheumatoid arthritis",
+    "rh factor",
+    "ra (rheumatoid factor)",
+  ],
+  uricacid: ["uric acid", "serum uric acid", "urate", "sr uric acid"],
+  calcium: ["calcium", "serum calcium", "sr calcium", "ca"],
+  creatinine: ["creatinine", "serum creatinine", "sr creatinine", "creat"],
+  crp: ["crp", "c reactive protein", "c-reactive protein"],
+  vitamind: ["vitamin d", "vit d", "25 hydroxy vitamin d", "d3"],
+  vitaminb12: ["vitamin b12", "vit b12", "b12", "cobalamin"],
+  ferritin: ["ferritin", "serum ferritin"],
+  ironprofile: ["iron profile", "serum iron", "tibc", "iron panel"],
+  electrolytes: ["electrolytes", "lytes", "na k cl", "serum electrolytes"],
+};
+
+/**
+ * Standard seed ID fallback mapping for default database installations (seed IDs 1..70).
+ */
+const CLINICAL_ALIASES_BY_ID: Record<number, string[]> = {
+  1: ["cbc", "complete blood count", "hemogram", "cbc test", "full blood count", "fbc"],
+  2: ["hb", "hgb", "hemoglobin", "haemoglobin"],
+  3: ["esr", "erythrocyte sedimentation rate", "sed rate"],
+  5: ["fbs", "fasting blood sugar", "fasting glucose", "sugar fasting", "glucose fasting"],
+  6: ["ppbs", "post prandial blood sugar", "pp blood sugar", "pp sugar", "glucose pp"],
+  7: ["rbs", "random blood sugar", "random glucose", "sugar random", "glucose random", "blood sugar random"],
+  8: ["hba1c", "glycated hemoglobin", "glycohemoglobin", "a1c", "diabetes test"],
+  9: ["lipid", "lipid profile", "cholesterol", "lipid panel", "cholesterol test"],
+  10: ["lft", "liver function test", "liver profile", "liver panel", "hepatic function"],
+  11: ["kft", "rft", "kidney function test", "renal function test", "kidney profile", "renal profile"],
+  12: ["tft", "thyroid", "thyroid profile", "thyroid function test", "t3 t4 tsh", "tsh profile"],
+  13: ["tsh", "thyroid stimulating hormone", "tsh ultra"],
+  14: ["urine routine", "urine r/m", "urinalysis", "urine test", "routine urine"],
+  18: ["dengue", "dengue ns1", "ns1", "dengue antigen"],
+  20: ["widal", "widal test", "typhoid test", "enteric fever"],
+  21: ["crp", "c reactive protein", "c-reactive protein"],
+  22: [
+    "ra",
+    "ra factor",
+    "rheumatoid",
+    "rheumatoid factor",
+    "rheumatoid arthritis",
+    "rh factor",
+    "ra (rheumatoid factor)",
+  ],
+  23: ["uric acid", "serum uric acid", "urate", "sr uric acid"],
+  24: ["calcium", "serum calcium", "sr calcium", "ca"],
+  32: ["creatinine", "serum creatinine", "sr creatinine", "creat"],
+};
+
+function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getTestAliases(test: Test): string[] {
+  const byId = CLINICAL_ALIASES_BY_ID[test.id] || [];
+  const normalized = normalizeText(test.name);
+  const byName = CLINICAL_ALIASES_BY_NAME[normalized] || [];
+  return Array.from(new Set([...byId, ...byName]));
+}
+
+function getSearchScore(test: Test, query: string): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+
+  const name = test.name.toLowerCase();
+  const aliases = getTestAliases(test);
+
+  // 1. Exact match on test name or primary clinical alias (highest priority)
+  if (name === q || aliases.includes(q)) {
+    return 100;
+  }
+
+  // 2. Prefix match on test name or alias
+  if (name.startsWith(q) || aliases.some((a) => a.startsWith(q))) {
+    return 80;
+  }
+
+  // 3. Word-boundary match in test name or alias
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const wordRegex = new RegExp(`(?:^|[\\s/(-])${escaped}`, "i");
+  if (wordRegex.test(name) || aliases.some((a) => wordRegex.test(a))) {
+    return 70;
+  }
+
+  // 4. Substring match in test name or alias
+  if (name.includes(q) || aliases.some((a) => a.includes(q))) {
+    return 50;
+  }
+
+  // 5. Test parameter exact or prefix match (e.g. "cholesterol", "tsh", "urea", "glucose")
+  const paramNames = test.parameters.map((p) => p.name.toLowerCase());
+  if (paramNames.some((p) => p === q || p.startsWith(q))) {
+    return 35;
+  }
+
+  // 6. Test parameter word-boundary match (e.g. "ast" in "sgot/ast", "hdl" in "hdl cholesterol")
+  if (paramNames.some((p) => wordRegex.test(p))) {
+    return 25;
+  }
+
+  // 7. General parameter substring match (minimum 3 characters to prevent 1-2 letter noise like "ra" in "gravity")
+  if (q.length >= 3 && paramNames.some((p) => p.includes(q))) {
+    return 15;
+  }
+
+  return 0;
+}
 
 export default function TestSelector({
   patient,
@@ -106,6 +256,41 @@ export default function TestSelector({
   const [advanceAmount, setAdvanceAmount] = useState("");
   const [postPaymentAmount, setPostPaymentAmount] = useState("");
   const [paymentSaving, setPaymentSaving] = useState(false);
+
+  // Daily Lab Reference Number State
+  const [autoRefNo, setAutoRefNo] = useState("001");
+  const [customRefNo, setCustomRefNo] = useState("");
+  const [isEditingRefNo, setIsEditingRefNo] = useState(false);
+  const [refNoError, setRefNoError] = useState<string | null>(null);
+
+  const fetchNextRefNo = useCallback(async () => {
+    try {
+      const nextNum = await testService.getNextLabReferenceNumber();
+      setAutoRefNo(nextNum || "001");
+      if (!isEditingRefNo) {
+        setCustomRefNo(nextNum || "001");
+      }
+    } catch {
+      setAutoRefNo("001");
+      if (!isEditingRefNo) {
+        setCustomRefNo("001");
+      }
+    }
+  }, [isEditingRefNo]);
+
+  useEffect(() => {
+    fetchNextRefNo();
+  }, [fetchNextRefNo, patient?.id]);
+
+  const validateManualRef = (value: string): string | null => {
+    const clean = value.trim();
+    if (!clean) return "Lab Reference Number cannot be empty";
+    if (clean.length > 20) return "Reference number cannot exceed 20 characters";
+    if (!/^[a-zA-Z0-9\-_/.]+$/.test(clean)) {
+      return "Only letters, numbers, hyphens, underscores, slashes, or dots are allowed";
+    }
+    return null;
+  };
 
   // Sub-test Checklist Modal State
   const [activeChecklistId, setActiveChecklistId] = useState<number | null>(null);
@@ -191,45 +376,7 @@ export default function TestSelector({
     }
   }, [tests]);
 
-  // Listen for Quick Presets clicked from Card 1
-  useEffect(() => {
-    if (!presetToAdd || tests.length === 0) return;
-
-    const lowerPreset = presetToAdd.toLowerCase().trim();
-    const match = tests.find(
-      (t) =>
-        t.name.toLowerCase() === lowerPreset ||
-        t.name.toLowerCase().includes(lowerPreset) ||
-        lowerPreset.includes(t.name.toLowerCase())
-    );
-
-    if (match) {
-      addTest(match);
-      setToast({ message: `Added "${match.name}" to test order`, type: "info" });
-    }
-    onClearPreset?.();
-  }, [presetToAdd, tests]);
-
-  // Filtering tests for search dropdown
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return [];
-
-    return tests
-      .filter((test) => {
-        const parameterMatch = test.parameters.some((param) =>
-          param.name.toLowerCase().includes(query)
-        );
-        return test.name.toLowerCase().includes(query) || parameterMatch;
-      })
-      .slice(0, 10);
-  }, [search, tests]);
-
-  const shouldShowCatalogDropdown = search.trim().length > 0 && filtered.length > 0;
-  const shouldShowNoCatalogResult =
-    search.trim().length > 0 && !loadingTests && filtered.length === 0;
-
-  const addTest = (test: Test) => {
+  const addTest = useCallback((test: Test) => {
     setSelected((prev) => {
       if (prev.some((item) => item.id === test.id)) return prev;
 
@@ -244,7 +391,79 @@ export default function TestSelector({
     });
 
     setSearch("");
-  };
+  }, []);
+
+  // Listen for Quick Presets clicked from Card 1
+  useEffect(() => {
+    if (!presetToAdd || tests.length === 0) return;
+
+    let match: Test | undefined;
+
+    // 1. Direct database ID lookup if testId is provided
+    if (typeof presetToAdd === "object" && presetToAdd !== null && "testId" in presetToAdd) {
+      match = tests.find((t) => t.id === presetToAdd.testId);
+    }
+
+    // 2. Fallback matching by name or numeric ID
+    if (!match) {
+      const presetString =
+        typeof presetToAdd === "string"
+          ? presetToAdd
+          : (presetToAdd as FastTestPreset).fullName || (presetToAdd as FastTestPreset).label;
+
+      const parsedId = Number(presetString);
+      if (Number.isInteger(parsedId) && parsedId > 0) {
+        match = tests.find((t) => t.id === parsedId);
+      }
+
+      if (!match && presetString) {
+        const lowerPreset = presetString.toLowerCase().trim();
+        match = tests.find(
+          (t) =>
+            t.name.toLowerCase().includes(lowerPreset) ||
+            lowerPreset.includes(t.name.toLowerCase()) ||
+            getTestAliases(t).includes(lowerPreset)
+        );
+      }
+    }
+
+    if (match) {
+      const alreadyInOrder = selected.some((item) => item.id === match.id);
+      if (alreadyInOrder) {
+        setToast({ message: `"${match.name}" is already in the test order`, type: "info" });
+      } else {
+        addTest(match);
+        setToast({ message: `Added "${match.name}" to test order`, type: "info" });
+      }
+    }
+    onClearPreset?.();
+  }, [presetToAdd, tests, selected, addTest, onClearPreset]);
+
+  // Filtering tests for search dropdown with relevance ranking & clinical aliases
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return [];
+
+    const scored: { test: Test; score: number }[] = [];
+    for (const test of tests) {
+      const score = getSearchScore(test, query);
+      if (score > 0) {
+        scored.push({ test, score });
+      }
+    }
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.test.name.length !== b.test.name.length) return a.test.name.length - b.test.name.length;
+      return a.test.id - b.test.id;
+    });
+
+    return scored.slice(0, 10).map((s) => s.test);
+  }, [search, tests]);
+
+  const shouldShowCatalogDropdown = search.trim().length > 0 && filtered.length > 0;
+  const shouldShowNoCatalogResult =
+    search.trim().length > 0 && !loadingTests && filtered.length === 0;
 
   const handlePriceChange = (testId: number, rawValue: string) => {
     if (rawValue.trim() === "") {
@@ -392,6 +611,15 @@ export default function TestSelector({
   const executeCreateBill = async () => {
     if (!patient || !validateOrderSelection()) return;
 
+    if (isEditingRefNo) {
+      const err = validateManualRef(customRefNo);
+      if (err) {
+        setRefNoError(err);
+        setToast({ message: err, type: "error" });
+        return;
+      }
+    }
+
     const parameterIds = selected.flatMap((test) => test.selectedParameterIds);
 
     try {
@@ -406,15 +634,23 @@ export default function TestSelector({
         price: getEffectivePrice(test),
       }));
 
+      const manualNum = isEditingRefNo && customRefNo.trim()
+        ? customRefNo.trim()
+        : null;
+
       // 1. Create order in database
-      const orderId = await testService.createOrder({
+      const result = await testService.createOrder({
         patientId: patient.id,
         testIds: selected.map((test) => test.id),
         parameterIds,
         totalAmount: netPayable,
         discountAmount: discountValue,
         customPrices,
+        manualOrderNumber: manualNum,
       });
+
+      const orderId = result.order_id;
+      const orderNumber = result.order_number;
 
       // 2. If upfront payment selected, update payment atomically
       if (upfrontPaidAmount > 0) {
@@ -424,6 +660,7 @@ export default function TestSelector({
       setBilledTests(orderTestsSnapshot);
       setLastOrder({
         id: orderId,
+        order_number: orderNumber,
         total: netPayable,
         paid: upfrontPaidAmount,
         subtotal,
@@ -437,13 +674,17 @@ export default function TestSelector({
       setDiscount("");
       setAdvanceAmount("");
       setActiveChecklistId(null);
+      setIsEditingRefNo(false);
+      setCustomRefNo("");
+      setRefNoError(null);
+      fetchNextRefNo();
 
       const statusMsg =
         upfrontPaidAmount >= netPayable
-          ? `Bill #${orderId} generated & FULL PAYMENT (${money(netPayable)}) settled!`
+          ? `Bill #${orderId} (Ref: ${orderNumber}) generated & FULL PAYMENT (${money(netPayable)}) settled!`
           : upfrontPaidAmount > 0
-            ? `Bill #${orderId} generated with ${money(upfrontPaidAmount)} advance paid (${money(upfrontBalanceDue)} due)!`
-            : `Bill #${orderId} generated (${money(netPayable)} due in Operations)!`;
+            ? `Bill #${orderId} (Ref: ${orderNumber}) generated with ${money(upfrontPaidAmount)} advance paid (${money(upfrontBalanceDue)} due)!`
+            : `Bill #${orderId} (Ref: ${orderNumber}) generated (${money(netPayable)} due in Operations)!`;
 
       setToast({ message: statusMsg, type: "success" });
     } catch (err) {
@@ -567,6 +808,14 @@ export default function TestSelector({
             <div className="test-selector__catalog-dropdown-body">
               {filtered.map((test) => {
                 const isSelected = selected.some((item) => item.id === test.id);
+                const queryLower = search.trim().toLowerCase();
+                const matchedAlias = queryLower
+                  ? getTestAliases(test).find(
+                      (a) =>
+                        a.toLowerCase().includes(queryLower) &&
+                        !test.name.toLowerCase().includes(a.toLowerCase())
+                    )
+                  : undefined;
                 return (
                   <button
                     key={test.id}
@@ -579,7 +828,19 @@ export default function TestSelector({
                   >
                     <div className="test-selector__catalog-item-info">
                       <div className="test-selector__catalog-item-name">
-                        {test.name}
+                        <span>{test.name}</span>
+                        {matchedAlias && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "var(--color-primary)",
+                              fontWeight: 500,
+                              textTransform: "capitalize",
+                            }}
+                          >
+                            ({matchedAlias})
+                          </span>
+                        )}
                         {isSelected && (
                           <span className="test-selector__added-pill">Added</span>
                         )}
@@ -810,8 +1071,8 @@ export default function TestSelector({
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text)" }}>
                 Order #{lastOrder.id} Created
               </div>
-              <div style={{ fontSize: 11, color: "var(--color-muted)" }}>
-                {billedTests.length} tests • {patient?.name || "Patient"}
+              <div style={{ fontSize: 11, color: "var(--color-muted)", marginTop: 2 }}>
+                Lab Ref: <strong style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}>{lastOrder.order_number || `#${lastOrder.id}`}</strong> • {billedTests.length} tests • {patient?.name || "Patient"}
               </div>
             </div>
             <Badge
@@ -940,6 +1201,77 @@ export default function TestSelector({
       ) : (
         /* Real-Time Billing & Settlement Configuration */
         <>
+          {/* Lab Reference Number Box */}
+          <div className="test-selector__ref-section">
+            <div className="test-selector__ref-header">
+              <span className="test-selector__ref-label">Lab Reference Number</span>
+              {!isEditingRefNo ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingRefNo(true);
+                    setCustomRefNo(customRefNo || autoRefNo);
+                    setRefNoError(null);
+                  }}
+                  className="test-selector__ref-edit-btn"
+                  title="Edit Lab Reference Number"
+                >
+                  <Pencil size={12} />
+                  <span>Edit</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingRefNo(false);
+                    setCustomRefNo(autoRefNo);
+                    setRefNoError(null);
+                  }}
+                  className="test-selector__ref-cancel-btn"
+                  title="Cancel Edit and Restore Auto Number"
+                >
+                  <RotateCcw size={12} />
+                  <span>Restore Auto</span>
+                </button>
+              )}
+            </div>
+
+            {!isEditingRefNo ? (
+              <div className="test-selector__ref-value-row">
+                <span className="font-mono test-selector__ref-display-val">
+                  {customRefNo || autoRefNo || "..."}
+                </span>
+                <Badge tone={customRefNo && customRefNo !== autoRefNo ? "warning" : "info"} size="sm">
+                  {customRefNo && customRefNo !== autoRefNo ? "Manual Ref" : "Auto (Daily)"}
+                </Badge>
+              </div>
+            ) : (
+              <div className="test-selector__ref-edit-row">
+                <input
+                  type="text"
+                  value={customRefNo}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCustomRefNo(val);
+                    setRefNoError(validateManualRef(val));
+                  }}
+                  placeholder={autoRefNo}
+                  maxLength={20}
+                  className={`test-selector__ref-input ${refNoError ? "test-selector__ref-input--error" : ""}`}
+                  autoFocus
+                />
+                {refNoError && (
+                  <span className="test-selector__ref-error-text">
+                    {refNoError}
+                  </span>
+                )}
+                <div className="test-selector__ref-hint">
+                  Restarts daily at 001. You may assign a custom number before saving.
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Order Items Preview (Compact Scrollable) */}
           <div className="test-selector__billing-items">
             <div className="test-selector__billing-items-head">

@@ -1,9 +1,7 @@
 /// ✅ Input Validation Module
 /// Validates all user inputs before database operations
 /// Prevents SQL injection, invalid data, and business logic violations
-
 use crate::errors::{AppError, AppResult};
-
 
 /// Validate patient name
 /// - Not empty

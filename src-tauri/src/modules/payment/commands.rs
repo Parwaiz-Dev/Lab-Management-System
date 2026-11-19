@@ -18,7 +18,9 @@ pub fn update_payment(
     payment_method: Option<String>,
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
 
     // Snapshot existing payment before mutation
     let old_data = crate::modules::audit::service::snapshot_row(
@@ -57,9 +59,13 @@ pub fn get_daily_summary(
 ) -> Result<(f64, f64, f64), AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can access financial summaries".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can access financial summaries".to_string(),
+        ));
     }
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_daily_summary(&conn)?)
 }
 
@@ -70,9 +76,13 @@ pub fn get_overall_summary(
 ) -> Result<(f64, f64, f64), AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can access financial summaries".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can access financial summaries".to_string(),
+        ));
     }
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_overall_summary(&conn)?)
 }
 
@@ -83,6 +93,24 @@ pub fn get_payment_history(
     order_id: i32,
 ) -> Result<Vec<PaymentHistoryEntry>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_payment_history(&conn, order_id)?)
+}
+
+#[tauri::command]
+pub fn get_collections_by_date_range(
+    state: State<'_, Mutex<Connection>>,
+    auth: State<'_, AuthState>,
+    date_from: String,
+    date_to: String,
+) -> Result<f64, AppError> {
+    require_auth(&auth)?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+    Ok(service::get_collections_by_date_range(
+        &conn, &date_from, &date_to,
+    )?)
 }

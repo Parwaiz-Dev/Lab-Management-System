@@ -223,9 +223,14 @@ mod tests {
     #[test]
     fn add_test_parameter_creates_new() {
         let conn = test_db();
-        let new_id =
-            add_test_parameter(&conn, 1, "Platelets".into(), "cells/uL".into(), "150-450".into())
-                .unwrap();
+        let new_id = add_test_parameter(
+            &conn,
+            1,
+            "Platelets".into(),
+            "cells/uL".into(),
+            "150-450".into(),
+        )
+        .unwrap();
         assert!(new_id > 0);
         let params = get_test_parameters(&conn, 1).unwrap();
         assert_eq!(params.len(), 3);
@@ -241,8 +246,7 @@ mod tests {
     #[test]
     fn add_test_parameter_rejects_non_existent_test() {
         let conn = test_db();
-        let result =
-            add_test_parameter(&conn, 999, "Param".into(), "unit".into(), "range".into());
+        let result = add_test_parameter(&conn, 999, "Param".into(), "unit".into(), "range".into());
         assert!(result.is_err());
     }
 

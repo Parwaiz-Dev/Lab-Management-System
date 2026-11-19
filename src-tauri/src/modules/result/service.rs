@@ -46,7 +46,12 @@ fn ensure_parameter_belongs_to_order(
     Ok(())
 }
 
-pub fn save_result(conn: &mut Connection, order_id: i32, parameter_id: i32, value: String) -> AppResult<()> {
+pub fn save_result(
+    conn: &mut Connection,
+    order_id: i32,
+    parameter_id: i32,
+    value: String,
+) -> AppResult<()> {
     validate_positive_id(order_id, "order_id")?;
     validate_positive_id(parameter_id, "parameter_id")?;
 
@@ -55,7 +60,9 @@ pub fn save_result(conn: &mut Connection, order_id: i32, parameter_id: i32, valu
 
     ensure_order_exists(conn, order_id)?;
 
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(AppError::from)?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(AppError::from)?;
 
     ensure_parameter_belongs_to_order(&tx, order_id, parameter_id)?;
 
@@ -73,7 +80,11 @@ pub fn save_result(conn: &mut Connection, order_id: i32, parameter_id: i32, valu
     Ok(())
 }
 
-pub fn save_results(conn: &mut Connection, order_id: i32, results: Vec<ResultInput>) -> AppResult<usize> {
+pub fn save_results(
+    conn: &mut Connection,
+    order_id: i32,
+    results: Vec<ResultInput>,
+) -> AppResult<usize> {
     validate_positive_id(order_id, "order_id")?;
 
     if results.is_empty() {
@@ -84,7 +95,9 @@ pub fn save_results(conn: &mut Connection, order_id: i32, results: Vec<ResultInp
 
     ensure_order_exists(conn, order_id)?;
 
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(AppError::from)?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(AppError::from)?;
     let mut saved_count = 0usize;
 
     for result in results {
@@ -123,7 +136,10 @@ pub fn save_results(conn: &mut Connection, order_id: i32, results: Vec<ResultInp
     Ok(saved_count)
 }
 
-pub fn get_parameters_by_order(conn: &Connection, order_id: i32) -> AppResult<Vec<OrderParameterDto>> {
+pub fn get_parameters_by_order(
+    conn: &Connection,
+    order_id: i32,
+) -> AppResult<Vec<OrderParameterDto>> {
     validate_positive_id(order_id, "order_id")?;
 
     ensure_order_exists(conn, order_id)?;

@@ -46,7 +46,11 @@ mod tests {
         )
         .unwrap();
 
-        conn.execute("INSERT INTO patients (id, name) VALUES (1, 'Test Patient')", []).unwrap();
+        conn.execute(
+            "INSERT INTO patients (id, name) VALUES (1, 'Test Patient')",
+            [],
+        )
+        .unwrap();
         conn.execute("INSERT INTO orders (id, patient_id, total_amount_paise, paid_amount_paise, invoice_no, created_at) VALUES (1, 1, 50000, 0, 'INV-1', DATETIME('now'))", []).unwrap();
         conn.execute("INSERT INTO orders (id, patient_id, total_amount_paise, paid_amount_paise, invoice_no, created_at) VALUES (2, 1, 100000, 30000, 'INV-2', DATETIME('now'))", []).unwrap();
         conn.execute("INSERT INTO orders (id, patient_id, total_amount_paise, paid_amount_paise, invoice_no, created_at) VALUES (3, 1, 75000, 75000, 'INV-3', '2020-01-15')", []).unwrap();
@@ -65,7 +69,11 @@ mod tests {
         service::update_payment(&mut conn, 1, 200.00, None).unwrap();
 
         let paid: i64 = conn
-            .query_row("SELECT paid_amount_paise FROM orders WHERE id = ?1", [1], |row| row.get(0))
+            .query_row(
+                "SELECT paid_amount_paise FROM orders WHERE id = ?1",
+                [1],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(paid, 20000);
     }
@@ -82,7 +90,11 @@ mod tests {
         service::update_payment(&mut conn, 2, 600.00, None).unwrap();
 
         let paid: i64 = conn
-            .query_row("SELECT paid_amount_paise FROM orders WHERE id = ?1", [2], |row| row.get(0))
+            .query_row(
+                "SELECT paid_amount_paise FROM orders WHERE id = ?1",
+                [2],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(paid, 60000);
     }
@@ -98,7 +110,11 @@ mod tests {
         service::update_payment(&mut conn, 1, 500.00, None).unwrap();
 
         let paid: i64 = conn
-            .query_row("SELECT paid_amount_paise FROM orders WHERE id = ?1", [1], |row| row.get(0))
+            .query_row(
+                "SELECT paid_amount_paise FROM orders WHERE id = ?1",
+                [1],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(paid, 50000);
     }
@@ -146,13 +162,21 @@ mod tests {
         let mut conn = test_db();
 
         let before: i32 = conn
-            .query_row("SELECT COUNT(*) FROM payment_history WHERE order_id = 1", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM payment_history WHERE order_id = 1",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
 
         service::update_payment(&mut conn, 1, 300.00, None).unwrap();
 
         let after: i32 = conn
-            .query_row("SELECT COUNT(*) FROM payment_history WHERE order_id = 1", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM payment_history WHERE order_id = 1",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(after, before + 1);
     }
@@ -178,8 +202,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(previous, 30000); // previous paid
-        assert_eq!(new, 80000);      // new paid
-        assert_eq!(total, 100000);   // total amount
+        assert_eq!(new, 80000); // new paid
+        assert_eq!(total, 100000); // total amount
     }
 
     // ------------------------------------------------------------------
@@ -272,7 +296,8 @@ mod tests {
         let history = service::get_payment_history(&conn, 1).unwrap();
         assert_eq!(history.len(), 3);
 
-        let methods: Vec<Option<String>> = history.iter().map(|h| h.payment_method.clone()).collect();
+        let methods: Vec<Option<String>> =
+            history.iter().map(|h| h.payment_method.clone()).collect();
         assert!(methods.contains(&Some("cash".to_string())));
         assert!(methods.contains(&Some("upi".to_string())));
         assert!(methods.contains(&Some("card".to_string())));
@@ -293,5 +318,66 @@ mod tests {
         let history = service::get_payment_history(&conn, 1).unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].payment_method, None);
+    }
+
+    // ------------------------------------------------------------------
+    // 15. get_collections_by_date_range
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn get_collections_by_date_range_empty() {
+        let conn = test_db();
+        let total =
+            service::get_collections_by_date_range(&conn, "2026-11-05", "2026-11-05").unwrap();
+        assert_eq!(total, 0.0);
+    }
+
+    #[test]
+    fn get_collections_by_date_range_calculates_actual_payment_deltas() {
+        let conn = test_db();
+
+        // Simulate payment 1 on 2026-11-04 (IST)
+        // 2026-11-04 10:00:00 UTC = 2026-11-04 15:30:00 IST -> ₹250
+        conn.execute(
+            "INSERT INTO payment_history (order_id, previous_paid_paise, new_paid_paise, total_amount_paise, payment_method, created_at)
+             VALUES (1, 0, 25000, 50000, 'cash', '2026-11-04 10:00:00')",
+            [],
+        ).unwrap();
+
+        // Simulate payment 2 on 2026-11-05 (IST)
+        // 2026-11-05 04:30:00 UTC = 2026-11-05 10:00:00 IST -> delta ₹150 (from 250 to 400)
+        conn.execute(
+            "INSERT INTO payment_history (order_id, previous_paid_paise, new_paid_paise, total_amount_paise, payment_method, created_at)
+             VALUES (1, 25000, 40000, 50000, 'upi', '2026-11-05 04:30:00')",
+            [],
+        ).unwrap();
+
+        // Simulate payment 3 on 2026-11-05 (IST) on a completely different order #2
+        // 2026-11-05 06:00:00 UTC = 2026-11-05 11:30:00 IST -> ₹500
+        conn.execute(
+            "INSERT INTO payment_history (order_id, previous_paid_paise, new_paid_paise, total_amount_paise, payment_method, created_at)
+             VALUES (2, 0, 50000, 100000, 'card', '2026-11-05 06:00:00')",
+            [],
+        ).unwrap();
+
+        // 1. Single day: 2026-11-04
+        let coll_04 =
+            service::get_collections_by_date_range(&conn, "2026-11-04", "2026-11-04").unwrap();
+        assert_eq!(coll_04, 250.0);
+
+        // 2. Single day: 2026-11-05 (payment 2 delta = 150 + payment 3 = 500 = 650)
+        let coll_05 =
+            service::get_collections_by_date_range(&conn, "2026-11-05", "2026-11-05").unwrap();
+        assert_eq!(coll_05, 650.0);
+
+        // 3. Multi-day range: 2026-11-04 to 2026-11-05 (total = 250 + 650 = 900)
+        let coll_range =
+            service::get_collections_by_date_range(&conn, "2026-11-04", "2026-11-05").unwrap();
+        assert_eq!(coll_range, 900.0);
+
+        // 4. Future day: 2026-11-06 (no payments)
+        let coll_future =
+            service::get_collections_by_date_range(&conn, "2026-11-06", "2026-11-06").unwrap();
+        assert_eq!(coll_future, 0.0);
     }
 }

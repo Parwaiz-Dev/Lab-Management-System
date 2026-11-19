@@ -5,7 +5,7 @@ import Toast from "../../../components/ui/Toast";
 import Button from "../../../components/ui/Button";
 import Input from "../../../components/ui/Input";
 import Badge from "../../../components/ui/Badge";
-import type { Patient, ToastMessage } from "../../../types";
+import type { Patient, ToastMessage, FastTestPreset } from "../../../types";
 import {
   getFirstError,
   hasErrors,
@@ -21,20 +21,22 @@ import {
 interface PatientFormProps {
   selectedPatient?: Patient | null;
   onSelectPatient: (patient: Patient | null) => void;
-  onSelectPreset?: (testName: string) => void;
+  onSelectPreset?: (preset: FastTestPreset) => void;
 }
 
-const POPULAR_PRESETS = [
-  { label: "CBC", fullName: "CBC (Complete Blood Count)" },
-  { label: "Lipid Profile", fullName: "Lipid Profile" },
-  { label: "LFT", fullName: "Liver Function Test (LFT)" },
-  { label: "KFT", fullName: "Kidney Function Test (KFT)" },
-  { label: "Thyroid Profile", fullName: "Thyroid Profile T3 T4 TSH" },
-  { label: "Sugar (FBS)", fullName: "Fasting Blood Sugar" },
-  { label: "HbA1c", fullName: "HbA1c" },
-  { label: "Urine Routine", fullName: "Urine Routine" },
-  { label: "Dengue NS1", fullName: "Dengue NS1" },
-  { label: "Widal Test", fullName: "Widal Test" },
+const POPULAR_PRESETS: FastTestPreset[] = [
+  { testId: 1, label: "CBC", fullName: "CBC" },
+  { testId: 9, label: "Lipid Profile", fullName: "Lipid Profile" },
+  { testId: 10, label: "LFT", fullName: "Liver Function Test" },
+  { testId: 11, label: "KFT", fullName: "Kidney Function Test" },
+  { testId: 12, label: "Thyroid Profile", fullName: "Thyroid Profile T3 T4 TSH" },
+  { testId: 8, label: "HbA1c", fullName: "HbA1c" },
+  { testId: 7, label: "Random Blood Sugar (RBS)", fullName: "Random Blood Sugar" },
+  { testId: 32, label: "Creatinine", fullName: "Creatinine" },
+  { testId: 24, label: "Calcium", fullName: "Calcium" },
+  { testId: 3, label: "ESR", fullName: "ESR" },
+  { testId: 22, label: "RA (Rheumatoid Factor)", fullName: "RA Factor" },
+  { testId: 23, label: "Uric Acid", fullName: "Uric Acid" },
 ];
 
 export default function PatientForm({
@@ -770,8 +772,8 @@ export default function PatientForm({
               key={preset.label}
               type="button"
               className="patient-preset-chip"
-              onClick={() => onSelectPreset?.(preset.fullName)}
-              title={`Quickly add ${preset.fullName} to test order`}
+              onClick={() => onSelectPreset?.(preset)}
+              title={`Quickly add ${preset.label} to test order`}
             >
               <Plus size={10} />
               <span>{preset.label}</span>

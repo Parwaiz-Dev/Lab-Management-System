@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Doctor, Patient } from "../../../types";
+import type { Doctor, Patient, PaginatedPatientsResult } from "../../../types";
 
 export type AgeUnit = "Years" | "Months" | "Days";
 export type Gender = "Male" | "Female" | "Other";
@@ -90,6 +90,50 @@ export const patientService = {
       return await invoke<Patient[]>("search_patients", { query: cleaned });
     } catch (error) {
       throw new Error(toErrorMessage(error, "Failed to search patients"));
+    }
+  },
+
+  async getPatientsPaginated(
+    query = "",
+    page = 1,
+    pageSize = 20
+  ): Promise<PaginatedPatientsResult> {
+    const cleaned = query.trim();
+
+    if (!hasDesktopBridge()) {
+      let filtered = [...MOCK_PATIENTS];
+      if (cleaned) {
+        const q = cleaned.toLowerCase();
+        filtered = filtered.filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.patient_code.toLowerCase().includes(q) ||
+            (p.phone && p.phone.includes(q)) ||
+            (p.referred_by && p.referred_by.toLowerCase().includes(q))
+        );
+      }
+      const total = filtered.length;
+      const total_pages = Math.max(1, Math.ceil(total / pageSize));
+      const start = (page - 1) * pageSize;
+      const items = filtered.slice(start, start + pageSize);
+      return {
+        items,
+        total,
+        page,
+        page_size: pageSize,
+        total_pages,
+        has_next_page: page < total_pages,
+      };
+    }
+
+    try {
+      return await invoke<PaginatedPatientsResult>("get_patients_paginated", {
+        query: cleaned ? cleaned : null,
+        page,
+        pageSize,
+      });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to load patient directory"));
     }
   },
 

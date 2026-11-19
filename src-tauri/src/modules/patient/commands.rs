@@ -7,7 +7,7 @@ use super::service;
 use crate::errors::AppError;
 use crate::modules::audit::service::create_audit_log;
 use crate::modules::auth::commands::{require_auth, AuthState};
-use crate::modules::patient::model::{DoctorRecord, Patient};
+use crate::modules::patient::model::{DoctorRecord, PaginatedPatients, Patient};
 
 #[tauri::command]
 pub fn create_patient(
@@ -21,7 +21,9 @@ pub fn create_patient(
     referred_by: Option<String>,
 ) -> Result<i32, AppError> {
     let session = require_auth(&auth)?;
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     let patient_id = service::create_patient(
         &mut *conn,
         name.clone(),
@@ -54,8 +56,27 @@ pub fn search_patients(
     query: String,
 ) -> Result<Vec<Patient>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::search_patients(&conn, query)?)
+}
+
+#[tauri::command]
+pub fn get_patients_paginated(
+    state: State<'_, Mutex<Connection>>,
+    auth: State<'_, AuthState>,
+    query: Option<String>,
+    page: Option<i32>,
+    page_size: Option<i32>,
+) -> Result<PaginatedPatients, AppError> {
+    require_auth(&auth)?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+    Ok(service::get_patients_paginated(
+        &conn, query, page, page_size,
+    )?)
 }
 
 #[tauri::command]
@@ -64,7 +85,9 @@ pub fn get_doctors(
     auth: State<'_, AuthState>,
 ) -> Result<Vec<String>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_doctors(&conn)?)
 }
 
@@ -74,7 +97,9 @@ pub fn get_all_doctors(
     auth: State<'_, AuthState>,
 ) -> Result<Vec<DoctorRecord>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_all_doctors(&conn)?)
 }
 
@@ -84,7 +109,9 @@ pub fn get_default_doctor(
     auth: State<'_, AuthState>,
 ) -> Result<Option<DoctorRecord>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_default_doctor(&conn)?)
 }
 
@@ -95,7 +122,9 @@ pub fn add_doctor(
     name: String,
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     let id = service::add_doctor(&conn, name.clone())?;
 
     // Audit: doctor added
@@ -122,9 +151,13 @@ pub fn update_doctor(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only administrators can edit doctors".into()));
+        return Err(AppError::AuthError(
+            "Only administrators can edit doctors".into(),
+        ));
     }
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::update_doctor(&conn, id, name.clone())?;
 
     // Audit: doctor updated (Safeguard 1: only doctor record is renamed, historical records unchanged)
@@ -150,9 +183,13 @@ pub fn set_default_doctor(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only administrators can set default doctor".into()));
+        return Err(AppError::AuthError(
+            "Only administrators can set default doctor".into(),
+        ));
     }
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::set_default_doctor(&mut *conn, id)?;
 
     // Audit: default doctor changed
@@ -179,12 +216,20 @@ pub fn set_doctor_active(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only administrators can activate/deactivate doctors".into()));
+        return Err(AppError::AuthError(
+            "Only administrators can activate/deactivate doctors".into(),
+        ));
     }
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::set_doctor_active(&mut *conn, id, is_active)?;
 
-    let action = if is_active { "reactivate" } else { "deactivate" };
+    let action = if is_active {
+        "reactivate"
+    } else {
+        "deactivate"
+    };
     let new_data = serde_json::json!({ "id": id, "is_active": is_active });
     create_audit_log(
         &conn,
@@ -212,7 +257,9 @@ pub fn update_patient(
     referred_by: Option<String>,
 ) -> Result<(), AppError> {
     let session = require_auth(&auth)?;
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::update_patient(
         &mut *conn,
         id,
@@ -246,7 +293,9 @@ pub fn delete_patient(
     id: i32,
 ) -> Result<(), AppError> {
     let session = require_auth(&auth)?;
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::delete_patient(&mut *conn, id)?;
 
     // Audit: patient deleted

@@ -16,7 +16,9 @@ pub fn get_setting(
     key: String,
 ) -> Result<String, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_setting(&conn, key)?)
 }
 
@@ -29,17 +31,17 @@ pub fn set_setting(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can modify settings".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can modify settings".to_string(),
+        ));
     }
 
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
 
     // Snapshot existing setting value by its TEXT key
-    let old_data = crate::modules::audit::service::snapshot_setting(
-        &conn,
-        &key,
-    )
-    .unwrap_or(None);
+    let old_data = crate::modules::audit::service::snapshot_setting(&conn, &key).unwrap_or(None);
 
     service::set_setting(&conn, key.clone(), value.clone())?;
 
@@ -64,7 +66,9 @@ pub fn get_all_settings(
     auth: State<'_, AuthState>,
 ) -> Result<AppSettings, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_all_settings(&conn)?)
 }
 
@@ -79,10 +83,20 @@ pub fn save_lab_settings(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can save settings".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can save settings".to_string(),
+        ));
     }
-    let mut conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
-    service::save_lab_settings(&mut *conn, lab_name.clone(), lab_address.clone(), doctor_share.clone(), lab_logo.clone())?;
+    let mut conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+    service::save_lab_settings(
+        &mut *conn,
+        lab_name.clone(),
+        lab_address.clone(),
+        doctor_share.clone(),
+        lab_logo.clone(),
+    )?;
 
     // Audit: lab settings saved
     let new_data = serde_json::json!({

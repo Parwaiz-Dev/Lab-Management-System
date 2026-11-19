@@ -2,9 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Printer, EyeOff, CheckSquare, Square } from "lucide-react";
 import Button from "../../../components/ui/Button";
 import type { ReportPatientInfo, ReportRow } from "../../../types";
-import { settingsService } from "../../settings/services/settingsService";
 import { getErrorMessage, testService } from "../services/testService";
 import { getFlagStatus } from "../../../utils/clinicalRange";
+import {
+  calculateEag,
+  isEagParam,
+  isHbA1cParam,
+  isHbA1cTest,
+} from "../utils/resultTypeConfig";
+import sanjeeviniHeaderImg from "../../../assets/letterhead/sanjeevini-header.png";
+import sanjeeviniWatermarkImg from "../../../assets/letterhead/sanjeevini-watermark.png";
+import sanjeeviniFooterImg from "../../../assets/letterhead/sanjeevini-footer-full.png";
 
 type ReportPageProps = {
   orderId: number;
@@ -19,9 +27,6 @@ type GroupedResult = {
 export default function ReportPage({ orderId, onBack }: ReportPageProps) {
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [patient, setPatient] = useState<ReportPatientInfo | null>(null);
-  const [labName, setLabName] = useState("SANJEEVINI DIAGNOSTICS LABORATORY");
-  const [labAddress, setLabAddress] = useState("");
-  const [logo, setLogo] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [hideHeaderFooter, setHideHeaderFooter] = useState(true);
@@ -32,26 +37,13 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
         setLoading(true);
         setError("");
 
-        const [reportRows, patientInfo, settings] = await Promise.all([
+        const [reportRows, patientInfo] = await Promise.all([
           testService.getReport(orderId),
           testService.getPatientByOrder(orderId),
-          settingsService.getLabSettings(),
         ]);
 
         setRows(reportRows || []);
         setPatient(patientInfo);
-        if (
-          settings.lab_name &&
-          settings.lab_name !== "Your Lab" &&
-          settings.lab_name !== "Laboratory" &&
-          settings.lab_name !== "SWEET HOME"
-        ) {
-          setLabName(settings.lab_name);
-        } else {
-          setLabName("SANJEEVINI DIAGNOSTICS LABORATORY");
-        }
-        setLabAddress(settings.lab_address || "");
-        setLogo(settings.lab_logo || "");
       } catch (err) {
         console.error("Report load failed:", err);
         setError(getErrorMessage(err, "Failed to load report"));
@@ -77,10 +69,33 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
       }
     });
 
+    // Check groups for HbA1c to ensure eAG is derived if not already present
+    groups.forEach((group) => {
+      if (isHbA1cTest(group.testName)) {
+        const hasEag = group.rows.some((r) => isEagParam(r.parameter_name));
+        if (!hasEag) {
+          const hba1cRow = group.rows.find((r) => isHbA1cParam(r.parameter_name)) || group.rows[0];
+          const eagVal = calculateEag(hba1cRow?.value);
+          const eagStr = eagVal !== null ? String(eagVal) : "—";
+          const eagRow: ReportRow = {
+            test_name: group.testName,
+            parameter_name: "Estimated average glucose (eAG)",
+            value: eagStr,
+            unit: "mg/dL",
+            normal_range: "90 - 120",
+          };
+          group.rows.push(eagRow);
+        }
+      }
+    });
+
     return groups;
   }, [rows]);
 
-  const logoSrc = useMemo(() => settingsService.getLogoSrc(logo), [logo]);
+  const isSingleHbA1c = useMemo(
+    () => groupedResults.length === 1 && isHbA1cTest(groupedResults[0].testName),
+    [groupedResults]
+  );
 
   const ageSex =
     patient?.age_sex ||
@@ -148,6 +163,210 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
     [hideHeaderFooter]
   );
 
+  const reportMainContent = (
+    <main className="sanjeevini-report-body">
+      <table className="sanjeevini-table">
+        <colgroup>
+          <col style={{ width: isSingleHbA1c ? "34%" : "38%" }} />
+          <col style={{ width: isSingleHbA1c ? "18%" : "22%" }} />
+          <col style={{ width: isSingleHbA1c ? "12%" : "15%" }} />
+          <col style={{ width: isSingleHbA1c ? "36%" : "25%" }} />
+        </colgroup>
+        <thead>
+          {/* Patient Card in thead: repeats cleanly at the top of every printed page */}
+          <tr className="sanjeevini-patient-header-row">
+            <th colSpan={4} className="sanjeevini-patient-header-cell">
+              <section className="sanjeevini-patient-card">
+                <div className="sanjeevini-patient-left">
+                  <div className="sanjeevini-info-row">
+                    <span className="sanjeevini-info-label">Name</span>
+                    <span className="sanjeevini-info-colon">:</span>
+                    <strong className="sanjeevini-info-val sanjeevini-patient-name">
+                      {patient?.patient_name || "—"}
+                    </strong>
+                  </div>
+
+                  <div className="sanjeevini-info-row">
+                    <span className="sanjeevini-info-label">Patient ID</span>
+                    <span className="sanjeevini-info-colon">:</span>
+                    <span className="sanjeevini-info-val">{patient?.patient_code || "—"}</span>
+                  </div>
+
+                  <div className="sanjeevini-info-row">
+                    <span className="sanjeevini-info-label">Age &amp; Sex</span>
+                    <span className="sanjeevini-info-colon">:</span>
+                    <span className="sanjeevini-info-val">{ageSex}</span>
+                  </div>
+
+                  <div className="sanjeevini-info-row">
+                    <span className="sanjeevini-info-label">Lab Ref No</span>
+                    <span className="sanjeevini-info-colon">:</span>
+                    <span className="sanjeevini-info-val">{patient?.order_number || `LAB-${orderId}`}</span>
+                  </div>
+                </div>
+
+                <div className="sanjeevini-patient-right">
+                  <div className="sanjeevini-info-row">
+                    <span className="sanjeevini-info-label">Collection Time</span>
+                    <span className="sanjeevini-info-colon">:</span>
+                    <span className="sanjeevini-info-val">{collectionDateTime}</span>
+                  </div>
+
+                  <div className="sanjeevini-info-row">
+                    <span className="sanjeevini-info-label">Receiving Time</span>
+                    <span className="sanjeevini-info-colon">:</span>
+                    <span className="sanjeevini-info-val">{collectionDateTime}</span>
+                  </div>
+
+                  <div className="sanjeevini-info-row">
+                    <span className="sanjeevini-info-label">Reporting Time</span>
+                    <span className="sanjeevini-info-colon">:</span>
+                    <span className="sanjeevini-info-val">{reportingDateTime}</span>
+                  </div>
+
+                  <div className="sanjeevini-info-row">
+                    <span className="sanjeevini-info-label">Referred By</span>
+                    <span className="sanjeevini-info-colon">:</span>
+                    <span className="sanjeevini-info-val sanjeevini-referred-val">
+                      {patient?.referred_by || "Direct / Self"}
+                    </span>
+                  </div>
+                </div>
+              </section>
+            </th>
+          </tr>
+
+          {/* Column Header Row: repeats cleanly right below patient card on every printed page */}
+          <tr className="sanjeevini-th-row">
+            <th style={{ width: isSingleHbA1c ? "34%" : "38%", textAlign: "left", paddingLeft: "2mm" }}>Test Name</th>
+            <th style={{ width: isSingleHbA1c ? "18%" : "22%", textAlign: isSingleHbA1c ? "left" : "center", paddingLeft: isSingleHbA1c ? "2mm" : undefined }}>Results</th>
+            <th style={{ width: isSingleHbA1c ? "12%" : "15%", textAlign: isSingleHbA1c ? "left" : "center", paddingLeft: isSingleHbA1c ? "2mm" : undefined }}>Units</th>
+            <th style={{ width: isSingleHbA1c ? "36%" : "25%", textAlign: isSingleHbA1c ? "left" : "center" }}>Biological Ref. Interval</th>
+          </tr>
+        </thead>
+
+        {loading ? (
+          <tbody>
+            <tr>
+              <td colSpan={4}>
+                <div className="sanjeevini-state-box">
+                  <span className="ui-spinner" style={{ marginRight: 8 }} />
+                  Loading verified lab report findings…
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        ) : error ? (
+          <tbody>
+            <tr>
+              <td colSpan={4}>
+                <div className="sanjeevini-state-box sanjeevini-state-box--error">
+                  {error}
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        ) : groupedResults.length === 0 ? (
+          <tbody>
+            <tr>
+              <td colSpan={4}>
+                <div className="sanjeevini-state-box">
+                  No laboratory results recorded for this order.
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        ) : (
+          groupedResults.map((group) => {
+            const isHbA1c = isHbA1cTest(group.testName);
+
+            if (isHbA1c) {
+              return (
+                <HbA1cReportGroup
+                  key={group.testName}
+                  group={group}
+                  formatValue={formatValue}
+                  formatReferenceRange={formatReferenceRange}
+                />
+              );
+            }
+
+            return (
+              <tbody key={group.testName} className="sanjeevini-panel-group">
+                {/* Panel / Investigation Header */}
+                <tr className="sanjeevini-panel-row">
+                  <td colSpan={4}>
+                    <div className="sanjeevini-panel-title">
+                      {group.testName.toUpperCase()}
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Parameter Rows */}
+                {group.rows.map((row, idx) => {
+                  const flag = getFlagStatus(row.value, row.normal_range);
+                  const isHigh = flag === "High";
+                  const isLow = flag === "Low";
+                  const isAbnormal = isHigh || isLow;
+
+                  return (
+                    <tr
+                      key={idx}
+                      className={`sanjeevini-data-row ${
+                        isAbnormal ? "sanjeevini-data-row--flagged" : ""
+                      }`}
+                    >
+                      {/* Test / Parameter Name */}
+                      <td className="sanjeevini-cell-test" style={{ width: "38%" }}>
+                        <span className="sanjeevini-test-name">
+                          {row.parameter_name || "—"}
+                        </span>
+                      </td>
+
+                      {/* Result Value - ONLY HIGH is bold */}
+                      <td className="sanjeevini-cell-result" style={{ width: "22%" }}>
+                        <div className="sanjeevini-result-flex">
+                          <span
+                            className={`sanjeevini-result-value ${
+                              isHigh
+                                ? "sanjeevini-result-value--high"
+                                : isLow
+                                ? "sanjeevini-result-value--low"
+                                : "sanjeevini-result-value--normal"
+                            }`}
+                          >
+                            {formatValue(row.value)}
+                          </span>
+                          {isAbnormal && flag && (
+                            <span
+                              className={`sanjeevini-flag-pill sanjeevini-flag-pill--${flag.toLowerCase()}`}
+                            >
+                              {flag}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Units */}
+                      <td className="sanjeevini-cell-unit" style={{ width: "15%" }}>
+                        {row.unit || "—"}
+                      </td>
+
+                      {/* Biological Ref. Interval */}
+                      <td className="sanjeevini-cell-ref" style={{ width: "25%" }}>
+                        {formatReferenceRange(row.normal_range, row.unit)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            );
+          })
+        )}
+      </table>
+    </main>
+  );
+
   return (
     <div className="sanjeevini-report-page">
       <style>{reportStyles}</style>
@@ -196,363 +415,374 @@ export default function ReportPage({ orderId, onBack }: ReportPageProps) {
         <div className="sanjeevini-hidden-banner no-print">
           <EyeOff size={14} />
           <span>
-            <strong>Pre-printed Letterhead Mode:</strong> Top 45 mm (company header) and bottom 45 mm (company footer/signature) are reserved on every page. In the print dialog, uncheck <strong>Headers and footers</strong> under <em>More settings</em> (WebView2 remembers this choice).
+            <strong>Pre-printed Letterhead Mode:</strong> Top 47 mm (company header) and bottom 45 mm (company footer/signature) are reserved on every page. In the print dialog, uncheck <strong>Headers and footers</strong> under <em>More settings</em> (WebView2 remembers this choice).
           </span>
         </div>
       )}
 
       {/* ── SCREEN & PRINT MAIN DOCUMENT CONTAINER ── */}
       <div className={`sanjeevini-report-paper ${hideHeaderFooter ? "sanjeevini-report-paper--no-letterhead" : ""}`}>
-        {/* Fixed Watermark (Only in With Header mode) */}
+        {/* Authentic Stationery Watermark (Only in With Header & Footer mode) */}
         {!hideHeaderFooter && (
           <div className="sanjeevini-watermark" aria-hidden="true">
-            <MicroscopeWatermark />
-            <div className="sanjeevini-watermark-text">SANJEEVINI DIAGNOSTICS LABORATORY</div>
+            <img
+              src={sanjeeviniWatermarkImg}
+              alt=""
+              className="sanjeevini-watermark-img"
+            />
           </div>
         )}
 
-        {/* ── APPLICATION HEADER (Option A: With Header, prints at top of Page 1) ── */}
+        {/* ── APPLICATION HEADER (With Header & Footer prints authentic Sanjeevini banner) ── */}
         {!hideHeaderFooter ? (
           <header className="sanjeevini-header">
-            <div className="sanjeevini-header-inner">
-              <div className="sanjeevini-header-left">
-                {logoSrc ? (
-                  <img src={logoSrc} alt="Lab Logo" className="sanjeevini-custom-logo" />
-                ) : (
-                  <AyurvedaLogo />
-                )}
-              </div>
-
-              <div className="sanjeevini-header-center">
-                <div className="sanjeevini-kannada-sub">ಶ್ರೀ ಕೃಷ್ಣ ಯೋಗಾಶ್ರಮ</div>
-                <div className="sanjeevini-kannada-main">ಸಂಜೀವಿನಿ ಚಿಕಿತ್ಸಾಲಯ</div>
-                <div className="sanjeevini-contact-line">
-                  {labAddress ? (
-                    labAddress
-                  ) : (
-                    <>ಮೊನಂ. 8088113455, 7483324754, &nbsp; ಗುಳೇದಗುಡ್ಡ -587 203</>
-                  )}
-                </div>
-                <h1 className="sanjeevini-english-title">{labName}</h1>
-              </div>
-
-              <div className="sanjeevini-header-right">
-                <DiagnosticsSeal />
-              </div>
-            </div>
-            <div className="sanjeevini-header-stripe" />
+            <img
+              src={sanjeeviniHeaderImg}
+              alt="Sanjeevini Scans & Diagnostics"
+              className="sanjeevini-header-banner-img"
+            />
           </header>
         ) : (
-          /* On screen only: shows visual 45 mm reserved header indicator */
+          /* On screen only: shows visual 47 mm reserved header indicator */
           <div className="sanjeevini-preprinted-header-spacer no-print" />
         )}
 
         {/* ── TABLE WITH PATIENT INFO & TEST RESULTS ── */}
-        <main className="sanjeevini-report-body">
-          <table className="sanjeevini-table">
-            <colgroup>
-              <col style={{ width: "38%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "25%" }} />
-            </colgroup>
+        {!hideHeaderFooter ? (
+          <table className="sanjeevini-outer-table">
             <thead>
-              {/* Patient Card in thead: repeats cleanly at the top of every printed page */}
-              <tr className="sanjeevini-patient-header-row">
-                <th colSpan={4} className="sanjeevini-patient-header-cell">
-                  <section className="sanjeevini-patient-card">
-                    <div className="sanjeevini-patient-left">
-                      <div className="sanjeevini-info-row">
-                        <span className="sanjeevini-info-label">Name</span>
-                        <span className="sanjeevini-info-colon">:</span>
-                        <strong className="sanjeevini-info-val sanjeevini-patient-name">
-                          {patient?.patient_name || "—"}
-                        </strong>
-                      </div>
-
-                      <div className="sanjeevini-info-row">
-                        <span className="sanjeevini-info-label">Patient ID</span>
-                        <span className="sanjeevini-info-colon">:</span>
-                        <span className="sanjeevini-info-val">{patient?.patient_code || "—"}</span>
-                      </div>
-
-                      <div className="sanjeevini-info-row">
-                        <span className="sanjeevini-info-label">Age &amp; Sex</span>
-                        <span className="sanjeevini-info-colon">:</span>
-                        <span className="sanjeevini-info-val">{ageSex}</span>
-                      </div>
-
-                      <div className="sanjeevini-info-row">
-                        <span className="sanjeevini-info-label">Lab Ref No</span>
-                        <span className="sanjeevini-info-colon">:</span>
-                        <span className="sanjeevini-info-val">{patient?.order_number || `LAB-${orderId}`}</span>
-                      </div>
-                    </div>
-
-                    <div className="sanjeevini-patient-right">
-                      <div className="sanjeevini-info-row">
-                        <span className="sanjeevini-info-label">Collection Time</span>
-                        <span className="sanjeevini-info-colon">:</span>
-                        <span className="sanjeevini-info-val">{collectionDateTime}</span>
-                      </div>
-
-                      <div className="sanjeevini-info-row">
-                        <span className="sanjeevini-info-label">Receiving Time</span>
-                        <span className="sanjeevini-info-colon">:</span>
-                        <span className="sanjeevini-info-val">{collectionDateTime}</span>
-                      </div>
-
-                      <div className="sanjeevini-info-row">
-                        <span className="sanjeevini-info-label">Reporting Time</span>
-                        <span className="sanjeevini-info-colon">:</span>
-                        <span className="sanjeevini-info-val">{reportingDateTime}</span>
-                      </div>
-
-                      <div className="sanjeevini-info-row">
-                        <span className="sanjeevini-info-label">Referred By</span>
-                        <span className="sanjeevini-info-colon">:</span>
-                        <span className="sanjeevini-info-val sanjeevini-referred-val">
-                          {patient?.referred_by || "Direct / Self"}
-                        </span>
-                      </div>
-                    </div>
-                  </section>
-                </th>
-              </tr>
-
-              {/* Column Header Row: repeats cleanly right below patient card on every printed page */}
-              <tr className="sanjeevini-th-row">
-                <th style={{ width: "38%", textAlign: "left", paddingLeft: "2mm" }}>Test Name</th>
-                <th style={{ width: "22%", textAlign: "center" }}>Results</th>
-                <th style={{ width: "15%", textAlign: "center" }}>Units</th>
-                <th style={{ width: "25%", textAlign: "center" }}>Biological Ref. Interval</th>
+              <tr className="sanjeevini-outer-header-spacer">
+                <td />
               </tr>
             </thead>
-
-            {loading ? (
-              <tbody>
-                <tr>
-                  <td colSpan={4}>
-                    <div className="sanjeevini-state-box">
-                      <span className="ui-spinner" style={{ marginRight: 8 }} />
-                      Loading verified lab report findings…
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            ) : error ? (
-              <tbody>
-                <tr>
-                  <td colSpan={4}>
-                    <div className="sanjeevini-state-box sanjeevini-state-box--error">
-                      {error}
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            ) : groupedResults.length === 0 ? (
-              <tbody>
-                <tr>
-                  <td colSpan={4}>
-                    <div className="sanjeevini-state-box">
-                      No laboratory results recorded for this order.
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            ) : (
-              groupedResults.map((group) => (
-                <tbody key={group.testName} className="sanjeevini-panel-group">
-                  {/* Panel / Investigation Header */}
-                  <tr className="sanjeevini-panel-row">
-                    <td colSpan={4}>
-                      <div className="sanjeevini-panel-title">
-                        {group.testName.toUpperCase()}
-                      </div>
-                    </td>
-                  </tr>
-
-                  {/* Parameter Rows */}
-                  {group.rows.map((row, idx) => {
-                    const flag = getFlagStatus(row.value, row.normal_range);
-                    const isHigh = flag === "High";
-                    const isLow = flag === "Low";
-                    const isAbnormal = isHigh || isLow;
-
-                    return (
-                      <tr
-                        key={idx}
-                        className={`sanjeevini-data-row ${
-                          isAbnormal ? "sanjeevini-data-row--flagged" : ""
-                        }`}
-                      >
-                        {/* Test / Parameter Name */}
-                        <td className="sanjeevini-cell-test" style={{ width: "38%" }}>
-                          <span className="sanjeevini-test-name">
-                            {row.parameter_name || "—"}
-                          </span>
-                        </td>
-
-                        {/* Result Value - ONLY HIGH is bold */}
-                        <td className="sanjeevini-cell-result" style={{ width: "22%" }}>
-                          <div className="sanjeevini-result-flex">
-                            <span
-                              className={`sanjeevini-result-value ${
-                                isHigh
-                                  ? "sanjeevini-result-value--high"
-                                  : isLow
-                                  ? "sanjeevini-result-value--low"
-                                  : "sanjeevini-result-value--normal"
-                              }`}
-                            >
-                              {formatValue(row.value)}
-                            </span>
-                            {isAbnormal && flag && (
-                              <span
-                                className={`sanjeevini-flag-pill sanjeevini-flag-pill--${flag.toLowerCase()}`}
-                              >
-                                {flag}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Units */}
-                        <td className="sanjeevini-cell-unit" style={{ width: "15%" }}>
-                          {row.unit || "—"}
-                        </td>
-
-                        {/* Biological Ref. Interval */}
-                        <td className="sanjeevini-cell-ref" style={{ width: "25%" }}>
-                          {formatReferenceRange(row.normal_range, row.unit)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              ))
-            )}
+            <tfoot>
+              <tr className="sanjeevini-outer-footer-spacer">
+                <td />
+              </tr>
+            </tfoot>
+            <tbody>
+              <tr>
+                <td className="sanjeevini-outer-content-td">
+                  {reportMainContent}
+                </td>
+              </tr>
+            </tbody>
           </table>
-        </main>
+        ) : (
+          reportMainContent
+        )}
 
-        {/* ── SCREEN VIEW: RESERVED FOOTER SPACER (45 mm on screen) ── */}
-        <div className="sanjeevini-screen-footer no-print">
-          <div className="sanjeevini-preprinted-footer-spacer" />
-        </div>
+        {/* ── FOOTER: Authentic Stationery Footer (With Header & Footer) OR Reserved Spacer (Screen only) ── */}
+        {!hideHeaderFooter ? (
+          <footer className="sanjeevini-footer">
+            <img
+              src={sanjeeviniFooterImg}
+              alt="Sanjeevini Stationery Footer"
+              className="sanjeevini-footer-banner-img"
+            />
+          </footer>
+        ) : (
+          /* On screen only: shows visual 45 mm reserved footer indicator */
+          <div className="sanjeevini-screen-footer no-print">
+            <div className="sanjeevini-preprinted-footer-spacer" />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ── ACCURATE SVG LOGOS & EMBLEMS (Matching Attached Letterhead) ──
+// ── HbA1c SPECIAL CLINICAL REPORT GROUP (Matches Client Reference Screenshot) ──
 
-function AyurvedaLogo() {
-  return (
-    <div className="sanjeevini-ayurveda-card">
-      <svg width="44" height="34" viewBox="0 0 60 46" fill="none" xmlns="http://www.w3.org/2000/svg">
-        {/* Left Mortar & Pestle */}
-        <path d="M12 12L20 22" stroke="#136336" strokeWidth="2.5" strokeLinecap="round" />
-        <path d="M7 20C7 26 11 30 16 30C21 30 25 26 25 20H7Z" fill="#136336" />
-        <ellipse cx="16" cy="20" rx="9" ry="2" fill="#22c55e" />
+function HbA1cReportGroup({
+  group,
+  formatValue,
+  formatReferenceRange,
+}: {
+  group: GroupedResult;
+  formatValue: (val: string | null | undefined) => string;
+  formatReferenceRange: (range?: string | null, unit?: string | null) => string;
+}) {
+  const hba1cRow =
+    group.rows.find((r) => isHbA1cParam(r.parameter_name)) || group.rows[0];
 
-        {/* Right 6 Dots / Grains stack (3 rows of 2) */}
-        <circle cx="36" cy="14" r="2.5" fill="#136336" />
-        <circle cx="44" cy="14" r="2.5" fill="#136336" />
-        <circle cx="36" cy="21" r="2.5" fill="#136336" />
-        <circle cx="44" cy="21" r="2.5" fill="#136336" />
-        <circle cx="36" cy="28" r="2.5" fill="#136336" />
-        <circle cx="44" cy="28" r="2.5" fill="#136336" />
+  const eagRow = group.rows.find((r) => isEagParam(r.parameter_name));
+  const rawEag =
+    eagRow?.value && eagRow.value !== "—"
+      ? eagRow.value
+      : calculateEag(hba1cRow?.value);
+  const eagStr =
+    rawEag !== null && rawEag !== undefined ? String(rawEag) : "—";
 
-        {/* Bottom Curved Leaves */}
-        <path
-          d="M12 36C20 34 26 40 26 40C26 40 32 34 40 36C34 43 26 42 26 42C26 42 18 43 12 36Z"
-          fill="#136336"
-        />
-      </svg>
-      <div className="sanjeevini-ayurveda-text">
-        <span>Sanjeevini Ayurveda</span>
-        <span>and Holistic Centre</span>
-      </div>
-    </div>
+  const flag = getFlagStatus(
+    hba1cRow?.value,
+    hba1cRow?.normal_range || "4.0 - 5.6"
   );
-}
+  const isHigh = flag === "High";
+  const isLow = flag === "Low";
+  const isAbnormal = isHigh || isLow;
 
-function DiagnosticsSeal() {
-  return (
-    <svg width="60" height="60" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Outer maroon circle */}
-      <circle cx="50" cy="50" r="47" fill="#881337" stroke="#ffffff" strokeWidth="2" />
-      <circle cx="50" cy="50" r="42" fill="#9f1239" />
-      <circle cx="50" cy="50" r="33" fill="#ffffff" />
+  const displayTitle = group.testName.toUpperCase().includes("GLYCO")
+    ? group.testName.toUpperCase()
+    : "HBA1C (GLYCOSYLATED HEMOGLOBIN)";
 
-      {/* Circular Text Top & Bottom */}
-      <path id="sealTop" d="M 18 50 A 32 32 0 0 1 82 50" fill="none" />
-      <text fill="#ffffff" fontSize="7.8" fontWeight="800" letterSpacing="0.4">
-        <textPath href="#sealTop" startOffset="50%" textAnchor="middle">
-          SANJEEVINI DIAGNOSTICS
-        </textPath>
-      </text>
-
-      <path id="sealBottom" d="M 82 50 A 32 32 0 0 1 18 50" fill="none" />
-      <text fill="#ffffff" fontSize="7.8" fontWeight="800" letterSpacing="0.8">
-        <textPath href="#sealBottom" startOffset="50%" textAnchor="middle">
-          GULEDAGUDD
-        </textPath>
-      </text>
-
-      {/* Microscope Illustration */}
-      <g transform="translate(35, 30) scale(0.75)">
-        {/* Eyepiece / Head */}
-        <path d="M18 4L26 12L21 17L13 9L18 4Z" fill="#1e293b" />
-        <path d="M23 15L20 22" stroke="#1e293b" strokeWidth="3" strokeLinecap="round" />
-        {/* Curved Arm */}
-        <path d="M12 12C8 16 8 28 14 32C18 34 24 32 24 32" stroke="#1e293b" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-        {/* Focus Knob */}
-        <circle cx="12" cy="24" r="3.5" fill="#881337" />
-        {/* Stage */}
-        <line x1="16" y1="26" x2="34" y2="26" stroke="#1e293b" strokeWidth="3" strokeLinecap="round" />
-        {/* Base */}
-        <path d="M6 36H32C32 36 30 40 20 40C10 40 6 36 6 36Z" fill="#881337" />
-      </g>
-    </svg>
+  const otherRows = group.rows.filter(
+    (r) =>
+      r !== hba1cRow &&
+      r !== eagRow &&
+      !isHbA1cParam(r.parameter_name) &&
+      !isEagParam(r.parameter_name)
   );
-}
 
-function MicroscopeWatermark() {
   return (
-    <svg width="280" height="280" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M38 12L52 20L44 34L30 26L38 12Z"
-        stroke="#165b32"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M48 27L58 33L54 40L44 34L48 27Z"
-        stroke="#165b32"
-        strokeWidth="2"
-      />
-      <path
-        d="M30 38C30 38 25 45 25 58C25 72 36 78 48 78C60 78 68 70 68 58"
-        stroke="#165b32"
-        strokeWidth="3.5"
-        strokeLinecap="round"
-      />
-      <circle cx="48" cy="56" r="6" stroke="#165b32" strokeWidth="2.5" />
-      <line x1="28" y1="62" x2="68" y2="62" stroke="#165b32" strokeWidth="3" strokeLinecap="round" />
-      <rect x="22" y="80" width="56" height="8" rx="2" stroke="#165b32" strokeWidth="3" />
-    </svg>
+    <tbody className="sanjeevini-panel-group sanjeevini-hba1c-panel-group">
+      {/* 1. Investigation Title: HBA1C (GLYCOSYLATED HEMOGLOBIN) */}
+      <tr className="sanjeevini-hba1c-title-row">
+        <td colSpan={4} className="sanjeevini-hba1c-title-cell">
+          <div className="sanjeevini-hba1c-main-title">{displayTitle}</div>
+        </td>
+      </tr>
+
+      {/* 2. Row 1: HbA1c Parameter + Multi-line Biological Ref. Interval */}
+      <tr className="sanjeevini-hba1c-data-row">
+        {/* Test Name */}
+        <td className="sanjeevini-hba1c-cell-name">
+          <span className="sanjeevini-hba1c-param-name">
+            {hba1cRow?.parameter_name || "HbA1c"}
+          </span>
+        </td>
+
+        {/* Results: 7.2 High */}
+        <td className="sanjeevini-hba1c-cell-result">
+          <div className="sanjeevini-hba1c-result-wrap">
+            <span
+              className={`sanjeevini-hba1c-value ${
+                isHigh
+                  ? "sanjeevini-hba1c-value--high"
+                  : isLow
+                  ? "sanjeevini-hba1c-value--low"
+                  : "sanjeevini-hba1c-value--normal"
+              }`}
+            >
+              {formatValue(hba1cRow?.value)}
+            </span>
+            {isAbnormal && flag && (
+              <span
+                className={`sanjeevini-hba1c-flag sanjeevini-hba1c-flag--${flag.toLowerCase()}`}
+              >
+                {flag}
+              </span>
+            )}
+          </div>
+        </td>
+
+        {/* Units: % */}
+        <td className="sanjeevini-hba1c-cell-unit">
+          {hba1cRow?.unit || "%"}
+        </td>
+
+        {/* Biological Ref. Interval: Aligned Multi-line List */}
+        <td className="sanjeevini-hba1c-cell-ref">
+          <div className="sanjeevini-hba1c-ref-list">
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-label">Non Diabetics</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-val">below 5.6</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-label">Diabetics</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-val">above 6.5</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-label">Excellent Control</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-val">6–7</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-label">Good Control</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-val">7–8</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-label">Poor Control</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-val">8–10</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-label">Very Poor Control</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-val">above 10</span>
+            </div>
+          </div>
+        </td>
+      </tr>
+
+      {/* 3. Row 2: Estimated average glucose (eAG) + Multi-line Biological Ref. Interval */}
+      <tr className="sanjeevini-hba1c-data-row">
+        {/* Test Name */}
+        <td className="sanjeevini-hba1c-cell-name">
+          <span className="sanjeevini-hba1c-param-name">
+            Estimated average glucose (eAG)
+          </span>
+        </td>
+
+        {/* Results: 161 (normal weight) */}
+        <td className="sanjeevini-hba1c-cell-result">
+          <div className="sanjeevini-hba1c-result-wrap">
+            <span className="sanjeevini-hba1c-value sanjeevini-hba1c-value--normal">
+              {eagStr}
+            </span>
+          </div>
+        </td>
+
+        {/* Units: mg/dL */}
+        <td className="sanjeevini-hba1c-cell-unit">mg/dL</td>
+
+        {/* Biological Ref. Interval: Aligned Multi-line List */}
+        <td className="sanjeevini-hba1c-cell-ref">
+          <div className="sanjeevini-hba1c-ref-list">
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-range">90–120</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-status">Excellent Control</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-range">121–150</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-status">Good Control</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-range">151–180</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-status">Average Control</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-range">181–210</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-status">Action Suggested</span>
+            </div>
+            <div className="sanjeevini-hba1c-ref-row">
+              <span className="sanjeevini-hba1c-ref-range">Above 211</span>
+              <span className="sanjeevini-hba1c-ref-colon">:</span>
+              <span className="sanjeevini-hba1c-ref-status">Panic Value</span>
+            </div>
+          </div>
+        </td>
+      </tr>
+
+      {/* Any other parameters in this group (safety fallback) */}
+      {otherRows.map((row, idx) => {
+        const rowFlag = getFlagStatus(row.value, row.normal_range);
+        const rowHigh = rowFlag === "High";
+        const rowLow = rowFlag === "Low";
+        const rowAbnormal = rowHigh || rowLow;
+
+        return (
+          <tr key={idx} className="sanjeevini-hba1c-data-row">
+            <td className="sanjeevini-hba1c-cell-name">
+              <span className="sanjeevini-hba1c-param-name">
+                {row.parameter_name || "—"}
+              </span>
+            </td>
+            <td className="sanjeevini-hba1c-cell-result">
+              <div className="sanjeevini-hba1c-result-wrap">
+                <span
+                  className={`sanjeevini-hba1c-value ${
+                    rowHigh
+                      ? "sanjeevini-hba1c-value--high"
+                      : rowLow
+                      ? "sanjeevini-hba1c-value--low"
+                      : "sanjeevini-hba1c-value--normal"
+                  }`}
+                >
+                  {formatValue(row.value)}
+                </span>
+                {rowAbnormal && rowFlag && (
+                  <span
+                    className={`sanjeevini-hba1c-flag sanjeevini-hba1c-flag--${rowFlag.toLowerCase()}`}
+                  >
+                    {rowFlag}
+                  </span>
+                )}
+              </div>
+            </td>
+            <td className="sanjeevini-hba1c-cell-unit">{row.unit || "—"}</td>
+            <td className="sanjeevini-hba1c-cell-ref">
+              {formatReferenceRange(row.normal_range, row.unit)}
+            </td>
+          </tr>
+        );
+      })}
+
+      {/* 4. Full-Width Explanatory Clinical Notes (Matches Client Reference Verbatim) */}
+      <tr className="sanjeevini-hba1c-notes-tr">
+        <td colSpan={4} className="sanjeevini-hba1c-notes-td">
+          <div className="sanjeevini-hba1c-notes-container">
+            {/* Clinical interpretation */}
+            <div className="sanjeevini-hba1c-note-para">
+              HbA1c result is suggestive of Diabetes/ Higher than glycemic goal in a known Diabetic patient.
+            </div>
+
+            {/* Glycemic goal note */}
+            <div className="sanjeevini-hba1c-note-para">
+              Please note, Glycemic goal should be individualized based on duration of diabetes, age/life expectancy, comorbid conditions, known CVD or advanced microvascular complications, hypoglycaemia unawareness, and individual patient considerations.
+            </div>
+
+            {/* Result status */}
+            <div className="sanjeevini-hba1c-note-para">
+              Result Rechecked,
+            </div>
+
+            {/* Clinical correlation */}
+            <div className="sanjeevini-hba1c-note-para">
+              Please Correlate Clinically.
+            </div>
+
+            {/* Important Note */}
+            <div className="sanjeevini-hba1c-note-para">
+              Note: Presence of Hemoglobin variants and/or conditions that affect red cell turnover must be considered, particularly when the HbA1C result does not correlate with the patient's blood glucose levels.
+            </div>
+
+            {/* FACTORS THAT INTERFERE WITH HbA1C MEASUREMENT :- */}
+            <div className="sanjeevini-hba1c-factor-group">
+              <div className="sanjeevini-hba1c-factor-title">
+                FACTORS THAT INTERFERE WITH HbA1C MEASUREMENT :-
+              </div>
+              <div className="sanjeevini-hba1c-factor-text">
+                Hemoglobin variants, elevated fetal hemoglobin (HbF) and chemically modified derivatives of hemoglobin (e.g. carbamylated Hb in patients with renal failure) can affect the accuracy of HbA1c measurements.
+              </div>
+            </div>
+
+            {/* FACTORS THAT AFFECT INTERPRETATION OF HbA1C RESULTS:- */}
+            <div className="sanjeevini-hba1c-factor-group">
+              <div className="sanjeevini-hba1c-factor-title">
+                FACTORS THAT AFFECT INTERPRETATION OF HbA1C RESULTS:-
+              </div>
+              <div className="sanjeevini-hba1c-factor-text">
+                Any condition that shortens erythrocyte survival or decreases mean erythrocyte age (e.g., recovery from acute blood loss, hemolytic anemia, HbSS, HbCC, and HbSC) will falsely lower HbA1c test results regardless of the assay method used. Iron deficiency anemia is associated with higher HbA1c.
+              </div>
+            </div>
+
+            {/* End of Report Marker */}
+            <div className="sanjeevini-hba1c-end-marker-line">
+              —— End of Report ——
+            </div>
+          </div>
+        </td>
+      </tr>
+    </tbody>
   );
 }
 
 // ── UTILITY HELPERS ──
 
-function formatValue(value: string) {
+function formatValue(value?: string | null) {
   const clean = String(value || "").trim();
   return clean || "-";
 }
 
-function formatReferenceRange(range: string, unit: string) {
+function formatReferenceRange(range?: string | null, unit?: string | null) {
   const cleanRange = String(range || "").trim();
   const cleanUnit = String(unit || "").trim();
 
@@ -713,146 +943,79 @@ function getReportStyles(hideHeaderFooter: boolean) {
   /* Watermark */
   .sanjeevini-watermark {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    top: 79mm;
+    left: 0;
+    width: 210mm;
+    height: 172mm;
     pointer-events: none;
     z-index: 0;
-    opacity: 0.045;
     display: flex;
-    flex-direction: column;
-    align-items: center;
     justify-content: center;
-  }
-
-  .sanjeevini-watermark-text {
-    font-size: 14px;
-    font-weight: 800;
-    letter-spacing: 3px;
-    color: #165b32;
-    margin-top: 10px;
-    text-align: center;
-  }
-
-  /* Header Banner (Option A: With Header) */
-  .sanjeevini-header {
-    background: #136336;
-    color: #ffffff;
-    position: relative;
-    box-sizing: border-box;
-    padding: 6mm 8mm 4mm;
-  }
-
-  .sanjeevini-header-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .sanjeevini-header-left {
-    flex: 0 0 45mm;
-    display: flex;
     align-items: center;
   }
 
-  .sanjeevini-custom-logo {
-    height: 18mm;
-    max-width: 40mm;
+  .sanjeevini-watermark-img {
+    width: 100%;
+    height: 100%;
     object-fit: contain;
-    background: #ffffff;
-    border-radius: 4px;
-    padding: 2px;
+    pointer-events: none;
   }
 
-  .sanjeevini-ayurveda-card {
-    background: #ffffff;
-    border: 1.5px solid #136336;
-    border-radius: 3px;
-    padding: 3px 6px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-  }
-
-  .sanjeevini-ayurveda-text {
-    font-size: 7px;
-    font-weight: 800;
-    color: #136336;
-    text-align: center;
-    line-height: 1.1;
-    margin-top: 2px;
-    display: flex;
-    flex-direction: column;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, serif;
-  }
-
-  .sanjeevini-header-center {
-    flex: 1;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1.5px;
-  }
-
-  .sanjeevini-kannada-sub {
-    font-size: 14px;
-    font-weight: 700;
-    color: #fde047;
-    line-height: 1.2;
-    letter-spacing: 0.02em;
-    font-family: 'Segoe UI', Tahoma, 'Noto Sans Kannada', sans-serif;
-  }
-
-  .sanjeevini-kannada-main {
-    font-size: 20px;
-    font-weight: 800;
-    color: #fde047;
-    line-height: 1.2;
-    letter-spacing: 0.03em;
-    font-family: 'Segoe UI', Tahoma, 'Noto Sans Kannada', sans-serif;
-  }
-
-  .sanjeevini-contact-line {
-    font-size: 11px;
-    font-weight: 700;
-    color: #ffffff;
-    letter-spacing: 0.02em;
-    margin: 1px 0;
-  }
-
-  .sanjeevini-english-title {
+  /* Header Banner */
+  .sanjeevini-header {
+    width: 100%;
+    display: block;
     margin: 0;
-    font-size: 14px;
-    font-weight: 800;
-    color: #fde047;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    font-family: 'Times New Roman', Georgia, serif;
+    padding: 0;
+    flex-shrink: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  .sanjeevini-header-right {
-    flex: 0 0 45mm;
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
+  .sanjeevini-header-banner-img {
+    width: 100%;
+    display: block;
+    height: auto;
   }
 
-  .sanjeevini-header-stripe {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: #ffffff;
-    border-bottom: 2px solid #136336;
+  /* Footer Banner */
+  .sanjeevini-footer {
+    width: 100%;
+    margin-top: auto;
+    display: block;
+    position: relative;
+    z-index: 2;
+    flex-shrink: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  /* Reserved 45 mm header spacer on screen in Without Header mode */
+  .sanjeevini-footer-banner-img {
+    width: 100%;
+    display: block;
+    height: auto;
+  }
+
+  /* Outer Layout Table for repeating page spacing */
+  .sanjeevini-outer-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .sanjeevini-outer-header-spacer,
+  .sanjeevini-outer-footer-spacer {
+    display: none;
+  }
+
+  .sanjeevini-outer-content-td {
+    padding: 0;
+    vertical-align: top;
+  }
+
+  /* Reserved 47 mm header spacer on screen in Without Header mode */
   .sanjeevini-preprinted-header-spacer {
-    height: 45mm;
+    height: 47mm;
     width: 100%;
     box-sizing: border-box;
     display: flex;
@@ -913,7 +1076,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
     display: grid;
     grid-template-columns: 1fr 1fr;
     padding: 2mm 4mm;
-    font-size: 9pt;
+    font-size: 10pt;
     line-height: 1.35;
     background: #ffffff;
     column-gap: 8mm;
@@ -937,7 +1100,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
     width: 28mm;
     font-weight: 600;
     color: #334155;
-    font-size: 9pt;
+    font-size: 10pt;
     flex-shrink: 0;
   }
 
@@ -945,7 +1108,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
     width: 3.5mm;
     font-weight: 600;
     color: #334155;
-    font-size: 9pt;
+    font-size: 10pt;
     flex-shrink: 0;
   }
 
@@ -953,12 +1116,12 @@ function getReportStyles(hideHeaderFooter: boolean) {
     flex: 1;
     color: #0f172a;
     font-weight: 500;
-    font-size: 9pt;
+    font-size: 10pt;
     word-break: break-word;
   }
 
   .sanjeevini-patient-name {
-    font-size: 10pt;
+    font-size: 11pt;
     font-weight: 700;
     color: #0f172a;
   }
@@ -966,7 +1129,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
   .sanjeevini-referred-val {
     font-weight: 600;
     color: #0f172a;
-    font-size: 9.5pt;
+    font-size: 10.5pt;
   }
 
   /* Table Body */
@@ -981,7 +1144,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
     width: 100%;
     table-layout: fixed;
     border-collapse: collapse;
-    font-size: 9.5pt;
+    font-size: 10.5pt;
     line-height: 1.35;
   }
 
@@ -989,7 +1152,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
     border-top: 1.5px solid #1e293b;
     border-bottom: 1.5px solid #1e293b;
     padding: 2mm 2mm;
-    font-size: 9.5pt;
+    font-size: 10.5pt;
     font-weight: 700;
     color: #0f172a;
     background: #f8fafc;
@@ -1002,7 +1165,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
   }
 
   .sanjeevini-panel-title {
-    font-size: 10.5pt;
+    font-size: 11.5pt;
     font-weight: 700;
     color: #0f172a;
     letter-spacing: 0.03em;
@@ -1024,7 +1187,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
   .sanjeevini-test-name {
     font-weight: 500;
     color: #0f172a;
-    font-size: 9.5pt;
+    font-size: 11pt;
   }
 
   .sanjeevini-cell-result {
@@ -1038,9 +1201,9 @@ function getReportStyles(hideHeaderFooter: boolean) {
     gap: 5px;
   }
 
-  /* Result Value: 10pt. Only HIGH is bold. NORMAL and LOW are regular. */
+  /* Result Value: 11pt. Only HIGH is bold. NORMAL and LOW are regular. */
   .sanjeevini-result-value {
-    font-size: 10pt;
+    font-size: 11pt;
     font-weight: 400;
     color: #0f172a;
     font-variant-numeric: tabular-nums;
@@ -1064,7 +1227,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
   }
 
   .sanjeevini-flag-pill {
-    font-size: 8.5pt;
+    font-size: 9.5pt;
     color: #dc2626;
     text-decoration: underline;
     background: transparent;
@@ -1083,15 +1246,207 @@ function getReportStyles(hideHeaderFooter: boolean) {
 
   .sanjeevini-cell-unit {
     text-align: center;
-    font-size: 9pt;
+    font-size: 11pt;
     color: #334155;
   }
 
   .sanjeevini-cell-ref {
     text-align: center;
-    font-size: 9pt;
+    font-size: 11pt;
     color: #334155;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* ── HbA1c SPECIAL REPORT PRESENTATION (Exact Replica of Client's Original Software Report) ── */
+  .sanjeevini-hba1c-panel-group {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .sanjeevini-hba1c-title-row td {
+    padding: 3mm 0 1.5mm 0;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  .sanjeevini-hba1c-main-title {
+    font-size: 11.5pt;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .sanjeevini-hba1c-data-row td {
+    padding: 1.5mm 0 2mm 0 !important;
+    border-bottom: none !important;
+    vertical-align: top !important;
+    background: transparent !important;
+  }
+
+  .sanjeevini-hba1c-cell-name {
+    text-align: left;
+    font-size: 11pt;
+    font-weight: 500;
+    color: #0f172a;
+    padding-left: 0 !important;
+  }
+
+  .sanjeevini-hba1c-param-name {
+    display: inline-block;
+  }
+
+  .sanjeevini-hba1c-cell-result {
+    text-align: left;
+    padding-left: 2mm !important;
+  }
+
+  .sanjeevini-hba1c-result-wrap {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .sanjeevini-hba1c-value {
+    font-size: 11pt;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sanjeevini-hba1c-value--high {
+    font-weight: 700;
+    text-decoration: underline;
+    color: #dc2626;
+  }
+
+  .sanjeevini-hba1c-value--low {
+    font-weight: 700;
+    text-decoration: underline;
+    color: #dc2626;
+  }
+
+  .sanjeevini-hba1c-value--normal {
+    font-weight: 400;
+    color: #0f172a;
+    text-decoration: none;
+  }
+
+  .sanjeevini-hba1c-flag {
+    font-size: 10pt;
+    font-weight: 600;
+    color: #dc2626;
+  }
+
+  .sanjeevini-hba1c-cell-unit {
+    text-align: left;
+    font-size: 11pt;
+    color: #0f172a;
+    padding-left: 2mm !important;
+  }
+
+  .sanjeevini-hba1c-cell-ref {
+    text-align: left;
+    padding-left: 0 !important;
+  }
+
+  .sanjeevini-hba1c-ref-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6mm;
+    font-size: 9.5pt;
+    line-height: 1.32;
+    color: #0f172a;
+  }
+
+  .sanjeevini-hba1c-ref-row {
+    display: flex;
+    align-items: baseline;
+    white-space: nowrap;
+  }
+
+  .sanjeevini-hba1c-ref-label {
+    width: 33mm;
+    flex-shrink: 0;
+    color: #0f172a;
+    font-weight: 500;
+  }
+
+  .sanjeevini-hba1c-ref-colon {
+    width: 3.5mm;
+    text-align: center;
+    flex-shrink: 0;
+    color: #0f172a;
+  }
+
+  .sanjeevini-hba1c-ref-val {
+    color: #0f172a;
+    font-weight: 600;
+  }
+
+  .sanjeevini-hba1c-ref-range {
+    width: 24mm;
+    flex-shrink: 0;
+    color: #0f172a;
+    font-weight: 500;
+  }
+
+  .sanjeevini-hba1c-ref-status {
+    color: #0f172a;
+    font-weight: 600;
+  }
+
+  .sanjeevini-hba1c-notes-td {
+    padding: 3.5mm 0 0 0 !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  .sanjeevini-hba1c-notes-container {
+    display: flex;
+    flex-direction: column;
+    gap: 2.6mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .sanjeevini-hba1c-note-para {
+    font-size: 9.5pt;
+    line-height: 1.35;
+    color: #0f172a;
+    margin: 0;
+    text-align: left;
+  }
+
+  .sanjeevini-hba1c-factor-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6mm;
+  }
+
+  .sanjeevini-hba1c-factor-title {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.01em;
+  }
+
+  .sanjeevini-hba1c-factor-text {
+    font-size: 9pt;
+    line-height: 1.35;
+    color: #1e293b;
+    margin: 0;
+  }
+
+  .sanjeevini-hba1c-end-marker-line {
+    margin-top: 4.5mm;
+    margin-bottom: 2mm;
+    text-align: center;
+    font-size: 9.5pt;
+    font-weight: 600;
+    color: #475569;
+    letter-spacing: 1.5px;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   .sanjeevini-screen-footer {
@@ -1158,40 +1513,130 @@ function getReportStyles(hideHeaderFooter: boolean) {
     }
 
     .sanjeevini-report-paper {
-      width: 100% !important;
+      width: ${hideHeaderFooter ? "100%" : "210mm"} !important;
+      height: auto !important;
       min-height: 0 !important;
+      max-height: none !important;
       margin: 0 !important;
       padding: 0 !important;
       border: none !important;
       box-shadow: none !important;
+      position: relative !important;
       display: block !important;
+      background: #ffffff !important;
+      overflow: visible !important;
     }
 
     .sanjeevini-report-paper--no-letterhead {
       border: none !important;
     }
 
-    /* Option A: With Header prints banner on Page 1 */
+    /* With Header mode prints authentic stationery banner on every page */
     .sanjeevini-header {
-      padding: 2.5mm 0 2mm !important;
-      margin-bottom: 2mm !important;
-      background: #136336 !important;
-      color: #ffffff !important;
+      display: ${hideHeaderFooter ? "none" : "block"} !important;
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 210mm !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      z-index: 100 !important;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
 
-    .sanjeevini-header-inner {
-      gap: 6px !important;
+    .sanjeevini-header-banner-img {
+      width: 100% !important;
+      display: block !important;
     }
 
-    .sanjeevini-custom-logo {
-      height: 16mm !important;
-      max-width: 36mm !important;
+    /* With Header mode prints authentic watermark on every page */
+    .sanjeevini-watermark {
+      display: ${hideHeaderFooter ? "none" : "flex"} !important;
+      position: fixed !important;
+      top: 79mm !important;
+      left: 0 !important;
+      width: 210mm !important;
+      height: 172mm !important;
+      pointer-events: none !important;
+      z-index: 0 !important;
+      justify-content: center !important;
+      align-items: center !important;
+    }
+
+    .sanjeevini-watermark-img {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: contain !important;
+      pointer-events: none !important;
+    }
+
+    /* With Header mode prints authentic stationery footer pinned to bottom of every page */
+    .sanjeevini-footer {
+      display: ${hideHeaderFooter ? "none" : "block"} !important;
+      position: fixed !important;
+      bottom: 0 !important;
+      left: 0 !important;
+      width: 210mm !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      z-index: 100 !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    .sanjeevini-footer-banner-img {
+      width: 100% !important;
+      display: block !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    /* Outer Layout Table for repeating page spacing in With Header mode */
+    .sanjeevini-outer-table {
+      width: 210mm !important;
+      border-collapse: collapse !important;
+      table-layout: fixed !important;
+    }
+    .sanjeevini-outer-table thead {
+      display: table-header-group !important;
+    }
+    .sanjeevini-outer-table tfoot {
+      display: table-footer-group !important;
+    }
+    .sanjeevini-outer-header-spacer {
+      display: table-row !important;
+      height: 46.5mm !important;
+    }
+    .sanjeevini-outer-header-spacer td {
+      height: 46.5mm !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      border: none !important;
+    }
+    .sanjeevini-outer-footer-spacer {
+      display: table-row !important;
+      height: 32mm !important;
+    }
+    .sanjeevini-outer-footer-spacer td {
+      height: 32mm !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      border: none !important;
+    }
+    .sanjeevini-outer-content-td {
+      padding: 1.5mm 8mm 0 !important;
+      vertical-align: top !important;
+      position: relative !important;
+      z-index: 10 !important;
     }
 
     .sanjeevini-report-body {
+      position: relative !important;
+      z-index: 10 !important;
       padding: 0 !important;
+      box-sizing: border-box !important;
+      display: block !important;
     }
 
     .sanjeevini-table {
@@ -1210,7 +1655,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
     .sanjeevini-patient-card {
       margin: 0 0 2mm 0 !important;
       padding: 1.5mm 3.5mm !important;
-      font-size: 9pt !important;
+      font-size: 10pt !important;
       line-height: 1.32 !important;
       border: 1px solid #475569 !important;
       background: #ffffff !important;
@@ -1225,7 +1670,7 @@ function getReportStyles(hideHeaderFooter: boolean) {
 
     .sanjeevini-th-row th {
       padding: 1.8mm 2mm !important;
-      font-size: 9.5pt !important;
+      font-size: 10.5pt !important;
       font-weight: 700 !important;
       background: #f8fafc !important;
       border-top: 1.5px solid #1e293b !important;
@@ -1254,17 +1699,17 @@ function getReportStyles(hideHeaderFooter: boolean) {
     }
 
     .sanjeevini-panel-title {
-      font-size: 10.5pt !important;
+      font-size: 11.5pt !important;
       font-weight: 700 !important;
     }
 
     .sanjeevini-test-name {
-      font-size: 9.5pt !important;
+      font-size: 11pt !important;
       font-weight: 500 !important;
     }
 
     .sanjeevini-result-value {
-      font-size: 10pt !important;
+      font-size: 11pt !important;
     }
 
     .sanjeevini-result-value--normal {
@@ -1285,6 +1730,10 @@ function getReportStyles(hideHeaderFooter: boolean) {
       text-decoration: underline !important;
     }
 
+    .sanjeevini-flag-pill {
+      font-size: 9.5pt !important;
+    }
+
     .sanjeevini-flag-pill--high {
       font-weight: 700 !important;
       color: #dc2626 !important;
@@ -1298,33 +1747,45 @@ function getReportStyles(hideHeaderFooter: boolean) {
     }
 
     .sanjeevini-cell-unit {
-      font-size: 9pt !important;
+      font-size: 11pt !important;
     }
 
     .sanjeevini-cell-ref {
-      font-size: 9pt !important;
+      font-size: 11pt !important;
     }
 
-    /* Fixed Watermark across all pages (Only in With Header mode) */
-    .sanjeevini-watermark {
-      position: fixed !important;
-      top: 50% !important;
-      left: 50% !important;
-      transform: translate(-50%, -50%) !important;
-      z-index: 0 !important;
+    /* HbA1c Special Report Print Formatting */
+    .sanjeevini-hba1c-panel-group,
+    .sanjeevini-hba1c-notes-container,
+    .sanjeevini-hba1c-end-marker-line {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+
+    .sanjeevini-hba1c-data-row td {
+      border: none !important;
+      vertical-align: top !important;
+    }
+
+    .sanjeevini-hba1c-notes-td {
+      border: none !important;
+      padding-top: 3.5mm !important;
     }
 
     /* Single Coherent @page Boundary: 
-       - Top 45 mm reserved in Without Header mode (Option B)
-       - Bottom 45 mm ALWAYS reserved in both modes (Option A & B)
-       - 8 mm Left / Right margins
+       - Without Header & Footer mode (Pre-printed paper): 47mm top, 45mm bottom, 8mm left/right
+       - With Header & Footer mode (Plain paper): 0mm margin so edge-to-edge stationery prints authentically
     */
     @page {
       size: A4 portrait;
-      margin-top: ${hideHeaderFooter ? "45mm" : "8mm"};
+      ${
+        hideHeaderFooter
+          ? `margin-top: 47mm;
       margin-bottom: 45mm;
       margin-left: 8mm;
-      margin-right: 8mm;
+      margin-right: 8mm;`
+          : `margin: 0;`
+      }
     }
   }
 `;

@@ -9,6 +9,7 @@ pub struct User {
     pub password_hash: String,
     pub role: UserRole,
     pub is_active: bool,
+    pub must_change_password: bool,
     pub created_at: String,
 }
 
@@ -27,7 +28,6 @@ impl UserRole {
     pub fn can_manage_settings(&self) -> bool {
         matches!(self, UserRole::Admin)
     }
-
 }
 
 impl std::fmt::Display for UserRole {
@@ -48,7 +48,10 @@ impl TryFrom<&str> for UserRole {
             "staff" => Ok(UserRole::Staff),
             // Backward compatibility: accept legacy role names
             "technician" | "receptionist" => {
-                log::warn!("Legacy role '{}' mapped to 'staff' — run migration v7 to update the database", value.trim());
+                log::warn!(
+                    "Legacy role '{}' mapped to 'staff' — run migration v7 to update the database",
+                    value.trim()
+                );
                 Ok(UserRole::Staff)
             }
             other => Err(format!("Unknown role: '{}'", other)),
@@ -69,6 +72,7 @@ pub struct LoginResponse {
     pub user_id: i32,
     pub username: String,
     pub role: String,
+    pub must_change_password: bool,
 }
 
 /// Session info stored in Tauri state to track the logged-in user.
@@ -77,4 +81,5 @@ pub struct SessionInfo {
     pub user_id: i32,
     pub username: String,
     pub role: UserRole,
+    pub must_change_password: bool,
 }

@@ -1,6 +1,5 @@
 /// 🧪 Lab Management System Backend
 /// Tauri-based desktop application for local laboratory operations.
-
 mod config;
 mod db;
 mod errors;
@@ -10,10 +9,9 @@ mod utils;
 
 use std::sync::Mutex;
 
-use db::connection::{export_backup, restore_backup, get_connection};
+use db::connection::{export_backup, get_connection, restore_backup};
 use db::schema::init_db;
 use modules::auth::commands::AuthState;
-
 
 pub fn run() -> Result<(), String> {
     dotenvy::dotenv().ok();
@@ -33,8 +31,7 @@ pub fn run() -> Result<(), String> {
 
     log::info!("✅ Database initialized");
 
-    let db_conn = get_connection()
-        .map_err(|e| format!("failed to create DB connection: {}", e))?;
+    let db_conn = get_connection().map_err(|e| format!("failed to create DB connection: {}", e))?;
     log::info!("🔗 Shared database connection ready");
 
     tauri::Builder::default()
@@ -49,16 +46,18 @@ pub fn run() -> Result<(), String> {
             modules::auth::commands::create_user,
             modules::auth::commands::list_users,
             modules::auth::commands::toggle_user_active,
-
+            modules::auth::commands::admin_reset_password,
+            modules::auth::commands::change_password,
+            modules::auth::commands::force_change_password,
             // 💾 Backup/Restore
             export_backup,
             restore_backup,
-
             // 👤 Patient Management
             modules::patient::commands::create_patient,
             modules::patient::commands::update_patient,
             modules::patient::commands::delete_patient,
             modules::patient::commands::search_patients,
+            modules::patient::commands::get_patients_paginated,
             modules::patient::commands::get_doctors,
             modules::patient::commands::get_all_doctors,
             modules::patient::commands::get_default_doctor,
@@ -66,7 +65,6 @@ pub fn run() -> Result<(), String> {
             modules::patient::commands::update_doctor,
             modules::patient::commands::set_default_doctor,
             modules::patient::commands::set_doctor_active,
-
             // 🧪 Catalog Management
             modules::catalog::commands::get_tests,
             modules::catalog::commands::get_test_parameters,
@@ -76,9 +74,10 @@ pub fn run() -> Result<(), String> {
             modules::catalog::commands::add_test_parameter,
             modules::catalog::commands::update_test_parameter,
             modules::catalog::commands::delete_test_parameter,
-
             // 📦 Order Management
             modules::order::commands::create_order,
+            modules::order::commands::get_next_lab_reference_number,
+            modules::order::commands::check_lab_reference_number,
             modules::order::commands::get_orders,
             modules::order::commands::get_order_status,
             modules::order::commands::get_orders_by_date_range,
@@ -87,38 +86,33 @@ pub fn run() -> Result<(), String> {
             modules::order::commands::update_order,
             modules::order::commands::add_tests_to_order,
             modules::order::commands::update_order_status,
-
+            modules::order::commands::update_order_reference_number,
             // 🧬 Results & Entry
             modules::result::commands::save_result,
             modules::result::commands::save_results,
             modules::result::commands::get_parameters_by_order,
             modules::result::commands::get_results_by_order,
-
             // 📄 Report & Receipt
             modules::report::commands::get_report,
             modules::report::commands::get_patient_by_order,
             modules::receipt::commands::get_receipt,
-
             // 💰 Payment & Billing
             modules::payment::commands::update_payment,
             modules::payment::commands::get_daily_summary,
             modules::payment::commands::get_overall_summary,
             modules::payment::commands::get_payment_history,
-
+            modules::payment::commands::get_collections_by_date_range,
             // ⚙️ Settings
             modules::settings::commands::get_setting,
             modules::settings::commands::set_setting,
             modules::settings::commands::get_all_settings,
             modules::settings::commands::save_lab_settings,
-
             // 📜 Audit Logs (admin-only)
             modules::audit::commands::get_audit_logs,
             modules::audit::commands::get_record_history,
             modules::audit::commands::get_user_activity,
-
             // 🕐 Patient History
             modules::history::commands::get_patient_history,
-
             // 📁 File Export
             modules::report::commands::save_export_file,
         ])
@@ -127,9 +121,9 @@ pub fn run() -> Result<(), String> {
 }
 
 fn init_logging(config: &config::Config) {
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-    use tracing_appender::rolling::{RollingFileAppender, Rotation};
     use std::io;
+    use tracing_appender::rolling::{RollingFileAppender, Rotation};
+    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
     let file_appender = RollingFileAppender::new(
         Rotation::DAILY,
@@ -145,17 +139,16 @@ fn init_logging(config: &config::Config) {
     // so the non-blocking writer stays alive.
     std::mem::forget(_guard);
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| {
-            let level = match config.log_level.as_str() {
-                "trace" => "trace",
-                "debug" => "debug",
-                "warn" => "warn",
-                "error" => "error",
-                _ => "info",
-            };
-            EnvFilter::new(level)
-        });
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        let level = match config.log_level.as_str() {
+            "trace" => "trace",
+            "debug" => "debug",
+            "warn" => "warn",
+            "error" => "error",
+            _ => "info",
+        };
+        EnvFilter::new(level)
+    });
 
     let stderr_layer = fmt::layer()
         .with_writer(io::stderr)

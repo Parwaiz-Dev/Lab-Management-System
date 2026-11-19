@@ -24,9 +24,7 @@ impl AppError {
             AppError::DuplicateError(msg) => msg.clone(),
             AppError::BusinessLogicError(msg) => msg.clone(),
             AppError::FileError(msg) => msg.clone(),
-            AppError::InternalError(_) => {
-                "Something went wrong. Please try again.".to_string()
-            }
+            AppError::InternalError(_) => "Something went wrong. Please try again.".to_string(),
             AppError::AuthError(msg) => msg.clone(),
         }
     }
@@ -80,9 +78,7 @@ impl From<rusqlite::Error> for AppError {
                     );
                 }
 
-                AppError::DatabaseError(
-                    message.unwrap_or_else(|| db_error.to_string()),
-                )
+                AppError::DatabaseError(message.unwrap_or_else(|| db_error.to_string()))
             }
 
             _ => AppError::DatabaseError(err.to_string()),

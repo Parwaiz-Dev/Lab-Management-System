@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   CreditCard,
@@ -92,14 +92,19 @@ export default function PatientHistoryPage({
   onViewReport,
   onViewReceipt,
 }: PatientHistoryPageProps) {
-  // Directory state
+  // Directory state & pagination (Backend SQLite pagination)
+  const PAGE_SIZE = 20;
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [totalPatients, setTotalPatients] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [loadingPatients, setLoadingPatients] = useState(true);
 
-  // Pagination
-  const PAGE_SIZE = 10;
-  const [currentPage, setCurrentPage] = useState(1);
+  // Request token and History cache (prevents stale responses & duplicate queries)
+  const requestIdRef = useRef(0);
+  const historyCacheRef = useRef<Map<number, PatientHistoryResponse>>(new Map());
 
   // Selected Patient & History Modal
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -131,51 +136,72 @@ export default function PatientHistoryPage({
   // Toast
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  // Load patients list
-  const loadPatients = useCallback(async (query = "") => {
-    try {
-      setLoadingPatients(true);
-      const data = await patientService.searchPatients(query);
-      setPatients(data || []);
-    } catch (err) {
-      console.error(err);
-      setToast({
-        message:
-          err instanceof Error ? err.message : "Failed to load patient records",
-        type: "error",
-      });
-    } finally {
-      setLoadingPatients(false);
-    }
-  }, []);
-
-  // Initial load
-  useEffect(() => {
-    void loadPatients("");
-  }, [loadPatients]);
-
-  // Debounced search
+  // Debounced search query (~300ms) - resets to page 1 on search change
   useEffect(() => {
     const timer = setTimeout(() => {
-      void loadPatients(searchQuery);
-    }, 250);
+      setDebouncedQuery(searchQuery);
+      setCurrentPage(1);
+    }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, loadPatients]);
-
-  // Reset to page 1 whenever search query changes
-  useEffect(() => {
-    setCurrentPage(1);
   }, [searchQuery]);
 
-  // Select patient & open history modal
+  // Load paginated patients from SQLite backend
+  const loadPatients = useCallback(async (query: string, page: number) => {
+    const thisRequestId = ++requestIdRef.current;
+    setLoadingPatients(true);
+    try {
+      const res = await patientService.getPatientsPaginated(query, page, PAGE_SIZE);
+      if (thisRequestId !== requestIdRef.current) {
+        return; // Stale response discarded
+      }
+      setPatients(res.items || []);
+      setTotalPatients(res.total || 0);
+      setTotalPages(Math.max(1, res.total_pages || 1));
+    } catch (err) {
+      if (thisRequestId === requestIdRef.current) {
+        console.error(err);
+        setToast({
+          message:
+            err instanceof Error ? err.message : "Failed to load patient records",
+          type: "error",
+        });
+      }
+    } finally {
+      if (thisRequestId === requestIdRef.current) {
+        setLoadingPatients(false);
+      }
+    }
+  }, [PAGE_SIZE]);
+
+  // Execute loading whenever debounced query or current page changes
+  useEffect(() => {
+    void loadPatients(debouncedQuery, currentPage);
+  }, [debouncedQuery, currentPage, loadPatients]);
+
+  // Refresh directory and clear patient history cache
+  const handleRefresh = useCallback(() => {
+    historyCacheRef.current.clear();
+    void loadPatients(debouncedQuery, currentPage);
+  }, [debouncedQuery, currentPage, loadPatients]);
+
+  // Select patient & open history modal (on-demand loading with cache)
   const handleOpenHistory = useCallback(async (patient: Patient) => {
     setSelectedPatient(patient);
     setActiveTab("orders");
+
+    const cached = historyCacheRef.current.get(patient.id);
+    if (cached) {
+      setHistory(cached);
+      setHistoryLoading(false);
+      return;
+    }
+
     setHistory(null);
     setHistoryLoading(true);
 
     try {
       const data = await patientHistoryService.getPatientHistory(patient.id);
+      historyCacheRef.current.set(patient.id, data);
       setHistory(data);
     } catch (err) {
       console.error(err);
@@ -233,7 +259,8 @@ export default function PatientHistoryPage({
       setToast({ message: `Patient "${editName.trim()}" updated successfully`, type: "success" });
       setEditModalOpen(false);
       setEditingPatient(null);
-      await loadPatients(searchQuery);
+      historyCacheRef.current.delete(editingPatient.id);
+      await loadPatients(debouncedQuery, currentPage);
 
       if (selectedPatient?.id === editingPatient.id) {
         setSelectedPatient((prev) =>
@@ -274,8 +301,15 @@ export default function PatientHistoryPage({
       if (selectedPatient?.id === deleteConfirmPatient.id) {
         handleCloseHistory();
       }
+      historyCacheRef.current.delete(deleteConfirmPatient.id);
       setDeleteConfirmPatient(null);
-      await loadPatients(searchQuery);
+
+      // Handle page becoming empty when deleting the only patient on current page
+      if (patients.length <= 1 && currentPage > 1) {
+        setCurrentPage((prev) => Math.max(1, prev - 1));
+      } else {
+        await loadPatients(debouncedQuery, currentPage);
+      }
     } catch (err) {
       setToast({
         message: err instanceof Error ? err.message : "Failed to delete patient",
@@ -285,27 +319,6 @@ export default function PatientHistoryPage({
       setDeletingPatient(false);
     }
   };
-
-  // Filtered patients for real-time safety
-  const filteredPatients = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return patients;
-    return patients.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.patient_code.toLowerCase().includes(q) ||
-        (p.phone && p.phone.toLowerCase().includes(q)) ||
-        (p.referred_by && p.referred_by.toLowerCase().includes(q))
-    );
-  }, [patients, searchQuery]);
-
-  // Pagination derived values
-  const totalPages = Math.max(1, Math.ceil(filteredPatients.length / PAGE_SIZE));
-  const safePage = Math.min(currentPage, totalPages);
-  const paginatedPatients = useMemo(() => {
-    const start = (safePage - 1) * PAGE_SIZE;
-    return filteredPatients.slice(start, start + PAGE_SIZE);
-  }, [filteredPatients, safePage, PAGE_SIZE]);
 
   // History KPIs
   const historyKpis = useMemo(() => {
@@ -364,12 +377,12 @@ export default function PatientHistoryPage({
         {/* Status Count & Refresh */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Badge tone="neutral">
-            {filteredPatients.length} {filteredPatients.length === 1 ? "Patient" : "Patients"}
+            {totalPatients} {totalPatients === 1 ? "Patient" : "Patients"}
           </Badge>
 
           <Button
             type="button"
-            onClick={() => loadPatients(searchQuery)}
+            onClick={handleRefresh}
             variant="secondary"
             size="sm"
             disabled={loadingPatients}
@@ -387,7 +400,7 @@ export default function PatientHistoryPage({
         eyebrow="MEDICAL RECORDS & HISTORY"
         badge={
           <Badge tone="neutral">
-            {filteredPatients.length} records
+            {totalPatients} records
           </Badge>
         }
       >
@@ -411,7 +424,7 @@ export default function PatientHistoryPage({
                     <span className="ui-spinner" style={{ marginRight: 8 }} /> Loading registered patients...
                   </td>
                 </tr>
-              ) : filteredPatients.length === 0 ? (
+              ) : patients.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: 32, textAlign: "center" }}>
                     <EmptyState
@@ -427,7 +440,7 @@ export default function PatientHistoryPage({
                   </td>
                 </tr>
               ) : (
-                paginatedPatients.map((patient) => (
+                patients.map((patient) => (
                   <tr key={patient.id}>
                     <td>
                       <span
@@ -520,7 +533,7 @@ export default function PatientHistoryPage({
         </div>
 
         {/* Pagination Bar */}
-        {!loadingPatients && filteredPatients.length > 0 && (
+        {!loadingPatients && totalPatients > 0 && (
           <div
             style={{
               display: "flex",
@@ -535,10 +548,10 @@ export default function PatientHistoryPage({
             <span style={{ fontSize: 11.5, color: "var(--color-muted)" }}>
               Showing{" "}
               <strong style={{ color: "var(--color-text)" }}>
-                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredPatients.length)}
+                {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, totalPatients)}
               </strong>
               {" "}of{" "}
-              <strong style={{ color: "var(--color-text)" }}>{filteredPatients.length}</strong>
+              <strong style={{ color: "var(--color-text)" }}>{totalPatients}</strong>
               {" "}patients
             </span>
 
@@ -547,16 +560,16 @@ export default function PatientHistoryPage({
               <button
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={safePage <= 1}
+                disabled={currentPage <= 1 || loadingPatients}
                 style={{
                   padding: "3px 10px",
                   fontSize: 12,
                   fontWeight: 600,
                   borderRadius: "var(--radius-sm)",
                   border: "1px solid var(--color-border)",
-                  background: safePage <= 1 ? "var(--color-surface-soft)" : "var(--color-surface)",
-                  color: safePage <= 1 ? "var(--color-muted)" : "var(--color-text)",
-                  cursor: safePage <= 1 ? "not-allowed" : "pointer",
+                  background: currentPage <= 1 ? "var(--color-surface-soft)" : "var(--color-surface)",
+                  color: currentPage <= 1 ? "var(--color-muted)" : "var(--color-text)",
+                  cursor: currentPage <= 1 ? "not-allowed" : "pointer",
                   transition: "background 0.15s",
                 }}
               >
@@ -565,7 +578,7 @@ export default function PatientHistoryPage({
 
               {/* Page number pills */}
               {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
                 .reduce<(number | "...")[]>((acc, p, idx, arr) => {
                   if (idx > 0 && typeof arr[idx - 1] === "number" && (p as number) - (arr[idx - 1] as number) > 1) {
                     acc.push("...");
@@ -581,6 +594,7 @@ export default function PatientHistoryPage({
                       key={item}
                       type="button"
                       onClick={() => setCurrentPage(item as number)}
+                      disabled={loadingPatients}
                       style={{
                         minWidth: 28,
                         height: 26,
@@ -588,9 +602,9 @@ export default function PatientHistoryPage({
                         fontSize: 11.5,
                         fontWeight: 600,
                         borderRadius: "var(--radius-sm)",
-                        border: safePage === item ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
-                        background: safePage === item ? "rgba(79, 70, 229, 0.12)" : "var(--color-surface)",
-                        color: safePage === item ? "var(--color-primary)" : "var(--color-text)",
+                        border: currentPage === item ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                        background: currentPage === item ? "rgba(79, 70, 229, 0.12)" : "var(--color-surface)",
+                        color: currentPage === item ? "var(--color-primary)" : "var(--color-text)",
                         cursor: "pointer",
                         transition: "background 0.15s, border-color 0.15s",
                       }}
@@ -603,16 +617,16 @@ export default function PatientHistoryPage({
               <button
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage >= totalPages}
+                disabled={currentPage >= totalPages || loadingPatients}
                 style={{
                   padding: "3px 10px",
                   fontSize: 12,
                   fontWeight: 600,
                   borderRadius: "var(--radius-sm)",
                   border: "1px solid var(--color-border)",
-                  background: safePage >= totalPages ? "var(--color-surface-soft)" : "var(--color-surface)",
-                  color: safePage >= totalPages ? "var(--color-muted)" : "var(--color-text)",
-                  cursor: safePage >= totalPages ? "not-allowed" : "pointer",
+                  background: currentPage >= totalPages ? "var(--color-surface-soft)" : "var(--color-surface)",
+                  color: currentPage >= totalPages ? "var(--color-muted)" : "var(--color-text)",
+                  cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
                   transition: "background 0.15s",
                 }}
               >

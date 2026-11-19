@@ -1,12 +1,11 @@
 use crate::errors::{AppError, AppResult};
 use crate::utils::validation::{
-    validate_age, validate_doctor_name, validate_patient_name, validate_phone,
-    validate_positive_id,
+    validate_age, validate_doctor_name, validate_patient_name, validate_phone, validate_positive_id,
 };
 use chrono::Datelike;
 use rusqlite::{params, Connection, Transaction};
 
-use super::model::{DoctorRecord, Patient};
+use super::model::{DoctorRecord, PaginatedPatients, Patient};
 
 fn clean_optional_text(value: Option<String>) -> Option<String> {
     value
@@ -102,7 +101,9 @@ pub fn create_patient(
         validate_doctor_name(doctor_name)?;
     }
 
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(AppError::from)?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(AppError::from)?;
 
     let code = next_patient_code(&tx)?;
 
@@ -176,7 +177,9 @@ pub fn search_patients(conn: &Connection, query: String) -> AppResult<Vec<Patien
             })
             .map_err(AppError::from)?;
 
-        return patients.map(|patient| patient.map_err(AppError::from)).collect();
+        return patients
+            .map(|patient| patient.map_err(AppError::from))
+            .collect();
     }
 
     let like_query = format!("%{}%", cleaned_query);
@@ -219,7 +222,157 @@ pub fn search_patients(conn: &Connection, query: String) -> AppResult<Vec<Patien
         })
         .map_err(AppError::from)?;
 
-    patients.map(|patient| patient.map_err(AppError::from)).collect()
+    patients
+        .map(|patient| patient.map_err(AppError::from))
+        .collect()
+}
+
+pub fn get_patients_paginated(
+    conn: &Connection,
+    query: Option<String>,
+    page: Option<i32>,
+    page_size: Option<i32>,
+) -> AppResult<PaginatedPatients> {
+    let p = page.unwrap_or(1).max(1);
+    let ps = page_size.unwrap_or(20).clamp(1, 100);
+    let offset = (p - 1) * ps;
+
+    let cleaned_query = query.as_deref().map(str::trim).unwrap_or("");
+
+    if cleaned_query.is_empty() {
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM patients", [], |row| row.get(0))
+            .map_err(AppError::from)?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT
+                    id,
+                    IFNULL(patient_code, ''),
+                    name,
+                    age_value,
+                    age_unit,
+                    gender,
+                    phone,
+                    referred_by,
+                    IFNULL(created_at, '')
+                 FROM patients
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?1 OFFSET ?2",
+            )
+            .map_err(AppError::from)?;
+
+        let patient_iter = stmt
+            .query_map(params![ps, offset], |row| {
+                Ok(Patient {
+                    id: row.get(0)?,
+                    patient_code: row.get(1)?,
+                    name: row.get(2)?,
+                    age_value: row.get(3)?,
+                    age_unit: row.get(4)?,
+                    gender: row.get(5)?,
+                    phone: row.get(6)?,
+                    referred_by: row.get(7)?,
+                    created_at: row.get(8)?,
+                })
+            })
+            .map_err(AppError::from)?;
+
+        let mut items = Vec::with_capacity(ps as usize);
+        for patient in patient_iter {
+            items.push(patient.map_err(AppError::from)?);
+        }
+
+        let total_pages = if total == 0 {
+            1
+        } else {
+            ((total + ps as i64 - 1) / ps as i64) as i32
+        };
+        let has_next_page = p < total_pages;
+
+        Ok(PaginatedPatients {
+            items,
+            total,
+            page: p,
+            page_size: ps,
+            total_pages,
+            has_next_page,
+        })
+    } else {
+        let like_pattern = format!("%{}%", cleaned_query);
+
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM patients
+                 WHERE name LIKE ?1
+                    OR patient_code LIKE ?1
+                    OR IFNULL(phone, '') LIKE ?1
+                    OR IFNULL(referred_by, '') LIKE ?1",
+                params![like_pattern],
+                |row| row.get(0),
+            )
+            .map_err(AppError::from)?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT
+                    id,
+                    IFNULL(patient_code, ''),
+                    name,
+                    age_value,
+                    age_unit,
+                    gender,
+                    phone,
+                    referred_by,
+                    IFNULL(created_at, '')
+                 FROM patients
+                 WHERE name LIKE ?1
+                    OR patient_code LIKE ?1
+                    OR IFNULL(phone, '') LIKE ?1
+                    OR IFNULL(referred_by, '') LIKE ?1
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?2 OFFSET ?3",
+            )
+            .map_err(AppError::from)?;
+
+        let patient_iter = stmt
+            .query_map(params![like_pattern, ps, offset], |row| {
+                Ok(Patient {
+                    id: row.get(0)?,
+                    patient_code: row.get(1)?,
+                    name: row.get(2)?,
+                    age_value: row.get(3)?,
+                    age_unit: row.get(4)?,
+                    gender: row.get(5)?,
+                    phone: row.get(6)?,
+                    referred_by: row.get(7)?,
+                    created_at: row.get(8)?,
+                })
+            })
+            .map_err(AppError::from)?;
+
+        let mut items = Vec::with_capacity(ps as usize);
+        for patient in patient_iter {
+            items.push(patient.map_err(AppError::from)?);
+        }
+
+        let total_pages = if total == 0 {
+            1
+        } else {
+            ((total + ps as i64 - 1) / ps as i64) as i32
+        };
+        let has_next_page = p < total_pages;
+
+        Ok(PaginatedPatients {
+            items,
+            total,
+            page: p,
+            page_size: ps,
+            total_pages,
+            has_next_page,
+        })
+    }
 }
 
 pub fn get_doctors(conn: &Connection) -> AppResult<Vec<String>> {
@@ -236,7 +389,9 @@ pub fn get_doctors(conn: &Connection) -> AppResult<Vec<String>> {
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(AppError::from)?;
 
-    doctors.map(|doctor| doctor.map_err(AppError::from)).collect()
+    doctors
+        .map(|doctor| doctor.map_err(AppError::from))
+        .collect()
 }
 
 pub fn get_all_doctors(conn: &Connection) -> AppResult<Vec<DoctorRecord>> {
@@ -262,7 +417,9 @@ pub fn get_all_doctors(conn: &Connection) -> AppResult<Vec<DoctorRecord>> {
         })
         .map_err(AppError::from)?;
 
-    doctors.map(|doctor| doctor.map_err(AppError::from)).collect()
+    doctors
+        .map(|doctor| doctor.map_err(AppError::from))
+        .collect()
 }
 
 pub fn get_default_doctor(conn: &Connection) -> AppResult<Option<DoctorRecord>> {
@@ -476,8 +633,9 @@ pub fn update_patient(
         validate_doctor_name(doc)?;
     }
 
-    let rows = conn.execute(
-        "UPDATE patients SET
+    let rows = conn
+        .execute(
+            "UPDATE patients SET
             name = ?1,
             age_value = ?2,
             age_unit = ?3,
@@ -485,16 +643,17 @@ pub fn update_patient(
             phone = ?5,
             referred_by = ?6
          WHERE id = ?7",
-        params![
-            cleaned_name,
-            age_value,
-            cleaned_age_unit,
-            cleaned_gender,
-            cleaned_phone,
-            cleaned_referred_by,
-            id
-        ],
-    ).map_err(AppError::from)?;
+            params![
+                cleaned_name,
+                age_value,
+                cleaned_age_unit,
+                cleaned_gender,
+                cleaned_phone,
+                cleaned_referred_by,
+                id
+            ],
+        )
+        .map_err(AppError::from)?;
 
     if rows == 0 {
         return Err(AppError::NotFound(format!("Patient {} not found", id)));
@@ -507,23 +666,25 @@ pub fn update_patient(
 pub fn delete_patient(conn: &mut Connection, id: i32) -> AppResult<()> {
     validate_positive_id(id, "patient_id")?;
 
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(AppError::from)?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(AppError::from)?;
 
-    let exists: bool = tx.query_row(
-        "SELECT 1 FROM patients WHERE id = ?1",
-        [id],
-        |_| Ok(true),
-    ).unwrap_or(false);
+    let exists: bool = tx
+        .query_row("SELECT 1 FROM patients WHERE id = ?1", [id], |_| Ok(true))
+        .unwrap_or(false);
 
     if !exists {
         return Err(AppError::NotFound(format!("Patient {} not found", id)));
     }
 
-    let has_orders: bool = tx.query_row(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='orders'",
-        [],
-        |_| Ok(true),
-    ).unwrap_or(false);
+    let has_orders: bool = tx
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='orders'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
 
     if has_orders {
         let _ = tx.execute(
@@ -546,16 +707,11 @@ pub fn delete_patient(conn: &mut Connection, id: i32) -> AppResult<()> {
             "DELETE FROM doctor_commissions WHERE order_id IN (SELECT id FROM orders WHERE patient_id = ?1)",
             [id],
         );
-        let _ = tx.execute(
-            "DELETE FROM orders WHERE patient_id = ?1",
-            [id],
-        );
+        let _ = tx.execute("DELETE FROM orders WHERE patient_id = ?1", [id]);
     }
 
-    tx.execute(
-        "DELETE FROM patients WHERE id = ?1",
-        [id],
-    ).map_err(AppError::from)?;
+    tx.execute("DELETE FROM patients WHERE id = ?1", [id])
+        .map_err(AppError::from)?;
 
     tx.commit().map_err(AppError::from)?;
     log::info!("Deleted patient {} and associated records", id);

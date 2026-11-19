@@ -4,7 +4,7 @@ import PatientForm from "../components/PatientForm";
 import TestSelector from "../../test/components/TestSelector";
 import Card from "../../../components/ui/Card";
 import Badge from "../../../components/ui/Badge";
-import type { Patient } from "../../../types";
+import type { Patient, FastTestPreset } from "../../../types";
 
 export default function PatientPage({
   onOpenReceipt,
@@ -12,7 +12,7 @@ export default function PatientPage({
   onOpenReceipt?: (id: number) => void;
 }) {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [presetToAdd, setPresetToAdd] = useState<string | null>(null);
+  const [presetToAdd, setPresetToAdd] = useState<FastTestPreset | string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -47,7 +47,7 @@ export default function PatientPage({
         <PatientForm
           selectedPatient={selectedPatient}
           onSelectPatient={setSelectedPatient}
-          onSelectPreset={(testName) => setPresetToAdd(testName)}
+          onSelectPreset={(preset) => setPresetToAdd(preset)}
         />
       </Card>
 

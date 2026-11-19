@@ -107,10 +107,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             <span>{loading ? "Signing in…" : "Sign In"}</span>
           </Button>
         </form>
-
-        <p className="login-card__hint">
-          Default credentials: <code>admin</code> / <code>admin123</code>
-        </p>
       </div>
     </div>
   );

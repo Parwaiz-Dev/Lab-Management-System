@@ -1241,6 +1241,26 @@ table {
   vertical-align: middle;
 }
 
+/* Sticky Actions column in data-table */
+.data-table th.col-actions,
+.data-table td.col-actions {
+  position: sticky;
+  right: 0;
+  background: var(--color-surface);
+  box-shadow: -3px 0 6px -2px rgba(0, 0, 0, 0.08);
+  z-index: 10;
+  text-align: right;
+}
+
+.data-table thead th.col-actions {
+  background: var(--color-surface-soft);
+  z-index: 20;
+}
+
+.data-table tbody tr:hover td.col-actions {
+  background: var(--color-surface-hover);
+}
+
 /* Action button inside table cells */
 .table-action-btn {
   display: inline-flex;
@@ -1255,12 +1275,61 @@ table {
   border: 1px solid var(--color-border-strong);
   color: var(--color-text-soft);
   transition: all 0.1s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .table-action-btn:hover {
   background: var(--color-primary-soft);
   color: var(--color-primary);
   border-color: var(--color-primary);
+}
+
+/* Order actions context menu (Portal) */
+.order-actions-dropdown {
+  position: fixed;
+  z-index: 9999;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  min-width: 135px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.order-actions-dropdown__item {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.order-actions-dropdown__item--danger {
+  color: var(--color-danger);
+}
+
+.order-actions-dropdown__item--danger:hover {
+  background: var(--color-danger-soft, #fef2f2);
+}
+
+.order-actions-dropdown__item--primary {
+  color: var(--color-primary);
+}
+
+.order-actions-dropdown__item--primary:hover {
+  background: var(--color-primary-soft, #f0fdf4);
 }
 
 /* ==========================================================================
@@ -2105,6 +2174,127 @@ table {
   justify-content: space-between;
   padding-top: 6px;
   border-top: 1px solid var(--color-border);
+}
+
+/* Lab Reference Number Box in Billing Pane */
+.test-selector__ref-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.test-selector__ref-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.test-selector__ref-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-slate-700);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.test-selector__ref-edit-btn,
+.test-selector__ref-cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.test-selector__ref-edit-btn {
+  color: var(--color-primary, #2563eb);
+}
+
+.test-selector__ref-edit-btn:hover {
+  background: var(--color-slate-100, #f1f5f9);
+}
+
+.test-selector__ref-cancel-btn {
+  color: var(--color-slate-600);
+}
+
+.test-selector__ref-cancel-btn:hover {
+  background: var(--color-slate-100, #f1f5f9);
+  color: var(--color-slate-800);
+}
+
+.test-selector__ref-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  background: var(--color-slate-50);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-border);
+}
+
+.test-selector__ref-display-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-slate-900);
+  letter-spacing: 0.05em;
+}
+
+.test-selector__ref-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.test-selector__ref-input {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-slate-900);
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.test-selector__ref-input:focus {
+  border-color: var(--color-primary, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.test-selector__ref-input--error {
+  border-color: var(--color-danger, #ef4444) !important;
+  background: #fef2f2;
+}
+
+.test-selector__ref-input--error:focus {
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15) !important;
+}
+
+.test-selector__ref-error-text {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--color-danger, #ef4444);
+}
+
+.test-selector__ref-hint {
+  font-size: 10px;
+  color: var(--color-slate-500);
+  line-height: 1.3;
 }
 
 /* Settlement Panel (Card 3 Lower Area) */

@@ -51,11 +51,9 @@ fn validate_doctor_share(value: &str) -> AppResult<()> {
 
 fn get_setting_or_default(conn: &Connection, key: &str, default_value: &str) -> AppResult<String> {
     let value: Option<String> = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = ?1",
-            [key],
-            |row| row.get(0),
-        )
+        .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+            row.get(0)
+        })
         .optional()
         .map_err(AppError::from)?;
 
@@ -149,7 +147,9 @@ pub fn save_lab_settings(
 
     validate_doctor_share(&cleaned_doctor_share)?;
 
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(AppError::from)?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(AppError::from)?;
 
     upsert_setting_tx(&tx, KEY_LAB_NAME, &cleaned_lab_name)?;
     upsert_setting_tx(&tx, KEY_LAB_ADDRESS, &cleaned_lab_address)?;

@@ -15,7 +15,9 @@ pub fn get_tests(
     auth: State<'_, AuthState>,
 ) -> Result<Vec<TestCatalogItem>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_tests(&conn)?)
 }
 
@@ -26,7 +28,9 @@ pub fn get_test_parameters(
     test_id: i32,
 ) -> Result<Vec<TestParameterDto>, AppError> {
     require_auth(&auth)?;
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     Ok(service::get_test_parameters(&conn, test_id)?)
 }
 
@@ -39,9 +43,13 @@ pub fn add_test(
 ) -> Result<i32, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can manage the test catalog".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can manage the test catalog".to_string(),
+        ));
     }
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     let test_id = service::add_test(&conn, name.clone(), price)?;
 
     // Audit: test created
@@ -69,9 +77,13 @@ pub fn update_test(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can manage the test catalog".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can manage the test catalog".to_string(),
+        ));
     }
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
 
     // Snapshot test before mutation
     let old_data = crate::modules::audit::service::snapshot_row(
@@ -108,10 +120,14 @@ pub fn delete_test(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can manage the test catalog".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can manage the test catalog".to_string(),
+        ));
     }
 
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
 
     // Snapshot test before deletion
     let old_data = crate::modules::audit::service::snapshot_row(
@@ -150,10 +166,20 @@ pub fn add_test_parameter(
 ) -> Result<i32, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can manage the test catalog".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can manage the test catalog".to_string(),
+        ));
     }
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
-    let param_id = service::add_test_parameter(&conn, test_id, name.clone(), unit.clone(), normal_range.clone())?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+    let param_id = service::add_test_parameter(
+        &conn,
+        test_id,
+        name.clone(),
+        unit.clone(),
+        normal_range.clone(),
+    )?;
 
     // Audit: parameter created
     let new_data = serde_json::json!({
@@ -186,10 +212,14 @@ pub fn update_test_parameter(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can manage the test catalog".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can manage the test catalog".to_string(),
+        ));
     }
 
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
 
     // Snapshot parameter before mutation
     let old_data = crate::modules::audit::service::snapshot_row(
@@ -201,7 +231,13 @@ pub fn update_test_parameter(
     )
     .unwrap_or(None);
 
-    service::update_test_parameter(&conn, parameter_id, name.clone(), unit.clone(), normal_range.clone())?;
+    service::update_test_parameter(
+        &conn,
+        parameter_id,
+        name.clone(),
+        unit.clone(),
+        normal_range.clone(),
+    )?;
 
     // Audit: parameter updated
     let new_data = serde_json::json!({
@@ -230,10 +266,14 @@ pub fn delete_test_parameter(
 ) -> Result<String, AppError> {
     let session = require_auth(&auth)?;
     if !session.role.can_manage_settings() {
-        return Err(AppError::AuthError("Only admins can manage the test catalog".to_string()));
+        return Err(AppError::AuthError(
+            "Only admins can manage the test catalog".to_string(),
+        ));
     }
 
-    let conn = state.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = state
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
 
     // Snapshot parameter before deletion
     let old_data = crate::modules::audit::service::snapshot_row(

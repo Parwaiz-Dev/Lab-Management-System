@@ -43,4 +43,31 @@ export const userService = {
       throw new Error(toErrorMessage(error, "Failed to update user status."));
     }
   },
+
+  /** Admin resets another user's password (Admin only). */
+  async adminResetPassword(targetUserId: number, newPassword: string): Promise<string> {
+    try {
+      return await invoke<string>("admin_reset_password", { targetUserId, newPassword });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to reset password."));
+    }
+  },
+
+  /** Change own password from Settings (Admin or Staff). */
+  async changePassword(currentPassword: string, newPassword: string): Promise<string> {
+    try {
+      return await invoke<string>("change_password", { currentPassword, newPassword });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to change password."));
+    }
+  },
+
+  /** Complete forced password change upon first login after admin reset. */
+  async forceChangePassword(currentPassword: string, newPassword: string): Promise<string> {
+    try {
+      return await invoke<string>("force_change_password", { currentPassword, newPassword });
+    } catch (error) {
+      throw new Error(toErrorMessage(error, "Failed to update password."));
+    }
+  },
 };

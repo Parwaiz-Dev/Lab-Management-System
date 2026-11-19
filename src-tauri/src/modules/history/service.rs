@@ -8,7 +8,10 @@ use super::model::{
     PreviousResultEntry, PreviousResultGroup, TimelineEntry,
 };
 
-pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<PatientHistoryResponse> {
+pub fn get_patient_history(
+    conn: &Connection,
+    patient_id: i32,
+) -> AppResult<PatientHistoryResponse> {
     validate_positive_id(patient_id, "patient_id")?;
 
     // Verify patient exists
@@ -191,7 +194,17 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
         )
         .map_err(AppError::from)?;
 
-    let rows: Vec<(String, String, String, String, i32, String, String, String, String)> = prev_stmt
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        String,
+        i32,
+        String,
+        String,
+        String,
+        String,
+    )> = prev_stmt
         .query_map([patient_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -202,7 +215,7 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?
+                row.get::<_, String>(8)?,
             ))
         })
         .map_err(AppError::from)?
@@ -211,11 +224,22 @@ pub fn get_patient_history(conn: &Connection, patient_id: i32) -> AppResult<Pati
 
     let mut prev_groups: Vec<PreviousResultGroup> = Vec::new();
 
-    for (param_name, test_name, unit, normal_range, order_id, invoice_no, order_date, value, order_number) in rows {
+    for (
+        param_name,
+        test_name,
+        unit,
+        normal_range,
+        order_id,
+        invoice_no,
+        order_date,
+        value,
+        order_number,
+    ) in rows
+    {
         // Find existing group or create new one
-        let group = prev_groups.iter_mut().find(|g| {
-            g.parameter_name == param_name && g.test_name == test_name
-        });
+        let group = prev_groups
+            .iter_mut()
+            .find(|g| g.parameter_name == param_name && g.test_name == test_name);
 
         match group {
             Some(g) => {

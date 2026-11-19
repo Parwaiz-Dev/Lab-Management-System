@@ -17,6 +17,8 @@ pub fn get_patient_history(
 ) -> AppResult<PatientHistoryResponse> {
     let _session = require_auth(&auth)?;
 
-    let conn = db.lock().map_err(|e| AppError::InternalError(e.to_string()))?;
+    let conn = db
+        .lock()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
     service::get_patient_history(&conn, patient_id)
 }
